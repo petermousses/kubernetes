@@ -1,0 +1,157 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+  namespace: searxng
+  labels:
+    app.kubernetes.io/name: searxng
+    app.kubernetes.io/part-of: searxng
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: searxng
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: searxng
+        app.kubernetes.io/part-of: searxng
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 977
+        runAsGroup: 977
+        fsGroup: 977
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        - name: wait-for-valkey
+          image: docker.io/searxng/searxng@sha256:7914267d4a3b91132aa888b889dbe0657bdb9e1af5a13eb6fbab99a94990c235
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/local/searxng/.venv/bin/python
+            - -c
+            - |
+              import socket
+              import time
+              deadline = time.monotonic() + 180
+              while True:
+                  try:
+                      with socket.create_connection(("valkey", 6379), timeout=2):
+                          break
+                  except OSError:
+                      if time.monotonic() >= deadline:
+                          raise
+                      time.sleep(2)
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      containers:
+        - name: searxng
+          image: docker.io/searxng/searxng@sha256:7914267d4a3b91132aa888b889dbe0657bdb9e1af5a13eb6fbab99a94990c235
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: FORCE_OWNERSHIP
+              value: "false"
+            - name: SEARXNG_BASE_URL
+              value: https://search.omv.mousses.xyz/
+            - name: SEARXNG_BIND_ADDRESS
+              value: 0.0.0.0
+            - name: SEARXNG_PORT
+              value: "8080"
+            - name: SEARXNG_VALKEY_URL
+              value: valkey://valkey:6379/0
+            - name: SEARXNG_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: searxng-secret
+                  key: SEARXNG_SECRET
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - /usr/local/searxng/.venv/bin/python
+                - -c
+                - |
+                  import urllib.request
+                  import valkey
+                  request = urllib.request.Request(
+                      "http://127.0.0.1:8080/",
+                      headers={"X-Forwarded-For": "10.9.20.1", "X-Real-IP": "10.9.20.1"},
+                  )
+                  with urllib.request.urlopen(request, timeout=5) as response:
+                      assert response.status == 200
+                  assert valkey.from_url("valkey://valkey:6379/0").ping()
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - /usr/local/searxng/.venv/bin/python
+                - -c
+                - |
+                  import urllib.request
+                  import valkey
+                  request = urllib.request.Request(
+                      "http://127.0.0.1:8080/",
+                      headers={"X-Forwarded-For": "10.9.20.1", "X-Real-IP": "10.9.20.1"},
+                  )
+                  with urllib.request.urlopen(request, timeout=5) as response:
+                      assert response.status == 200
+                  assert valkey.from_url("valkey://valkey:6379/0").ping()
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: searxng-config
+              mountPath: /etc/searxng
+              readOnly: true
+            - name: searxng-cache
+              mountPath: /var/cache/searxng
+      volumes:
+        - name: searxng-config
+          configMap:
+            name: searxng-config
+        - name: searxng-cache
+          persistentVolumeClaim:
+            claimName: searxng-cache
+      terminationGracePeriodSeconds: 30

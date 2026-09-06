@@ -1,0 +1,16 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: searxng-staging
+  namespace: searxng
+  labels:
+    app.kubernetes.io/name: searxng
+    app.kubernetes.io/part-of: searxng
+spec:
+  secretName: searxng-tls-staging
+  dnsNames:
+    - search.omv.mousses.xyz
+  issuerRef:
+    name: letsencrypt-staging-cloudflare
+    kind: ClusterIssuer
+    group: cert-manager.io

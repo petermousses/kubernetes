@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vaultwarden
+  namespace: vaultwarden
+  labels:
+    app.kubernetes.io/name: vaultwarden
+    app.kubernetes.io/part-of: vaultwarden
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Utilities
+    gethomepage.dev/name: Bitwarden
+    gethomepage.dev/icon: bitwarden.svg
+    gethomepage.dev/href: https://vault.omv.mousses.xyz
+    gethomepage.dev/description: Password Manager
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - vault.omv.mousses.xyz
+      secretName: vaultwarden-tls
+  rules:
+    - host: vault.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vaultwarden
+                port:
+                  name: http

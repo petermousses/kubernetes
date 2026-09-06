@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: qr-code-generator
+  labels:
+    app.kubernetes.io/part-of: qr-code-generator

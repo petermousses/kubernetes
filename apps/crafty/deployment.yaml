@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crafty
+  namespace: crafty
+  labels:
+    app.kubernetes.io/name: crafty
+    app.kubernetes.io/part-of: crafty
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: crafty
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: crafty
+        app.kubernetes.io/part-of: crafty
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      containers:
+        - name: crafty
+          image: registry.gitlab.com/crafty-controller/crafty-4:4.4.8@sha256:76f5e9fc0d2346b18ef6e2629f82d6014c91c0542106c034f50308ac96fc0d69
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TZ
+              value: US/Arizona
+          ports:
+            - name: crafty-https
+              containerPort: 8443
+              protocol: TCP
+            - name: squaremap
+              containerPort: 8080
+              protocol: TCP
+            - name: java
+              containerPort: 25565
+              hostPort: 25565
+              protocol: TCP
+            - name: bedrock
+              containerPort: 19132
+              hostPort: 19132
+              protocol: UDP
+          startupProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /api/v2/crafty/check
+              port: crafty-https
+            failureThreshold: 180
+            periodSeconds: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /api/v2/crafty/check
+              port: crafty-https
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /api/v2/crafty/check
+              port: crafty-https
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "1"
+              memory: 7Gi
+            limits:
+              cpu: "8"
+              memory: 10Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: crafty-data
+              mountPath: /crafty/backups
+              subPath: backups
+            - name: crafty-data
+              mountPath: /crafty/logs
+              subPath: logs
+            - name: crafty-data
+              mountPath: /crafty/servers
+              subPath: servers
+            - name: crafty-data
+              mountPath: /crafty/app/config
+              subPath: config
+            - name: crafty-data
+              mountPath: /crafty/import
+              subPath: import
+      volumes:
+        - name: crafty-data
+          persistentVolumeClaim:
+            claimName: crafty-data
+      terminationGracePeriodSeconds: 600

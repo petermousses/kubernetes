@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: open-speed-test-staging
+  namespace: open-speed-test
+spec:
+  secretName: open-speed-test-tls-staging
+  dnsNames:
+    - speedtest.omv.mousses.xyz
+  issuerRef:
+    name: letsencrypt-staging-cloudflare
+    kind: ClusterIssuer
+    group: cert-manager.io

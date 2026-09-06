@@ -1,0 +1,44 @@
+---
+# Kubernetes replaces the old Docker-host resource widgets.
+- greeting:
+    text_size: xl
+    text: Mousses Home
+
+- kubernetes:
+    cluster:
+      show: true
+      cpu: true
+      memory: true
+      showLabel: true
+      label: cluster
+    nodes:
+      show: true
+      cpu: true
+      memory: true
+      showLabel: true
+
+- resources:
+    backend: resources
+    expanded: true
+    cpu: true
+    memory: true
+    network: default
+
+- search:
+    provider: google
+    target: _blank
+
+- datetime:
+    textsize: xl
+    format:
+      dateStyle: short
+      timeStyle: long
+      hour12: true
+
+- openweathermap:
+    label: Home
+    latitude: 33.494171
+    longitude: -111.926048
+    units: imperial
+    provider: openweathermap
+    cache: 5

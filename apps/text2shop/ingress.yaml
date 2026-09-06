@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: text2shop
+  namespace: text2shop
+  labels:
+    app.kubernetes.io/name: text2shop
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Personal
+    gethomepage.dev/name: Text2Shop
+    gethomepage.dev/icon: mdi-cart
+    gethomepage.dev/description: Paste text to transform it into a list. Useful for shopping
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - text2shop.omv.mousses.xyz
+      secretName: text2shop-tls
+  rules:
+    - host: text2shop.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: text2shop
+                port:
+                  name: http

@@ -1,0 +1,123 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-data
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-local
+  local:
+    path: /filesystem/Media/paperless-ngx/paperless
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-postgres
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-local
+  local:
+    path: /filesystem/Media/paperless-ngx/postgres/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-redis
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 1Gi
+  volumeMode: Filesystem
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-local
+  local:
+    path: /filesystem/Media/paperless-ngx/redis/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-ai
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: ai
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 1Gi
+  volumeMode: Filesystem
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-local
+  local:
+    path: /filesystem/Media/paperless-ngx/paperless-ai/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: gpt
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 1Gi
+  volumeMode: Filesystem
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-local
+  local:
+    path: /filesystem/Media/paperless-ngx/paperless-gpt/prompts
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]

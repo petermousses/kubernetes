@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: qr-code-generator
+  namespace: qr-code-generator
+  labels:
+    app.kubernetes.io/name: qr-code-generator
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Utilities
+    gethomepage.dev/name: QR Code Generator
+    gethomepage.dev/icon: mdi-qrcode-edit
+    gethomepage.dev/description: QR Codes for Links and WiFi
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - qr.omv.mousses.xyz
+      secretName: qr-code-generator-tls
+  rules:
+    - host: qr.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: qr-code-generator
+                port:
+                  name: http

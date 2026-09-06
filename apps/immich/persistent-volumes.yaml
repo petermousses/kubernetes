@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: immich-library
+  labels:
+    app.kubernetes.io/name: immich
+    app.kubernetes.io/component: library
+spec:
+  capacity:
+    storage: 100Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: immich-local
+  local:
+    path: /filesystem/k3s/data/immich/library
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: immich-postgres
+  labels:
+    app.kubernetes.io/name: immich
+    app.kubernetes.io/component: database
+spec:
+  capacity:
+    storage: 20Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: immich-local
+  local:
+    path: /filesystem/k3s/data/immich/postgres
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: immich-model-cache
+  labels:
+    app.kubernetes.io/name: immich
+    app.kubernetes.io/component: machine-learning
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: immich-local
+  local:
+    path: /filesystem/k3s/data/immich/model-cache
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: immich-external-photos
+  labels:
+    app.kubernetes.io/name: immich
+    app.kubernetes.io/component: external-photos
+spec:
+  capacity:
+    storage: 1Ti
+  volumeMode: Filesystem
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: immich-external-local
+  local:
+    path: /filesystem/Media/Media/Photos
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault

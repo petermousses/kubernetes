@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: syncthing
+  namespace: syncthing
+  labels:
+    app.kubernetes.io/name: syncthing
+    app.kubernetes.io/part-of: syncthing
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: syncthing
+  ports:
+    - name: http-gui
+      port: 8384
+      targetPort: http-gui
+      protocol: TCP
+      appProtocol: http
+    - name: sync-tcp
+      port: 22000
+      targetPort: sync-tcp
+      protocol: TCP
+    - name: sync-quic
+      port: 22000
+      targetPort: sync-quic
+      protocol: UDP
+    - name: discovery
+      port: 21027
+      targetPort: discovery
+      protocol: UDP

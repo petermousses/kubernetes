@@ -1,0 +1,26 @@
+# SearXNG configuration for the internal-only k3s instance.
+use_default_settings:
+  engines:
+    remove:
+      - ahmia
+      - torch
+      - wikidata
+      - yacy images
+
+general:
+  debug: false
+  instance_name: "SearXNG"
+
+search:
+  safe_search: 2
+  autocomplete: duckduckgo
+  formats:
+    - html
+    - json
+
+server:
+  limiter: true
+  image_proxy: true
+
+valkey:
+  url: valkey://valkey:6379/0

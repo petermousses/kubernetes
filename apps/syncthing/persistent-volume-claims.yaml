@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: syncthing-config
+  namespace: syncthing
+  labels:
+    app.kubernetes.io/name: syncthing
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: syncthing
+spec:
+  accessModes:
+    - ReadWriteOncePod
+  storageClassName: syncthing-local
+  volumeName: syncthing-config
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: syncthing-music
+  namespace: syncthing
+  labels:
+    app.kubernetes.io/name: syncthing
+    app.kubernetes.io/component: music
+    app.kubernetes.io/part-of: syncthing
+spec:
+  accessModes:
+    - ReadWriteOncePod
+  storageClassName: syncthing-media-local
+  volumeName: syncthing-music
+  resources:
+    requests:
+      storage: 1Ti
+

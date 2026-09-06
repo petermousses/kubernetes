@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-server
+  namespace: immich
+  labels:
+    app.kubernetes.io/name: immich-server
+    app.kubernetes.io/part-of: immich
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: immich-server
+  ports:
+    - name: http
+      port: 2283
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: database
+  namespace: immich
+  labels:
+    app.kubernetes.io/name: immich-database
+    app.kubernetes.io/part-of: immich
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: immich-database
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: immich
+  labels:
+    app.kubernetes.io/name: immich-redis
+    app.kubernetes.io/part-of: immich
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: immich-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-machine-learning
+  namespace: immich
+  labels:
+    app.kubernetes.io/name: immich-machine-learning
+    app.kubernetes.io/part-of: immich
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: immich-machine-learning
+  ports:
+    - name: http
+      port: 3003
+      targetPort: http
+      protocol: TCP

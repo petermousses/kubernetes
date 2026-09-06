@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - storage-class.yaml
+  - persistent-volumes.yaml
+  - persistent-volume-claims.yaml
+  - configmap.yaml
+  - server-deployment.yaml
+  - ml-deployment.yaml
+  - database-deployment.yaml
+  - redis-deployment.yaml
+  - services.yaml
+  - ingress.yaml
+  - certificate-staging.yaml
+  - certificate.yaml
+  - networkpolicy.yaml

@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: text2shop-staging
+  namespace: text2shop
+spec:
+  secretName: text2shop-tls-staging
+  dnsNames:
+    - text2shop.omv.mousses.xyz
+  issuerRef:
+    name: letsencrypt-staging-cloudflare
+    kind: ClusterIssuer
+    group: cert-manager.io

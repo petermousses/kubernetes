@@ -1,0 +1,17 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: crafty-staging
+  namespace: crafty
+  labels:
+    app.kubernetes.io/name: crafty
+    app.kubernetes.io/part-of: crafty
+spec:
+  secretName: crafty-tls-staging
+  dnsNames:
+    - crafty.omv.mousses.xyz
+    - map.omv.mousses.xyz
+  issuerRef:
+    name: letsencrypt-staging-cloudflare
+    kind: ClusterIssuer
+    group: cert-manager.io

@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: qr-code-generator-staging
+  namespace: qr-code-generator
+spec:
+  secretName: qr-code-generator-tls-staging
+  dnsNames:
+    - qr.omv.mousses.xyz
+  issuerRef:
+    name: letsencrypt-staging-cloudflare
+    kind: ClusterIssuer
+    group: cert-manager.io

@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: omv
+  namespace: external-routes
+  labels:
+    app.kubernetes.io/name: omv
+    app.kubernetes.io/part-of: external-routes
+spec:
+  type: ExternalName
+  externalName: omv.mousses.xyz
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adguard
+  namespace: external-routes
+  labels:
+    app.kubernetes.io/name: adguard
+    app.kubernetes.io/part-of: external-routes
+spec:
+  type: ExternalName
+  externalName: dns.mousses.xyz
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP

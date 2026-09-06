@@ -1,0 +1,111 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cloudflared-egress
+  namespace: cloudflare
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 7844
+        - protocol: UDP
+          port: 7844
+    - to:
+        - ipBlock:
+            cidr: 10.9.20.0/24
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 5100
+        - protocol: TCP
+          port: 8383
+        - protocol: TCP
+          port: 8123
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8180
+        - protocol: TCP
+          port: 8443
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 8000
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: crafty
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: crafty
+      ports:
+        - protocol: TCP
+          port: 8080
+    # k3s evaluates this path against the ClusterIP before Service DNAT.
+    # The namespace/pod selector above remains for post-DNAT enforcement.
+    - to:
+        - ipBlock:
+            cidr: 10.43.238.68/32
+      ports:
+        - protocol: TCP
+          port: 8080
+    # These are the current internal-DNS answers for two remote origins.
+    # Recheck them if the infrastructure addresses change.
+    - to:
+        - ipBlock:
+            cidr: 10.12.10.4/32
+      ports:
+        - protocol: TCP
+          port: 8123
+    - to:
+        - ipBlock:
+            cidr: 174.74.199.232/32
+      ports:
+        - protocol: TCP
+          port: 8080

@@ -1,0 +1,32 @@
+---
+# For configuration options and examples, please see:
+# https://gethomepage.dev/configs/settings/
+
+title: Homepage
+theme: dark
+color: slate
+background:
+  image: https://images.unsplash.com/photo-1474974369916-d0ebdc3dadca?q=80&w=3270&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D
+  blur: sm
+  saturate: 50
+  brightness: 50
+  opacity: 50
+
+hideVersion: true
+useEqualHeights: true
+disableCollapse: true
+headerStyle: boxed
+
+quicklaunch:
+  searchDescriptions: true
+  hideInternetSearch: true
+  showSearchSuggestions: true
+  hideVisitURL: true
+  provider: google
+  target: _blank
+
+layout: {}
+
+providers:
+  openweathermap: 561e9a12c9533d57f6aaf2fb7a96a6e0
+  weatherapi: weatherapiapikey

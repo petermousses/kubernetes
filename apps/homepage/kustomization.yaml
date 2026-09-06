@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: homepage
+resources:
+  - namespace.yaml
+  - configmap-public.yaml
+  - serviceaccount.yaml
+  - clusterrole.yaml
+  - clusterrolebinding.yaml
+  - service.yaml
+  - deployment.yaml
+  - ingress.yaml
+  - certificate.yaml
+  - certificate-staging.yaml
+  - networkpolicy.yaml
+configMapGenerator:
+  - name: homepage-config
+    files:
+      - config/bookmarks.yaml
+      - config/custom.css
+      - config/custom.js
+      - config/docker.yaml
+      - config/kubernetes.yaml
+      - config/proxmox.yaml
+      - config/services.yaml
+      - config/settings.yaml
+      - config/widgets.yaml
+generatorOptions:
+  disableNameSuffixHash: true

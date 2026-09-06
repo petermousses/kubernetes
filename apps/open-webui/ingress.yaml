@@ -1,0 +1,31 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: open-webui
+  namespace: open-webui
+  labels:
+    app.kubernetes.io/name: open-webui
+    app.kubernetes.io/part-of: open-webui
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: AI
+    gethomepage.dev/name: OpenWebUI
+    gethomepage.dev/icon: mdi-message-text
+    gethomepage.dev/description: OpenWebUI depends on tower ollama.
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - chat.omv.mousses.xyz
+      secretName: open-webui-tls
+  rules:
+    - host: chat.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: open-webui
+                port:
+                  name: http

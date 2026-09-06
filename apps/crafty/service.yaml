@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: crafty-admin
+  namespace: crafty
+  labels:
+    app.kubernetes.io/name: crafty
+    app.kubernetes.io/component: admin
+    app.kubernetes.io/part-of: crafty
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: crafty
+  ports:
+    - name: https
+      port: 8443
+      targetPort: crafty-https
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crafty-map
+  namespace: crafty
+  labels:
+    app.kubernetes.io/name: crafty
+    app.kubernetes.io/component: map
+    app.kubernetes.io/part-of: crafty
+spec:
+  type: ClusterIP
+  # Fixed so the pre-DNAT cloudflared egress policy can remain a /32.
+  clusterIP: 10.43.238.68
+  selector:
+    app.kubernetes.io/name: crafty
+  ports:
+    - name: http
+      port: 8080
+      targetPort: squaremap
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crafty-java
+  namespace: crafty
+  labels:
+    app.kubernetes.io/name: crafty
+    app.kubernetes.io/component: java
+    app.kubernetes.io/part-of: crafty
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: crafty
+  ports:
+    - name: java
+      port: 25565
+      targetPort: java
+      protocol: TCP

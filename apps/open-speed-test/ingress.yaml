@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: open-speed-test
+  namespace: open-speed-test
+  labels:
+    app.kubernetes.io/name: open-speed-test
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Networking
+    gethomepage.dev/name: Speed Test
+    gethomepage.dev/icon: mdi-speedometer
+    gethomepage.dev/description: Open Speed Test from Client to omv.mousses.xyz
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - speedtest.omv.mousses.xyz
+      secretName: open-speed-test-tls
+  rules:
+    - host: speedtest.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: open-speed-test
+                port:
+                  name: http

@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: open-speed-test
+  namespace: open-speed-test
+spec:
+  secretName: open-speed-test-tls
+  dnsNames:
+    - speedtest.omv.mousses.xyz
+  issuerRef:
+    name: letsencrypt-production-cloudflare
+    kind: ClusterIssuer
+    group: cert-manager.io

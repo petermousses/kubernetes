@@ -1,0 +1,3 @@
+---
+# Proxmox credentials are supplied through the Homepage service configuration
+# and Kubernetes Secret environment variables.

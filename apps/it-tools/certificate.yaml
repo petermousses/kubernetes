@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: it-tools
+  namespace: it-tools
+spec:
+  secretName: it-tools-tls
+  dnsNames:
+    - it-tools.omv.mousses.xyz
+  issuerRef:
+    name: letsencrypt-production-cloudflare
+    kind: ClusterIssuer
+    group: cert-manager.io

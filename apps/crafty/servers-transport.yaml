@@ -1,0 +1,12 @@
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: crafty-backend
+  namespace: crafty
+  labels:
+    app.kubernetes.io/name: crafty
+    app.kubernetes.io/part-of: crafty
+spec:
+  # Crafty generates and persists this backend certificate in config/web/certs.
+  # Traefik terminates the public certificate and accepts Crafty's private cert.
+  insecureSkipVerify: true

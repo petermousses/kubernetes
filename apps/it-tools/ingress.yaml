@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: it-tools
+  namespace: it-tools
+  labels:
+    app.kubernetes.io/name: it-tools
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Utilities
+    gethomepage.dev/name: IT Tools
+    gethomepage.dev/icon: mdi-toolbox
+    gethomepage.dev/description: Collection of handy online tools for developers
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - it-tools.omv.mousses.xyz
+      secretName: it-tools-tls
+  rules:
+    - host: it-tools.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: it-tools
+                port:
+                  name: http

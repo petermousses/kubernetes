@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qr-code-generator
+  namespace: qr-code-generator
+  labels:
+    app.kubernetes.io/name: qr-code-generator
+    app.kubernetes.io/part-of: qr-code-generator
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qr-code-generator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qr-code-generator
+        app.kubernetes.io/part-of: qr-code-generator
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: qr-code-generator
+          image: bizzycolah/qrcode-generator@sha256:ba25a27813957471bbcaf6cab9bcb89e9f8af50c6c63aecd7600ca1e5446862d
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            timeoutSeconds: 2
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - NET_BIND_SERVICE
+                - SETGID
+                - SETUID
+            seccompProfile:
+              type: RuntimeDefault
+      terminationGracePeriodSeconds: 30

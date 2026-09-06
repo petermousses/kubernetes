@@ -1,0 +1,16 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kiwix
+  namespace: kiwix
+  labels:
+    app.kubernetes.io/name: kiwix
+    app.kubernetes.io/part-of: kiwix
+spec:
+  secretName: kiwix-tls
+  dnsNames:
+    - wiki.omv.mousses.xyz
+  issuerRef:
+    name: letsencrypt-production-cloudflare
+    kind: ClusterIssuer
+    group: cert-manager.io

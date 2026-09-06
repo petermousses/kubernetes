@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: paperless
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  selector:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: web
+  ports: [{name: http, port: 8000, targetPort: http, protocol: TCP}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paperless
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: paperless-ngx
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: paperless-ngx
+        app.kubernetes.io/component: web
+        app.kubernetes.io/part-of: paperless-ngx
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      dnsConfig:
+        options: [{name: ndots, value: "1"}]
+      containers:
+        - name: paperless
+          image: ghcr.io/paperless-ngx/paperless-ngx@sha256:a28330462994b937938e02aaa5632a1effcc7f9acfba96c1bef9c50e1167a027
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8000, protocol: TCP}]
+          envFrom: [{secretRef: {name: paperless-env}}]
+          env:
+            - name: PAPERLESS_URL
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_URL}}
+            - name: PAPERLESS_BASE_URL
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_BASE_URL}}
+            - name: PAPERLESS_DBHOST
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_DBHOST}}
+            - name: PAPERLESS_REDIS
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_REDIS}}
+            - name: PAPERLESS_TIKA_ENDPOINT
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_TIKA_ENDPOINT}}
+            - name: PAPERLESS_TIKA_GOTENBERG_ENDPOINT
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_TIKA_GOTENBERG_ENDPOINT}}
+          startupProbe:
+            httpGet: {path: /, port: http}
+            failureThreshold: 120
+            periodSeconds: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests: {cpu: 500m, memory: 512Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          volumeMounts:
+            - {name: paperless-data, mountPath: /usr/src/paperless/data, subPath: data}
+            - {name: paperless-data, mountPath: /usr/src/paperless/media, subPath: media}
+            - {name: paperless-data, mountPath: /usr/src/paperless/export, subPath: export}
+            - {name: paperless-data, mountPath: /usr/src/paperless/consume, subPath: consume}
+      volumes:
+        - name: paperless-data
+          persistentVolumeClaim: {claimName: paperless-data}
+      nodeSelector: {kubernetes.io/hostname: openmediavault}
+      terminationGracePeriodSeconds: 90

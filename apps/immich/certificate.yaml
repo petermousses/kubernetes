@@ -1,0 +1,15 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: immich
+  namespace: immich
+  labels:
+    app.kubernetes.io/name: immich
+    app.kubernetes.io/part-of: immich
+spec:
+  secretName: immich-tls
+  issuerRef:
+    name: letsencrypt-production-cloudflare
+    kind: ClusterIssuer
+  dnsNames:
+    - photos.omv.mousses.xyz

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kiwix-media
+  namespace: kiwix
+  labels:
+    app.kubernetes.io/name: kiwix
+    app.kubernetes.io/component: media
+    app.kubernetes.io/part-of: kiwix
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: kiwix-media-local
+  volumeName: kiwix-media
+  resources:
+    requests:
+      storage: 1Ti

@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: immich
+  namespace: immich
+  labels:
+    app.kubernetes.io/name: immich
+    app.kubernetes.io/part-of: immich
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Media
+    gethomepage.dev/name: Immich Photos
+    gethomepage.dev/icon: si-immich-#4250AF
+    gethomepage.dev/description: Google Photos Alternative
+    gethomepage.dev/pod-selector: app.kubernetes.io/name=immich-server
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - photos.omv.mousses.xyz
+      secretName: immich-tls
+  rules:
+    - host: photos.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: immich-server
+                port:
+                  name: http

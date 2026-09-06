@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: kiwix-media
+  labels:
+    app.kubernetes.io/name: kiwix
+    app.kubernetes.io/component: media
+    app.kubernetes.io/part-of: kiwix
+spec:
+  capacity:
+    storage: 1Ti
+  volumeMode: Filesystem
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: kiwix-media-local
+  local:
+    path: /filesystem/Media/wiki
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault

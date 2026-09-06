@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: searxng-cache
+  namespace: searxng
+  labels:
+    app.kubernetes.io/name: searxng
+    app.kubernetes.io/part-of: searxng
+spec:
+  accessModes:
+    - ReadWriteOncePod
+  storageClassName: searxng-local
+  volumeName: searxng-cache
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: searxng-valkey
+  namespace: searxng
+  labels:
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/part-of: searxng
+spec:
+  accessModes:
+    - ReadWriteOncePod
+  storageClassName: searxng-local
+  volumeName: searxng-valkey
+  resources:
+    requests:
+      storage: 2Gi

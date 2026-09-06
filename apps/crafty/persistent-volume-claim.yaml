@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: crafty-data
+  namespace: crafty
+  labels:
+    app.kubernetes.io/name: crafty
+    app.kubernetes.io/part-of: crafty
+spec:
+  accessModes:
+    - ReadWriteOncePod
+  storageClassName: crafty-local
+  volumeName: crafty-data
+  resources:
+    requests:
+      storage: 100Gi

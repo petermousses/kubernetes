@@ -1,0 +1,29 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: crafty
+  namespace: crafty
+  labels:
+    app.kubernetes.io/name: crafty
+    app.kubernetes.io/part-of: crafty
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`crafty.omv.mousses.xyz`)
+      kind: Rule
+      services:
+        - name: crafty-admin
+          port: 8443
+          scheme: https
+          passHostHeader: true
+          serversTransport: crafty-backend
+    - match: Host(`map.omv.mousses.xyz`)
+      kind: Rule
+      services:
+        - name: crafty-map
+          port: 8080
+          scheme: http
+          passHostHeader: true
+  tls:
+    secretName: crafty-tls

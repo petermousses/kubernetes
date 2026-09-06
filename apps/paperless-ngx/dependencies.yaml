@@ -1,0 +1,133 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gotenberg
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: converter
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  selector:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: converter
+  ports: [{name: http, port: 3000, targetPort: http, protocol: TCP}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gotenberg
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: converter
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: paperless-ngx
+      app.kubernetes.io/component: converter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: paperless-ngx
+        app.kubernetes.io/component: converter
+        app.kubernetes.io/part-of: paperless-ngx
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: gotenberg
+          image: gotenberg/gotenberg@sha256:f9104080d9a7ecab253fb5ebe75100329cf5699c33ec0448f2ea02d885dfde4b
+          imagePullPolicy: IfNotPresent
+          args: [gotenberg, --log-level=info, --chromium-disable-javascript=true, --chromium-allow-list=file:///tmp/.*]
+          env: [{name: LOG_LEVEL, value: info}]
+          ports: [{name: http, containerPort: 3000, protocol: TCP}]
+          startupProbe:
+            tcpSocket: {port: http}
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+      nodeSelector: {kubernetes.io/hostname: openmediavault}
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tika
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: extractor
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  selector:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: extractor
+  ports: [{name: http, port: 9998, targetPort: http, protocol: TCP}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tika
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: extractor
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: paperless-ngx
+      app.kubernetes.io/component: extractor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: paperless-ngx
+        app.kubernetes.io/component: extractor
+        app.kubernetes.io/part-of: paperless-ngx
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: tika
+          image: apache/tika@sha256:c0154cb95587cde64be74f35ada1a2bd7892219f3f0ac3c9dc6cab34046b3573
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 9998, protocol: TCP}]
+          startupProbe:
+            tcpSocket: {port: http}
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: http}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+      nodeSelector: {kubernetes.io/hostname: openmediavault}
+      terminationGracePeriodSeconds: 60

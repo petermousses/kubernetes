@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-public-config
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+data:
+  HOMEPAGE_VAR_DOMAIN_NAME: mousses.xyz
+  HOMEPAGE_VAR_HOST_DOMAIN_NAME: omv.mousses.xyz

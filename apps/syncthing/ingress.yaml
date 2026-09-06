@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: syncthing
+  namespace: syncthing
+  labels:
+    app.kubernetes.io/name: syncthing
+    app.kubernetes.io/part-of: syncthing
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Media
+    gethomepage.dev/name: SyncThing
+    gethomepage.dev/icon: si-jellyfin-#00A4DC
+    gethomepage.dev/href: https://sync.omv.mousses.xyz
+    gethomepage.dev/description: File syncing across devices
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - sync.omv.mousses.xyz
+      secretName: syncthing-tls
+  rules:
+    - host: sync.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: syncthing
+                port:
+                  name: http-gui

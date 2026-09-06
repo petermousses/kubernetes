@@ -1,0 +1,13 @@
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: syncthing-backend
+  namespace: syncthing
+  labels:
+    app.kubernetes.io/name: syncthing
+    app.kubernetes.io/part-of: syncthing
+spec:
+  # Syncthing's GUI certificate is generated in /config and is intentionally
+  # different from the public certificate terminated by the Ingress.
+  insecureSkipVerify: true
+

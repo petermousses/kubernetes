@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vaultwarden-data
+  namespace: vaultwarden
+  labels:
+    app.kubernetes.io/name: vaultwarden
+    app.kubernetes.io/part-of: vaultwarden
+spec:
+  accessModes:
+    - ReadWriteOncePod
+  storageClassName: vaultwarden-local
+  volumeName: vaultwarden-data
+  resources:
+    requests:
+      storage: 10Gi

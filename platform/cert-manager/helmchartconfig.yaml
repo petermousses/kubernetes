@@ -1,0 +1,10 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: cert-manager
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    extraArgs:
+      - --dns01-recursive-nameservers-only
+      - --dns01-recursive-nameservers=https://1.1.1.1/dns-query

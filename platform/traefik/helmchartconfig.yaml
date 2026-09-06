@@ -1,0 +1,150 @@
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/part-of: openmediavault
+spec:
+  valuesContent: |-
+    providers:
+      kubernetesCRD:
+        allowExternalNameServices: true
+      kubernetesIngress:
+        allowExternalNameServices: true
+    logs:
+      access:
+        enabled: true
+        filters:
+          statuscodes: "400-599"
+    service:
+      # Preserve the real LAN source address for private routes such as the
+      # Traefik dashboard. This cluster has one Traefik node/endpoint.
+      spec:
+        externalTrafficPolicy: Local
+    ports:
+      traefik:
+        port: 9099
+        exposedPort: 9099
+      dashboard:
+        expose:
+          default: true
+        exposedPort: 4443
+        port: 4443
+        protocol: TCP
+        tls:
+          enabled: true
+      web:
+        exposedPort: 8080
+        transport:
+          respondingTimeouts:
+            readTimeout: 60
+      websecure:
+        port: 443
+        exposedPort: 443
+        transport:
+          respondingTimeouts:
+            readTimeout: 60
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: https-redirect
+  labels:
+    app.kubernetes.io/part-of: openmediavault
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+    port: "443"
+---
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/part-of: openmediavault
+spec:
+  certificates:
+    - secretName: default-tls-cert
+  defaultCertificate:
+    secretName: default-tls-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: traefik-dashboard
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/part-of: openmediavault
+spec:
+  secretName: traefik-dashboard-tls
+  dnsNames:
+    - traefik.omv.mousses.xyz
+  issuerRef:
+    name: letsencrypt-production-cloudflare
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: traefik-dashboard-lan-only
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/part-of: openmediavault
+spec:
+  ipAllowList:
+    sourceRange:
+      - 10.9.20.0/24
+      # Homepage performs its site-monitor request from the cluster pod CIDR.
+      - 10.42.0.0/16
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/part-of: openmediavault
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`traefik.omv.mousses.xyz`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))
+      middlewares:
+        - name: traefik-dashboard-lan-only
+      services:
+        - name: api@internal
+          kind: TraefikService
+  tls:
+    secretName: traefik-dashboard-tls
+---
+# Homepage's site monitor runs inside the cluster, where the LAN-only DNS name
+# is intentionally unavailable. Give it an HTTP route on the cluster Service;
+# the browser-facing dashboard above remains HTTPS-only.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard-monitor
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/part-of: openmediavault
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`traefik.kube-system`) && PathPrefix(`/dashboard`)
+      middlewares:
+        - name: traefik-dashboard-lan-only
+      services:
+        - name: api@internal
+          kind: TraefikService

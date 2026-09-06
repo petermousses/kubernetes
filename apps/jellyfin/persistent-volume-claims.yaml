@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-config
+  namespace: jellyfin
+  labels:
+    app.kubernetes.io/name: jellyfin
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: jellyfin
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: jellyfin-local
+  volumeName: jellyfin-config
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-cache
+  namespace: jellyfin
+  labels:
+    app.kubernetes.io/name: jellyfin
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: jellyfin
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: jellyfin-local
+  volumeName: jellyfin-cache
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-movies
+  namespace: jellyfin
+  labels:
+    app.kubernetes.io/name: jellyfin
+    app.kubernetes.io/component: movies
+    app.kubernetes.io/part-of: jellyfin
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: jellyfin-media-local
+  volumeName: jellyfin-movies
+  resources:
+    requests:
+      storage: 1Ti
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-tv
+  namespace: jellyfin
+  labels:
+    app.kubernetes.io/name: jellyfin
+    app.kubernetes.io/component: tv
+    app.kubernetes.io/part-of: jellyfin
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: jellyfin-media-local
+  volumeName: jellyfin-tv
+  resources:
+    requests:
+      storage: 1Ti

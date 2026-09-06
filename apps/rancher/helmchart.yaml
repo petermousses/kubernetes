@@ -1,0 +1,34 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: rancher
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: rancher
+    app.kubernetes.io/part-of: rancher
+  annotations:
+    # Chart archive SHA-256:
+    # 65d4505a3547e7ee5179f14345377137e826541b4daf19c6a7575517f992daf6
+    app.kubernetes.io/source: https://releases.rancher.com/server-charts/stable
+spec:
+  chart: https://releases.rancher.com/server-charts/stable/rancher-2.14.3.tgz
+  targetNamespace: cattle-system
+  createNamespace: true
+  failurePolicy: abort
+  timeout: 15m
+  valuesContent: |-
+    hostname: rancher.omv.mousses.xyz
+    replicas: 1
+    agentTLSMode: system-store
+    ingress:
+      ingressClassName: traefik
+      tls:
+        source: secret
+        secretName: tls-rancher-ingress
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi

@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syncthing
+  namespace: syncthing
+  labels:
+    app.kubernetes.io/name: syncthing
+    app.kubernetes.io/part-of: syncthing
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: syncthing
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: syncthing
+        app.kubernetes.io/part-of: syncthing
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: syncthing
+          image: lscr.io/linuxserver/syncthing@sha256:07da4c778027cb13d4a2b9bb8b8d7432ac3a0f0540bb7248b016be3a1cc69788
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+          ports:
+            - name: http-gui
+              containerPort: 8384
+              protocol: TCP
+            - name: sync-tcp
+              containerPort: 22000
+              hostPort: 22000
+              protocol: TCP
+            - name: sync-quic
+              containerPort: 22000
+              hostPort: 22000
+              protocol: UDP
+            - name: discovery
+              containerPort: 21027
+              hostPort: 21027
+              protocol: UDP
+          startupProbe:
+            httpGet:
+              scheme: HTTP
+              path: /rest/noauth/health
+              port: http-gui
+            failureThreshold: 120
+            periodSeconds: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /rest/noauth/health
+              port: http-gui
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /rest/noauth/health
+              port: http-gui
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: syncthing-config
+              mountPath: /config
+            - name: syncthing-music
+              mountPath: /music
+      volumes:
+        - name: syncthing-config
+          persistentVolumeClaim:
+            claimName: syncthing-config
+        - name: syncthing-music
+          persistentVolumeClaim:
+            claimName: syncthing-music
+      terminationGracePeriodSeconds: 90

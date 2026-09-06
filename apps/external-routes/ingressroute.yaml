@@ -1,0 +1,25 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: docker-file-provider-routes
+  namespace: external-routes
+  labels:
+    app.kubernetes.io/part-of: external-routes
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`nas.omv.mousses.xyz`)
+      kind: Rule
+      services:
+        - name: omv
+          port: 80
+          passHostHeader: true
+    - match: Host(`dns.omv.mousses.xyz`)
+      kind: Rule
+      services:
+        - name: adguard
+          port: 80
+          passHostHeader: true
+  tls:
+    secretName: external-routes-tls

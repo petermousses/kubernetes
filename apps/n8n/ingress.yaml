@@ -1,0 +1,31 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: n8n
+  namespace: n8n
+  labels:
+    app.kubernetes.io/name: n8n
+    app.kubernetes.io/part-of: n8n
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Utilities
+    gethomepage.dev/name: n8n
+    gethomepage.dev/icon: n8n.svg
+    gethomepage.dev/description: Workflow automation
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - n8n.omv.mousses.xyz
+      secretName: n8n-tls
+  rules:
+    - host: n8n.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: n8n
+                port:
+                  name: http

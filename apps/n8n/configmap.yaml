@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: n8n-config
+  namespace: n8n
+  labels:
+    app.kubernetes.io/name: n8n
+    app.kubernetes.io/part-of: n8n
+data:
+  DOMAIN_NAME: mousses.xyz
+  LOCAL_DOMAIN_NAME: omv.mousses.xyz
+  PROJECT_SUB_DOMAIN: n8n
+  GENERIC_TIMEZONE: America/Phoenix
+  N8N_HOST: n8n.omv.mousses.xyz
+  N8N_PROTOCOL: https
+  N8N_PORT: "5678"
+  WEBHOOK_URL: https://n8n.omv.mousses.xyz/
+  N8N_WEBHOOK_URL: https://n8n.omv.mousses.xyz/

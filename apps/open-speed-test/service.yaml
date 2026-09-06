@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: open-speed-test
+  namespace: open-speed-test
+  labels:
+    app.kubernetes.io/name: open-speed-test
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: open-speed-test
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP

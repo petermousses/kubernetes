@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: text2shop
+  namespace: text2shop
+  labels:
+    app.kubernetes.io/name: text2shop
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: text2shop
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

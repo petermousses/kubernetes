@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: searxng
+  namespace: searxng
+  labels:
+    app.kubernetes.io/name: searxng
+    app.kubernetes.io/part-of: searxng
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Utilities
+    gethomepage.dev/name: SearXNG
+    gethomepage.dev/icon: searxng.svg
+    gethomepage.dev/href: https://search.omv.mousses.xyz
+    gethomepage.dev/description: Private search engine
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - search.omv.mousses.xyz
+      secretName: searxng-tls
+  rules:
+    - host: search.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: searxng
+                port:
+                  name: http

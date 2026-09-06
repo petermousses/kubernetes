@@ -1,0 +1,86 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paperless
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: paperless-ngx
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Paperless
+    gethomepage.dev/name: Paperless-ngx
+    gethomepage.dev/icon: mdi-text
+    gethomepage.dev/description: Document management system
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [paperless.omv.mousses.xyz]
+      secretName: paperless-tls
+  rules:
+    - host: paperless.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: paperless, port: {name: http}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paperless-ai
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: ai
+    app.kubernetes.io/part-of: paperless-ngx
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Paperless
+    gethomepage.dev/name: Paperless-AI
+    gethomepage.dev/icon: mdi-text
+    gethomepage.dev/description: Paperless document analysis
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [ai.paperless.omv.mousses.xyz]
+      secretName: paperless-ai-tls
+  rules:
+    - host: ai.paperless.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: paperless-ai, port: {name: http}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paperless-gpt
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/component: gpt
+    app.kubernetes.io/part-of: paperless-ngx
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Paperless
+    gethomepage.dev/name: Paperless-GPT
+    gethomepage.dev/icon: mdi-text
+    gethomepage.dev/description: Paperless document assistant
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [gpt.paperless.omv.mousses.xyz]
+      secretName: paperless-gpt-tls
+  rules:
+    - host: gpt.paperless.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: paperless-gpt, port: {name: http}}

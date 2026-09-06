@@ -1,0 +1,15 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: external-routes-staging
+  namespace: external-routes
+  labels:
+    app.kubernetes.io/part-of: external-routes
+spec:
+  secretName: external-routes-tls-staging
+  dnsNames:
+    - nas.omv.mousses.xyz
+    - dns.omv.mousses.xyz
+  issuerRef:
+    name: letsencrypt-staging-cloudflare
+    kind: ClusterIssuer

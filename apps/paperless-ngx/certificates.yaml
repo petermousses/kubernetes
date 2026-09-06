@@ -1,0 +1,38 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: paperless
+  namespace: paperless-ngx
+spec:
+  secretName: paperless-tls
+  dnsNames: [paperless.omv.mousses.xyz]
+  issuerRef:
+    name: letsencrypt-production-cloudflare
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: paperless-ai
+  namespace: paperless-ngx
+spec:
+  secretName: paperless-ai-tls
+  dnsNames: [ai.paperless.omv.mousses.xyz]
+  issuerRef:
+    name: letsencrypt-production-cloudflare
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: paperless-gpt
+  namespace: paperless-ngx
+spec:
+  secretName: paperless-gpt-tls
+  dnsNames: [gpt.paperless.omv.mousses.xyz]
+  issuerRef:
+    name: letsencrypt-production-cloudflare
+    kind: ClusterIssuer
+    group: cert-manager.io

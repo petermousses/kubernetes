@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paperless-config
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+    app.kubernetes.io/part-of: paperless-ngx
+data:
+  PAPERLESS_URL: https://paperless.omv.mousses.xyz
+  PAPERLESS_BASE_URL: https://paperless.omv.mousses.xyz
+  PAPERLESS_INTERNAL_BASE_URL: http://paperless:8000
+  PAPERLESS_DBHOST: postgres
+  PAPERLESS_REDIS: redis://redis:6379
+  PAPERLESS_TIKA_ENDPOINT: http://tika:9998
+  PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
+  PAPERLESS_API_URL: http://paperless:8000/api
+  PAPERLESS_AI_PORT: "3000"
+  LLM_PROVIDER: ollama
+  LLM_MODEL: llama3.2:3b
+  LLM_LANGUAGE: English
+  OCR_PROVIDER: llm
+  AUTO_TAG: paperless-gpt-auto
+  MANUAL_TAG: paperless-gpt-manual

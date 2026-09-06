@@ -1,0 +1,254 @@
+---
+# The manually curated links remain equivalent to the Docker Homepage stack.
+# Kubernetes Ingress annotations add migrated workloads automatically.
+
+- Utilities:
+    - Canon Printer:
+        icon: mdi-printer
+        href: https://printer.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+        description: Remotely Check Ink Levels
+        ping: printer.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+    - Home Assistant:
+        icon: home-assistant.svg
+        href: http://homeassistant.{{HOMEPAGE_VAR_DOMAIN_NAME}}:8123
+        description: Smart Home Interface
+        siteMonitor: http://homeassistant.{{HOMEPAGE_VAR_DOMAIN_NAME}}:8123
+        widget:
+          type: homeassistant
+          url: http://homeassistant.{{HOMEPAGE_VAR_DOMAIN_NAME}}:8123
+          key: {{HOMEPAGE_VAR_HOMEASSISTANT_API_KEY}}
+          custom:
+            - state: binary_sensor.door_sensors
+              label: Doors
+
+- Minecraft:
+    - Minecraft Server Management:
+        icon: minecraft.svg
+        href: https://crafty.{{HOMEPAGE_VAR_HOST_DOMAIN_NAME}}
+        description: Crafty Management Service
+        widget:
+          type: minecraft
+          # Homepage's Minecraft widget uses this URL form for Java status too.
+          url: udp://crafty-java.crafty:25565
+    - Square Map:
+        icon: minecraft.svg
+        href: https://map.{{HOMEPAGE_VAR_HOST_DOMAIN_NAME}}
+        description: Minecraft World Map
+        siteMonitor: http://crafty-map.crafty:8080
+    - Paper Version Page:
+        icon: minecraft.svg
+        href: https://papermc.io/downloads/paper
+        description: Paper Server Official Page
+    - Paper Plugins:
+        icon: minecraft.svg
+        href: https://hangar.papermc.io
+        description: Paper Server Official Page
+
+- Management Services:
+    - k3s Traefik:
+        icon: si-traefik-#24A1C1
+        href: https://traefik.{{HOMEPAGE_VAR_HOST_DOMAIN_NAME}}/dashboard/
+        description: k3s Ingress Dashboard
+        siteMonitor: http://traefik.kube-system:8080/dashboard/
+    - Rancher:
+        icon: si-rancher-#0075A8
+        href: https://rancher.{{HOMEPAGE_VAR_HOST_DOMAIN_NAME}}/dashboard/
+        description: Kubernetes Management
+        siteMonitor: https://rancher.{{HOMEPAGE_VAR_HOST_DOMAIN_NAME}}/healthz
+    #- Other Home:
+    #    icon: mdi-home
+    #    href: https://home.local.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+    #    description: Homepage on Synology NAS
+    #    siteMonitor: https://home.local.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+    - Proxmox Kitty:
+        icon: si-proxmox-#E57000
+        href: https://kitty.{{HOMEPAGE_VAR_DOMAIN_NAME}}:8006
+        description: Virtualization Management
+        siteMonitor: https://kitty.{{HOMEPAGE_VAR_DOMAIN_NAME}}:8006
+        widget:
+          type: proxmox
+          url: https://kitty.{{HOMEPAGE_VAR_DOMAIN_NAME}}:8006
+          username: {{HOMEPAGE_VAR_PROXMOX_KITTY_USERNAME}}
+          password: {{HOMEPAGE_VAR_PROXMOX_KITTY_PASSWORD}}
+    # - Proxmox Tower:
+    #    icon: si-proxmox-#E57000
+    #    href: https://tower.{{HOMEPAGE_VAR_DOMAIN_NAME}}:8006
+    #    description: Virtualization Management
+    #    siteMonitor: https://tower.{{HOMEPAGE_VAR_DOMAIN_NAME}}:8006
+    #    widget:
+    #      type: proxmox
+    #      url: https://tower.{{HOMEPAGE_VAR_DOMAIN_NAME}}:8006
+    #      username: {{HOMEPAGE_VAR_PROXMOX_TOWER_USERNAME}}
+    #      password: {{HOMEPAGE_VAR_PROXMOX_TOWER_PASSWORD}}
+    - SynologyDSM:
+        icon: si-synology-#B5B5B6
+        href: https://nas.{{HOMEPAGE_VAR_HOST_DOMAIN_NAME}}
+        description: Proprietary Synology Interface
+        siteMonitor: https://nas.{{HOMEPAGE_VAR_HOST_DOMAIN_NAME}}
+    - OpenMediaVaultNAS:
+        icon: mdi-harddisk
+        href: https://nas.omv.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+        description: Open Media Vault NAS
+        siteMonitor: https://nas.omv.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+
+- Networking:
+    #- AdGuard Home:
+    #    icon: adguard-home.svg
+    #    href: https://dns.{{HOMEPAGE_VAR_HOST_DOMAIN_NAME}}
+    #    description: Local DNS / Ad Blocking
+    #    siteMonitor: https://dns.{{HOMEPAGE_VAR_HOST_DOMAIN_NAME}}
+    #    widget:
+    #      type: adguard
+    #      url: https://dns.{{HOMEPAGE_VAR_HOST_DOMAIN_NAME}}
+    #      username: {{HOMEPAGE_VAR_ADGUARD_USERNAME}}
+    #      password: {{HOMEPAGE_VAR_ADGUARD_PASSWORD}}
+    - Switch:
+        icon: si-linksys-#000000
+        href: http://switch.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+        description: Managed Switch with PoE+ and SFP+
+        ping: switch.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+    - Access Point:
+        icon: mdi-wifi
+        href: http://wifi.mousses.xyz
+        description: Managed PoE+ AP
+    - UDR7:
+        icon: si-ubiquiti-#0559C9
+        href: https://router.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+        description: Router Management
+        siteMonitor: https://router.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+          #widget:
+          #  type: opnsense
+          #  url: https://router.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+          #  username: {{HOMEPAGE_VAR_OPNSENSE_USERNAME}}
+          #  password: {{HOMEPAGE_VAR_OPNSENSE_PASSWORD}}
+          #  wan: wan
+    - Tailscale:
+        icon: si-tailscale-#242424
+        href: https://login.tailscale.com/admin
+        description: VPN Management Console
+    - UniFi Console:
+        icon: si-ubiquiti-#0559C9
+        href: https://unifi.ui.com
+        description: UniFi/Ubiquiti Management Console
+
+- WAN:
+    - AWS:
+        icon: aws.svg
+        href: https://aws.amazon.com
+        description: VPS Management / Glacier Backups
+    - Cloudflare:
+        icon: si-cloudflare-#F38020
+        href: https://dash.cloudflare.com
+        description: Domain Management / DNS / Tunnel / Email Routing
+    - GitHub:
+        icon: si-github-#181717
+        href: https://github.com/petermousses
+        description: Git Cloud Repository Hub
+    - Google Cloud:
+        icon: si-googlecloud-#4285F4
+        href: https://console.cloud.google.com
+        description: SSO for Google on Cloudflare Tunnel
+    - IP Address:
+        icon: mdi-web-box
+        href: https://whatismyipaddress.com
+    - Speedtest:
+        icon: mdi-gauge
+        href: https://openspeedtest.com
+        description: Open Speed Test from Client to WAN
+
+- AI:
+    - Claude:
+        icon: si-claude-#D97757
+        href: https://claude.ai
+        description: Claude chat web portal
+    - Claude Platform:
+        icon: si-claude-#D97757
+        href: https://platform.claude.com
+        description: Claude API portal
+    - Deepseek:
+        icon: mdi-alpha-d-#4d6afd
+        href: https://chat.deepseek.com
+        description: Deepseek chat web portal
+    - Deepseek Platform:
+        icon: mdi-alpha-d-#4d6afd
+        href: https://platform.deepseek.com
+        description: Deepseek API portal
+    - Gemini:
+        icon: si-googlegemini-#8E75B2
+        href: https://gemini.google.com
+        description: Gemini chat web portal
+    - OpenAI:
+        icon: mdi-chat-#000000
+        href: https://chatgpt.com
+        description: OpenAI chat web portal
+
+- ATProto:
+    - BlueSky:
+        icon: si-bluesky-#0285FF
+        href: https://bsky.app
+        description: Social Media with VPS Data Server
+        siteMonitor: https://bluesky.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+    - Leaflet:
+        icon: mdi-leaf
+        href: https://leaflet.pub
+        description: ATProto blogging site.
+    - Tangled:
+        icon: mdi-sheep
+        href: https://tangled.org
+        description: ATProto git repo hosting.
+
+- Entertainment:
+    - Disney Plus:
+        icon: mdi-death-star-variant-#000000
+        href: https://www.disneyplus.com/home
+    - HBO Max:
+        icon: si-hbo-#000000
+        href: https://play.max.com
+    - Hulu:
+        icon: si-hulu-#1ED760
+        href: https://hulu.com
+    - Jellyfin:
+        icon: jellyfin.svg
+        href: https://jellyfin.{{HOMEPAGE_VAR_HOST_DOMAIN_NAME}}
+        description: Media Streaming Server
+        widget:
+          type: jellyfin
+          url: https://jellyfin.{{HOMEPAGE_VAR_HOST_DOMAIN_NAME}}
+          key: {{HOMEPAGE_VAR_JELLYFIN_API_KEY}}
+    - Netflix:
+        icon: si-netflix-#E50914
+        href: https://netflix.com
+    - Prime Video:
+        icon: amazon-prime.svg
+        href: https://www.amazon.com/gp/video/storefront
+    - Spotify:
+        icon: si-spotify-#1ED760
+        href: https://open.spotify.com
+    - YouTube:
+        icon: si-youtube-#FF0000
+        href: https://youtube.com
+
+- Gaming:
+    - Steam:
+        icon: si-steam-#000000
+        href: https://store.steampowered.com/
+    - GOG:
+        icon: si-gogdotcom-#86328A
+        href: https://www.gog.com
+    - Is There Any Deal:
+        icon: mdi-tag-arrow-down
+        href: https://isthereanydeal.com
+    - Prime Gaming Free Games:
+        icon: amazon-prime.svg
+        href: https://gaming.amazon.com/home
+    - Epic Games Free Games:
+        icon: epic-games.svg
+        href: https://store.epicgames.com/en-US/free-games
+
+- Shhhhh:
+    - FMovies:
+        href: https://ww4.fmovies.co/24
+    - Lekuluent:
+        href: https://lekuluent.com
+    - ssshhhhhh:
+        href: https://forum.makemkv.com/forum/viewtopic.php?style=4&t=17831&start=765
