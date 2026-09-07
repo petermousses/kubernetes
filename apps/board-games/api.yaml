@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: board-games-api
+  labels:
+    app.kubernetes.io/name: board-games-api
+    app.kubernetes.io/part-of: board-games
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: board-games-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: board-games-api
+  labels:
+    app.kubernetes.io/name: board-games-api
+    app.kubernetes.io/part-of: board-games
+    app.kubernetes.io/component: api
+spec:
+  paused: true
+  replicas: 2
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: board-games-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: board-games-api
+        app.kubernetes.io/part-of: board-games
+        app.kubernetes.io/component: api
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          # Published by board-games CI run 34158243340 for commit fe9deaf4ef774ea963ee0833feef7154dbe54881.
+          image: ghcr.io/petermousses/board-games-api@sha256:6083ed122442bc40712dc315894e80e0c6e10bbbc044f0b486fbdd068296e73f
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: board-games-config
+            - secretRef:
+                name: board-games-secrets
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      terminationGracePeriodSeconds: 30
