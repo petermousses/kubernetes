@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: board-games
+  labels:
+    app.kubernetes.io/name: board-games-web
+    app.kubernetes.io/part-of: board-games
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Games
+    gethomepage.dev/name: Board Games
+    gethomepage.dev/icon: mdi-checkerboard
+    gethomepage.dev/description: Persistent solitaire and checkers
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - games.omv.mousses.xyz
+      secretName: board-games-tls
+  rules:
+    - host: games.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: board-games-web
+                port:
+                  name: http

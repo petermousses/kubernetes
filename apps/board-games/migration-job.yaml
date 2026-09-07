@@ -1,0 +1,106 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: board-games-migrate
+  labels:
+    app.kubernetes.io/name: board-games-migrate
+    app.kubernetes.io/part-of: board-games
+    app.kubernetes.io/component: migration
+spec:
+  # PostgreSQL readiness is handled by the init container; a migration failure is terminal.
+  backoffLimit: 0
+  # Gives PostgreSQL 600s to become ready, then leaves 600s for migration.
+  activeDeadlineSeconds: 1200
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: board-games-migrate
+        app.kubernetes.io/part-of: board-games
+        app.kubernetes.io/component: migration
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres@sha256:747d5ed1fdeeb124b880fbe3d7c6557d2c4064ae41d6b6297d417882effce4be
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              readiness_timeout_seconds=600
+              retry_delay_seconds=5
+              readiness_deadline=$(( $(date +%s) + readiness_timeout_seconds ))
+
+              while ! pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t 1 >/dev/null 2>&1; do
+                remaining_seconds=$((readiness_deadline - $(date +%s)))
+                if [ "$remaining_seconds" -le 0 ]; then
+                  printf '%s\n' 'PostgreSQL did not become ready within 600 seconds.' >&2
+                  exit 1
+                fi
+
+                if [ "$remaining_seconds" -lt "$retry_delay_seconds" ]; then
+                  sleep "$remaining_seconds"
+                else
+                  sleep "$retry_delay_seconds"
+                fi
+              done
+          env:
+            - name: POSTGRES_HOST
+              value: postgres
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: board-games-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: board-games-config
+                  key: POSTGRES_DB
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      containers:
+        - name: migrate
+          # Same pinned API image as the deployment; the run subcommand applies schema migrations.
+          image: ghcr.io/petermousses/board-games-api@sha256:6083ed122442bc40712dc315894e80e0c6e10bbbc044f0b486fbdd068296e73f
+          imagePullPolicy: IfNotPresent
+          args: ["migrate"]
+          envFrom:
+            - configMapRef:
+                name: board-games-config
+            - secretRef:
+                name: board-games-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      terminationGracePeriodSeconds: 30

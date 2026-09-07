@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: board-games-config
+  labels:
+    app.kubernetes.io/part-of: board-games
+data:
+  BIND_ADDRESS: 0.0.0.0:8080
+  POSTGRES_DB: board_games
+  POSTGRES_USER: board_games

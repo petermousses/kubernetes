@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: board-games
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - postgres.yaml
+  - migration-job.yaml
+  - api.yaml
+  - web.yaml
+  - ingress.yaml
+  - certificate.yaml
+  - certificate-staging.yaml
+  - networkpolicy.yaml
