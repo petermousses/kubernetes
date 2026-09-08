@@ -22,7 +22,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: qr-code-generator
-          image: bizzycolah/qrcode-generator@sha256:ba25a27813957471bbcaf6cab9bcb89e9f8af50c6c63aecd7600ca1e5446862d
+          image: ghcr.io/petermousses/qr-code-generator@sha256:f342d1d1e18b47ecd1a8528b7fada7cb2b15750a7ed75be090b9d52d3a5300a2
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
