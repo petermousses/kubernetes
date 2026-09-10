@@ -83,7 +83,7 @@ spec:
       containers:
         - name: migrate
           # Same pinned API image as the deployment; the run subcommand applies schema migrations.
-          image: ghcr.io/petermousses/board-games-api@sha256:6083ed122442bc40712dc315894e80e0c6e10bbbc044f0b486fbdd068296e73f
+          image: ghcr.io/petermousses/board-games-api@sha256:fa9ec7bb689821b821916c45b195a1d591a6813811b721467125a8276468d79f
           imagePullPolicy: IfNotPresent
           args: ["migrate"]
           envFrom:
