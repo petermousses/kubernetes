@@ -82,9 +82,9 @@ spec:
             readOnlyRootFilesystem: true
       containers:
         - name: migrate
-          # Same pinned API image as the deployment; the run subcommand applies schema migrations.
-          image: ghcr.io/petermousses/board-games-api@sha256:fa9ec7bb689821b821916c45b195a1d591a6813811b721467125a8276468d79f
-          imagePullPolicy: IfNotPresent
+          # Same API image as the deployment; the run subcommand applies schema migrations.
+          image: ghcr.io/petermousses/board-games-api:develop
+          imagePullPolicy: Always
           args: ["migrate"]
           envFrom:
             - configMapRef:

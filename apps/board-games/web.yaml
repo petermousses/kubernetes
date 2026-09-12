@@ -46,9 +46,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: web
-          # Published by board-games CI run 34432405322 for commit a914ae2cf008aa37360dce74dece0f6b0e7423fc.
-          image: ghcr.io/petermousses/board-games-web@sha256:26e4fc4acac0aaeab7b88ab0c30092e9dd31734f13a7d0621d60e3631a7fd2bd
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/petermousses/board-games-web:develop
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8080
