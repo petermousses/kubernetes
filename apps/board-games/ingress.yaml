@@ -21,6 +21,13 @@ spec:
     - host: games.omv.mousses.xyz
       http:
         paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: board-games-api
+                port:
+                  name: http
           - path: /
             pathType: Prefix
             backend:
