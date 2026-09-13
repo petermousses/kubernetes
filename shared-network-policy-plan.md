@@ -1,129 +1,142 @@
 # references
 
-1. [Kubernetes: declarative management with Kustomize](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/) — `resources`, bases and overlays, namespace transforms, and `kubectl apply -k`.
-2. [Kustomize: first kustomization](https://github.com/kubernetes-sigs/kustomize/blob/master/site/content/en/docs/Getting%20started/first_kustomization.md) — canonical `kustomization.yaml` files and separate overlays that reuse a base.
-3. [Kustomize recognized filenames](https://github.com/kubernetes-sigs/kustomize/blob/master/api/konfig/general.go) — the three discovered filenames and the one-file-per-directory rule.
-4. [kubectl kustomize reference](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_kustomize/) — build input is a directory; `LoadRestrictionsRootOnly` is the default.
-5. [Kubernetes: NetworkPolicies](https://kubernetes.io/docs/concepts/services-networking/network-policies/) — policies apply to pods in a given namespace; `namespaceSelector` selects peer namespaces.
+1. [Kubernetes: declarative management with Kustomize](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/) — bases, overlays, resources, and namespace transforms; its example references a sibling base directory as `../base`.
+2. [Kustomize: first kustomization](https://github.com/kubernetes-sigs/kustomize/blob/master/site/content/en/docs/Getting%20started/first_kustomization.md) — composing reusable bases with overlays.
+3. [Kustomize recognized filenames](https://github.com/kubernetes-sigs/kustomize/blob/master/api/konfig/general.go) — recognized kustomization filenames and one recognized file per directory.
+4. [kubectl kustomize reference](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_kustomize/) — directory build targets and the default `LoadRestrictionsRootOnly` loader.
+5. [Kubernetes: NetworkPolicies](https://kubernetes.io/docs/concepts/services-networking/network-policies/) — namespace scope, selectors, default deny, DNS, additive allows, and the requirement for both source egress and destination ingress to permit a connection.
+6. [Kubernetes recommended labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/) — `app.kubernetes.io/part-of` and `app.kubernetes.io/component` identify an application and its architectural components.
 
-# shared network policy and repository structure plan
+# shared network policy plan
 
-**status:** draft for joint editing. this file plans the change; it does not change any manifests.
+**status:** draft for joint editing. this plan changes no manifests.
 
-## goal
+## recommendation: option a
 
-Reuse genuinely common NetworkPolicy rules while keeping each app independently buildable. Decide whether to preserve the existing `apps/<app>/` build paths or separate app manifests from per-app overlay entrypoints. Render the shared policy into each selected app namespace, and keep app-specific traffic requirements explicit.
+Keep each existing `apps/<app>/kustomization.yaml` as the deployable entrypoint. Put reusable policy bundles under `apps/_shared/network-policy/`. This gives the repository shared policy sources without changing app build paths; option b would add a source/overlay reorganization but no extra policy-composition capability.
 
-“shared” means shared source/configuration here, not one cluster-wide NetworkPolicy object: NetworkPolicies are namespace-scoped ([5]). Kustomize bases can be included by separate overlays, as in the official `../base` example ([1], [2]).
+Kustomize can reference a sibling **base directory** containing its own kustomization file. The upstream guide demonstrates `../base` ([1]). In a temporary fixture, `kubectl v1.34.1` with embedded Kustomize `v5.7.1` built both the option-a and option-b sibling-base shapes using the default loader. A direct resource-file reference such as `../networkpolicy.yaml` is different and is rejected by the default root-only loader ([4]).
 
-## current repository facts
+“shared” means shared source rendered into each target app namespace, not one cluster-wide NetworkPolicy object. NetworkPolicies are namespace-scoped ([5]).
 
-- The repository has 19 app `kustomization.yaml` files and 17 app `networkpolicy.yaml` files.
-- All 17 policy files are listed by their app’s kustomization. `apps/rancher/` and `apps/external-routes/` currently have no `networkpolicy.yaml`.
-- By resource name, 16 policies are named `default-deny-all`, 15 `allow-traefik-ingress`, and 11 `allow-dns-egress`. These counts do **not** establish that the rules are semantically identical.
-- Policies also contain app-specific flows. Examples include [Immich](apps/immich/networkpolicy.yaml), [Board Games](apps/board-games/networkpolicy.yaml), [Paperless-ngx](apps/paperless-ngx/networkpolicy.yaml), and [SearXNG](apps/searxng/networkpolicy.yaml).
-- Namespace handling is mixed: `apps/board-games/`, `apps/homepage/`, `apps/searxng/`, and `apps/external-routes/` set `namespace:` in their kustomization; many policy manifests instead set `metadata.namespace` directly.
-
-## structure options to compare
-
-### option a: keep app directories as build entrypoints
-
-This is the smaller migration: retain each existing `apps/<app>/kustomization.yaml`, and put reusable policy sources in a dedicated base directory:
+## proposed structure
 
 ```text
 apps/
   _shared/
     network-policy/
-      kustomization.yaml
-      default-deny.yaml          # only if approved as common
-      allow-dns-egress.yaml      # only if approved as common
+      baseline/
+        kustomization.yaml
+        default-deny.yaml
+      dns-egress/
+        kustomization.yaml
+        allow-dns-egress.yaml
+      component-flow/
+        kustomization.yaml
+        frontend-egress-to-backend.yaml
+        backend-ingress-and-egress.yaml
+        database-ingress-from-backend.yaml
   immich/
     kustomization.yaml
-    networkpolicy.yaml           # app-specific rules after the split
+    networkpolicy.yaml  # app-specific rules after the split
     ...
   paperless-ngx/
     kustomization.yaml
-    networkpolicy.yaml           # app-specific rules after the split
+    networkpolicy.yaml  # app-specific rules after the split
     ...
 ```
 
-Each opted-in app would reference `../_shared/network-policy` from its own `kustomization.yaml`, alongside its local resources. The shared directory must have its own recognized kustomization file to be used as a base ([1], [2]). This preserves `kubectl kustomize apps/<app>` and `kubectl apply -k apps/<app>` as per-app entrypoints ([1]).
+Each app entrypoint lists the baseline directory as a resource. It lists the DNS and component-flow directories only when those profiles fit:
 
-### option b: separate app manifests from build entrypoints
-
-This is a larger restructure and closer to the proposed `app-a` / `app-b` layout. Give every resource directory and every build entrypoint its own canonical kustomization:
-
-```text
-apps/
-  app/
-    immich/
-      kustomization.yaml
-      namespace.yaml
-      server-deployment.yaml
-      networkpolicy.yaml
-      ...
-    paperless-ngx/
-      kustomization.yaml
-      namespace.yaml
-      paperless.yaml
-      networkpolicy.yaml
-      ...
-  shared/
-    network-policy/
-      kustomization.yaml
-      default-deny.yaml
-      allow-dns-egress.yaml
-  overlays/
-    immich/
-      kustomization.yaml
-    paperless-ngx/
-      kustomization.yaml
+```yaml
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - ../_shared/network-policy/baseline
+  # include per app when required:
+  - ../_shared/network-policy/dns-egress
+  - ../_shared/network-policy/component-flow
+  - networkpolicy.yaml
 ```
 
-Each `apps/overlays/<app>/kustomization.yaml` would include that app directory and the shared policy base, then apply any app-level namespace or other customization. The app and shared directories each need a kustomization file to be referenced as bases ([1], [2]). The build command would target `apps/overlays/<app>/` ([4]). This separates source manifests from deployable variants, but changes the current build paths and requires updating any external deployment references.
+Each bundle has its own recognized `kustomization.yaml` and lists all policies in that bundle. A consumer includes a bundle directory as a unit; it does not select individual files from inside that base. Kustomize still permits intentional changes in the consuming kustomization, and a consumer can omit the base entirely. This is a maintainable composition convention, not an enforcement boundary. If policy presence or allowed-flow limits must be mandatory, enforce them with repository CI or admission policy.
 
-Do not put several files named `<app>-kustomization.yaml` beside each other and expect Kustomize to select one by filename. Kustomize accepts `kustomization.yaml`, `kustomization.yml`, or `Kustomization`, and allows only one recognized match per directory ([3]); the build argument is a directory ([4]).
+Kustomize discovers `kustomization.yaml`, `kustomization.yml`, or `Kustomization`, and only one recognized kustomization file per directory ([3]). Do not place sibling files named `app-a-kustomization.yaml` and `app-b-kustomization.yaml` and expect the build command to select one; `kubectl kustomize` takes a directory ([4]).
 
-## policy split to decide
+## policy profiles
 
-Treat the repeated names as audit candidates, not copy/paste proof:
+### required baseline: default deny
 
-- **Default deny:** compare selectors and `policyTypes` across the 16 current `default-deny-all` resources. Decide whether it belongs in the shared base and identify the app without one.
-- **DNS egress:** compare DNS destinations, selectors, ports, and IP blocks in the 11 current `allow-dns-egress` resources. Decide whether this is universal or opt-in. NetworkPolicy rules are additive, so the rendered result must be checked as a whole ([5]).
-- **Traefik ingress:** compare pod selectors, source namespace/pod selectors, and destination ports in the 15 current `allow-traefik-ingress` resources. Keep differences app-local unless a safe shared selector and port contract is established.
-- **App-specific rules:** retain database, cache, dependency, peer, public egress, and app-service flows locally unless review proves they are common. Do not broaden a selector just to make manifests look uniform.
-- **Apps without policies:** decide separately whether Rancher or External Routes needs NetworkPolicy resources; do not opt them in by default.
+- The target is for every app entrypoint to include the shared baseline.
+- The baseline contains default-deny ingress and egress for all pods in that app namespace.
+- Audit the rollout to Rancher and External Routes, which currently have no `networkpolicy.yaml`; check their controller/workload traffic before applying the baseline.
+- Default-deny egress also blocks DNS. Workloads that need DNS must include an allow-DNS profile ([5]).
+- The cluster network plugin must enforce Kubernetes NetworkPolicies or the resources have no effect ([5]).
 
-The shared source should contain only approved common rules. Each app kustomization should opt in by referencing the shared base; its local policy file should contain only the remaining app-specific rules.
+### optional DNS egress
 
-## namespace strategy to decide
+- Keep DNS permission in a separate bundle so apps that do not need it do not receive that allow rule.
+- Compare DNS selectors, namespace labels, ports, and any IP blocks in the 11 current `allow-dns-egress` resources before consolidating them.
+- Scope the rule to the intended pods. A `podSelector: {}` permits DNS egress for every pod in that policy's namespace.
 
-The simplest candidate is to set `namespace: <app-namespace>` in each app kustomization so Kustomize assigns that namespace to the namespaced resources from both the app and shared base. The Kubernetes Kustomize guide demonstrates the namespace transform on resources composed from a base ([1], [2]). Because this repository currently mixes top-level namespace transforms with explicit `metadata.namespace` values, first check every affected resource for cross-namespace intent; `namespace:` is a cross-cutting transform, not a policy-only setting ([1]).
+### component-flow profile
 
-If that would rewrite unrelated resources, keep their current namespace fields and choose a policy-specific way to set the shared NetworkPolicies’ namespace. Record the chosen approach here before migration.
+For a multi-component app, share a narrow flow graph such as frontend → backend → database when its labels and ports fit the shared contract. Use pod-template labels such as `app.kubernetes.io/part-of` and `app.kubernetes.io/component`; the latter is intended to identify an architectural component ([6]). These are recommended labels, not labels Kubernetes adds automatically ([6]).
+
+With ingress and egress both default-denied, each edge needs both sides allowed:
+
+- frontend egress to backend on the backend's required port, and backend ingress from frontend on that port;
+- backend egress to database on the database's required port, and database ingress from backend on that port.
+
+The bundle should encode only those edges and required ports. Keep flows app-specific when ports, component labels, namespaces, or dependencies differ; do not broaden ports or selectors just to reuse YAML. NetworkPolicy rules are additive, so the rendered policy set is the effective union of allows ([5]).
+
+The current Immich policy already expresses component-to-component traffic for server, database, Redis, and machine learning components, with explicit ports. Its pod templates carry `app.kubernetes.io/component` labels ([Immich policies](apps/immich/networkpolicy.yaml), [server](apps/immich/server-deployment.yaml), [database](apps/immich/database-deployment.yaml), [Redis](apps/immich/redis-deployment.yaml), [machine learning](apps/immich/ml-deployment.yaml)). Use it as a concrete candidate when deciding whether a stable shared contract exists; do not assume its app-specific rules can be generalized unchanged.
+
+### Traefik and remaining app-specific flows
+
+- Compare selectors, source namespace/pod selectors, and destination ports across the 15 current `allow-traefik-ingress` resources. Keep ingress app-local unless the selector and port contract are truly common.
+- Keep database/cache dependencies, public egress, peer traffic, and other app-specific requirements local unless the audit proves they fit a shared profile.
+- Preserve any exceptions explicitly. Do not treat repeated resource names as evidence that rule bodies are identical.
+
+## current repository facts
+
+- The repository has 19 app `kustomization.yaml` files and 17 app `networkpolicy.yaml` files.
+- All 17 policy files are listed by their app's kustomization. `apps/rancher/` and `apps/external-routes/` currently have no `networkpolicy.yaml`.
+- By resource name, 16 policies are named `default-deny-all`, 15 `allow-traefik-ingress`, and 11 `allow-dns-egress`. These counts do **not** establish that the rules are semantically identical.
+- Other policies contain app-specific flows. Examples: [Board Games](apps/board-games/networkpolicy.yaml), [Paperless-ngx](apps/paperless-ngx/networkpolicy.yaml), and [SearXNG](apps/searxng/networkpolicy.yaml).
+- Namespace handling is mixed: Board Games, Homepage, SearXNG, and External Routes set `namespace:` in their kustomization; many policy manifests instead set `metadata.namespace` directly.
+
+## namespace handling
+
+Every rendered shared NetworkPolicy must land in the intended app namespace. Decide this while reviewing each app build: preserve explicit `metadata.namespace` where appropriate, or use the app kustomization's `namespace:` transform only after checking all namespaced resources it affects. Kustomize's namespace setting is cross-cutting, not limited to NetworkPolicies ([1]).
+
+Keep shared policy sources free of app-specific namespace assumptions. The selected composition must render one policy instance in each target namespace and must not move unrelated resources across namespaces.
 
 ## implementation and review sequence
 
-1. [ ] Agree on the shared policy scope, app opt-in list, and namespace strategy.
-2. [ ] Compare the repeated rules field-by-field; record real differences and exceptions before moving YAML.
-3. [ ] Add the shared base and split only the approved common rules from app-local policies.
-4. [ ] Migrate one representative app first; review its rendered output against the current build before repeating.
-5. [ ] Build all 19 app targets at the paths selected above and inspect the rendered NetworkPolicies for correct namespace, selectors, peers, policy types, and ports. Confirm no existing app resources disappear or gain broader access.
-6. [ ] Review the final per-app diffs and then apply through the repository’s normal deployment workflow.
+1. [ ] Confirm the baseline target is every app and identify rollout exceptions, including Rancher and External Routes.
+2. [ ] Compare the repeated default-deny, DNS, and Traefik rules field by field; document real differences before moving YAML.
+3. [ ] Define the component label and port contract, then map each candidate app's actual flows to it. Put only matching flows in the component-flow bundle.
+4. [ ] Add `apps/_shared/network-policy/{baseline,dns-egress,component-flow}/` and split approved common policies from app-specific policies.
+5. [ ] Migrate one representative app with a default-deny baseline, then one DNS opt-in and one component-flow app. Render each and compare with its pre-change output.
+6. [ ] Build all 19 app entrypoints with the repository's deployment toolchain. Check namespaces, selectors, peers, ports, policy types, and the full set of additive allows.
+7. [ ] Add a CI check that every required app entrypoint includes the baseline and that rendered policies meet the agreed flow constraints.
+8. [ ] Review all per-app diffs; deploy only through the repository's normal workflow.
 
 ## acceptance criteria
 
-- Every app has one clear, independently buildable entrypoint; if option b is chosen, update deployment references from the current `apps/<app>/` paths.
-- Each selected app receives the approved shared policy rules in the intended namespace.
-- App-specific flows and exceptions remain represented, with no selector or port broadened merely to enable reuse.
-- Apps not selected for the shared baseline remain unchanged.
-- Rendered manifests are compared before deployment; build success alone is not treated as proof of equivalent network behavior.
+- Existing `kubectl kustomize apps/<app>` and `kubectl apply -k apps/<app>` entrypoints remain valid.
+- Every in-scope app renders the shared default-deny baseline in its intended namespace.
+- Only apps that need DNS include the DNS profile.
+- Component-flow profiles allow only the agreed component edges and ports; any app that does not fit remains explicit and app-specific.
+- Rendered policies preserve current required traffic and do not introduce broader selectors, ports, or destinations.
+- CI detects a missing baseline reference and checks the agreed rendered-policy constraints.
+- Builds and diffs are reviewed before deployment; build success alone is not evidence of equivalent network behavior.
 
 ## decisions for our next edit
 
-- Should the shared base contain only default deny, or default deny plus DNS egress?
-- Is Traefik ingress truly common, or should it remain app-specific because selectors and service ports differ?
-- Should all apps with a current policy opt into the base, or should opt-in be limited to apps whose rules match the approved baseline?
-- Should per-app kustomizations use `namespace:`, or should the shared policy namespace be set without changing other resources?
-- Should we choose option a (keep existing build paths) or option b (separate `apps/app/` sources and `apps/overlays/` entrypoints)?
-- Should the shared directory be named `apps/_shared/network-policy/` or use another repo convention?
+- Should Rancher and External Routes join the default-deny baseline after their traffic is audited, or remain documented exceptions?
+- Which apps actually match the shared frontend/backend/database labels and port contract?
+- Should Traefik ingress remain app-specific, or does the audit establish a truly common selector/port rule?
+- What namespace strategy preserves current cross-namespace resources while assigning shared policies correctly?
+- What CI rule is sufficient to flag removal of the baseline and unintended additional allows?
