@@ -7,3 +7,4 @@ resources:
   - ingressroute.yaml
   - certificate-staging.yaml
   - certificate.yaml
+  - ../_shared/network-policy/baseline

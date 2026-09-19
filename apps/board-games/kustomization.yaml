@@ -11,4 +11,5 @@ resources:
   - ingress.yaml
   - certificate.yaml
   - certificate-staging.yaml
+  - ../_shared/network-policy/baseline
   - networkpolicy.yaml
