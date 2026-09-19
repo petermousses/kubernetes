@@ -51,6 +51,20 @@ resources:
 
 Kustomize composition is still not an admission boundary: a consumer can intentionally remove a base or add another allow policy. The repository validator therefore requires the baseline reference and validates the rendered invariant. Cluster admission policy would be required to prevent out-of-repository changes.
 
+## app policy matrix
+
+Ordered from the fewest to the most exceptions from default deny. This ranks policy composition, not directly comparable network reach; a single broad egress rule can permit more traffic than several narrow component rules.
+
+| order | apps | shared policies | app-local access |
+| ---: | --- | --- | --- |
+| 1 | External Routes | baseline | none; default deny only |
+| 2 | IT-Tools, Kiwix, OpenSpeedTest, QR Code Generator, Text2Shop | baseline | Traefik ingress only |
+| 3 | Board Games, Cloudflare, Crafty, Homepage, Jellyfin, n8n, Open WebUI, Syncthing, Vaultwarden | baseline | custom ingress and/or egress, including app-local DNS where needed |
+| 4 | Immich, Paperless-ngx, SearXNG | baseline + DNS egress | custom ingress, egress, and component flows |
+| 5 | Rancher | none | no rendered NetworkPolicy; networking is delegated to Helm-generated resources |
+
+No app currently has a custom rendered NetworkPolicy without the shared baseline. Rancher is unclassified at the policy layer rather than an intentional unrestricted custom profile.
+
 ## baseline
 
 The shared baseline selects every pod and isolates both ingress and egress. Eighteen of the 19 app entrypoints include it.
