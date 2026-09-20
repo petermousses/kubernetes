@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/part-of: paperless-ngx
   annotations:
     gethomepage.dev/enabled: "true"
-    gethomepage.dev/group: Paperless
+    gethomepage.dev/group: Media
     gethomepage.dev/name: Paperless-ngx
     gethomepage.dev/icon: mdi-text
     gethomepage.dev/description: Document management system
@@ -38,7 +38,7 @@ metadata:
     app.kubernetes.io/part-of: paperless-ngx
   annotations:
     gethomepage.dev/enabled: "true"
-    gethomepage.dev/group: Paperless
+    gethomepage.dev/group: Media
     gethomepage.dev/name: Paperless-AI
     gethomepage.dev/icon: mdi-text
     gethomepage.dev/description: Paperless document analysis
@@ -67,7 +67,7 @@ metadata:
     app.kubernetes.io/part-of: paperless-ngx
   annotations:
     gethomepage.dev/enabled: "true"
-    gethomepage.dev/group: Paperless
+    gethomepage.dev/group: Media
     gethomepage.dev/name: Paperless-GPT
     gethomepage.dev/icon: mdi-text
     gethomepage.dev/description: Paperless document assistant
