@@ -20,4 +20,4 @@ jobs:
         with:
           version: v1.34.1
       - name: validate rendered network policies
-        run: ruby scripts/validate-network-policies.rb
+        run: cargo run --manifest-path scripts/validate-network-policies/Cargo.toml --locked

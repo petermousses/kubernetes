@@ -33,7 +33,10 @@ apps/
     kustomization.yaml
     networkpolicy.yaml  # app-specific policies
 scripts/
-  validate-network-policies.rb
+  validate-network-policies/
+    Cargo.toml
+    Cargo.lock
+    validate-network-policies.rs
 .github/workflows/
   validate-network-policies.yaml
 ```
@@ -106,7 +109,7 @@ A semantic before/after comparison of all rendered objects passed. Existing obje
 
 ## automated checks
 
-`scripts/validate-network-policies.rb` renders all 20 app entrypoints and both shared bundles with `kubectl kustomize`. It fails when:
+`scripts/validate-network-policies/validate-network-policies.rs` renders all 20 app entrypoints and both shared bundles with `kubectl kustomize`. It fails when:
 
 - a required app removes the shared baseline reference;
 - Rancher gains the baseline without updating the explicit exception contract;

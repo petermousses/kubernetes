@@ -1,0 +1,13 @@
+[package]
+name = "validate-network-policies"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "validate-network-policies"
+path = "validate-network-policies.rs"
+
+[dependencies]
+serde = "1.0"
+serde_yaml = "0.9"
