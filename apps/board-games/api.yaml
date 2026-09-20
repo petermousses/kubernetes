@@ -23,7 +23,6 @@ metadata:
     app.kubernetes.io/part-of: board-games
     app.kubernetes.io/component: api
 spec:
-  paused: true
   replicas: 2
   revisionHistoryLimit: 2
   selector:
