@@ -13,6 +13,7 @@ metadata:
     gethomepage.dev/name: Paperless-ngx
     gethomepage.dev/icon: mdi-text
     gethomepage.dev/description: Document management system
+    gethomepage.dev/pod-selector: app.kubernetes.io/name=paperless-ngx,app.kubernetes.io/component=web
 spec:
   ingressClassName: traefik
   tls:
@@ -42,6 +43,7 @@ metadata:
     gethomepage.dev/name: Paperless-AI
     gethomepage.dev/icon: mdi-text
     gethomepage.dev/description: Paperless document analysis
+    gethomepage.dev/pod-selector: app.kubernetes.io/name=paperless-ngx,app.kubernetes.io/component=ai
 spec:
   ingressClassName: traefik
   tls:
@@ -71,6 +73,7 @@ metadata:
     gethomepage.dev/name: Paperless-GPT
     gethomepage.dev/icon: mdi-text
     gethomepage.dev/description: Paperless document assistant
+    gethomepage.dev/pod-selector: app.kubernetes.io/name=paperless-ngx,app.kubernetes.io/component=gpt
 spec:
   ingressClassName: traefik
   tls:

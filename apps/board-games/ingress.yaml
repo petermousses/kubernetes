@@ -11,6 +11,7 @@ metadata:
     gethomepage.dev/name: Board Games
     gethomepage.dev/icon: mdi-checkerboard
     gethomepage.dev/description: Persistent solitaire and checkers
+    gethomepage.dev/pod-selector: app.kubernetes.io/name=board-games-web
 spec:
   ingressClassName: traefik
   tls:
