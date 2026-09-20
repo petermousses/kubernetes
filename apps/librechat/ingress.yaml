@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: librechat
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: librechat
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: AI
+    gethomepage.dev/name: LibreChat
+    gethomepage.dev/icon: mdi-robot-outline
+    gethomepage.dev/description: AI chat interface backed by local Ollama.
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - librechat.omv.mousses.xyz
+      secretName: librechat-tls
+  rules:
+    - host: librechat.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: librechat
+                port:
+                  name: http

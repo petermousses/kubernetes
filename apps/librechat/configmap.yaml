@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: librechat-config
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: librechat
+data:
+  HOST: 0.0.0.0
+  PORT: "3080"
+  NODE_ENV: production
+  DOMAIN_CLIENT: https://librechat.omv.mousses.xyz
+  DOMAIN_SERVER: https://librechat.omv.mousses.xyz
+  MONGO_URI: mongodb://mongodb:27017/LibreChat
+  MEILI_HOST: http://meilisearch:7700
+  MEILI_NO_ANALYTICS: "true"
+  SEARCH: "true"
+  CONFIG_PATH: /app/librechat.yaml
+  LIBRECHAT_TEMP_CREDENTIALS_PATH: /app/data/.env.temp
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: librechat-custom-config
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: librechat
+data:
+  librechat.yaml: |
+    version: 1.3.16
+    cache: true
+    interface:
+      fileSearch: false
+    endpoints:
+      custom:
+        - name: Ollama
+          apiKey: ollama
+          baseURL: http://tower.mousses.xyz:11434/v1/
+          models:
+            default:
+              - llama3.2:3b
+            fetch: true
+          titleConvo: true
+          titleModel: llama3.2:3b
+          modelDisplayLabel: Ollama

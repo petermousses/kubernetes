@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: librechat
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: librechat
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: librechat
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: librechat
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: librechat
+    spec:
+      automountServiceAccountToken: false
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: librechat
+          # registry.librechat.ai/danny-avila/librechat:v0.8.7
+          image: registry.librechat.ai/danny-avila/librechat@sha256:c5db3331b845e1f289f8d04c0c77936c4bbe372f76730a804abc1c37e44d23a9
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: librechat-config
+            - secretRef:
+                name: librechat-env
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: librechat-config
+              mountPath: /app/librechat.yaml
+              subPath: librechat.yaml
+              readOnly: true
+            - name: librechat-data
+              mountPath: /app/data
+            - name: librechat-uploads
+              mountPath: /app/uploads
+            - name: librechat-images
+              mountPath: /app/client/public/images
+      volumes:
+        - name: librechat-config
+          configMap:
+            name: librechat-custom-config
+        - name: librechat-data
+          persistentVolumeClaim:
+            claimName: librechat-data
+        - name: librechat-uploads
+          persistentVolumeClaim:
+            claimName: librechat-uploads
+        - name: librechat-images
+          persistentVolumeClaim:
+            claimName: librechat-images
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      terminationGracePeriodSeconds: 60

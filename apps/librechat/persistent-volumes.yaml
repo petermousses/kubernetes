@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-mongodb
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: librechat
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-local
+  local:
+    path: /filesystem/k3s/data/librechat/mongodb
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-meilisearch
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: search
+    app.kubernetes.io/part-of: librechat
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-local
+  local:
+    path: /filesystem/k3s/data/librechat/meilisearch
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-data
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: librechat
+spec:
+  capacity:
+    storage: 2Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOncePod
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-local
+  local:
+    path: /filesystem/k3s/data/librechat/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-uploads
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: librechat
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOncePod
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-local
+  local:
+    path: /filesystem/k3s/data/librechat/uploads
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-images
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: librechat
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOncePod
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-local
+  local:
+    path: /filesystem/k3s/data/librechat/images
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault

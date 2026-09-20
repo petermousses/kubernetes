@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: librechat
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: database
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: mongodb
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: librechat
+spec:
+  serviceName: mongodb
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: librechat
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: librechat
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: librechat
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: mongodb
+          # mongo:8.0.20
+          image: docker.io/library/mongo@sha256:098862b1339f031900ca66cf8fef799e616d6324fa41b9a263f2ec899552c1ef
+          imagePullPolicy: IfNotPresent
+          args:
+            - mongod
+            - --bind_ip_all
+            - --noauth
+          ports:
+            - name: mongodb
+              containerPort: 27017
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: mongodb
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: mongodb
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: mongodb
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: mongodb-data
+              mountPath: /data/db
+      volumes:
+        - name: mongodb-data
+          persistentVolumeClaim:
+            claimName: librechat-mongodb
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      terminationGracePeriodSeconds: 60

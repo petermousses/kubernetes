@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: librechat-mongodb
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: librechat
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: librechat-local
+  volumeName: librechat-mongodb
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: librechat-meilisearch
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: search
+    app.kubernetes.io/part-of: librechat
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: librechat-local
+  volumeName: librechat-meilisearch
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: librechat-data
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: librechat
+spec:
+  accessModes:
+    - ReadWriteOncePod
+  storageClassName: librechat-local
+  volumeName: librechat-data
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: librechat-uploads
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: librechat
+spec:
+  accessModes:
+    - ReadWriteOncePod
+  storageClassName: librechat-local
+  volumeName: librechat-uploads
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: librechat-images
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: librechat
+spec:
+  accessModes:
+    - ReadWriteOncePod
+  storageClassName: librechat-local
+  volumeName: librechat-images
+  resources:
+    requests:
+      storage: 5Gi

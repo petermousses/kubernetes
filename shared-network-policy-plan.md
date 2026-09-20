@@ -60,14 +60,14 @@ Ordered from the fewest to the most exceptions from default deny. This ranks pol
 | 1 | External Routes | baseline | none; default deny only |
 | 2 | IT-Tools, Kiwix, OpenSpeedTest, QR Code Generator, Text2Shop | baseline | Traefik ingress only |
 | 3 | Board Games, Cloudflare, Crafty, Homepage, Jellyfin, n8n, Open WebUI, Syncthing, Vaultwarden | baseline | custom ingress and/or egress, including app-local DNS where needed |
-| 4 | Immich, Paperless-ngx, SearXNG | baseline + DNS egress | custom ingress, egress, and component flows |
+| 4 | Immich, LibreChat, Paperless-ngx, SearXNG | baseline + DNS egress | custom ingress, egress, and component flows |
 | 5 | Rancher | none | no rendered NetworkPolicy; networking is delegated to Helm-generated resources |
 
 No app currently has a custom rendered NetworkPolicy without the shared baseline. Rancher is unclassified at the policy layer rather than an intentional unrestricted custom profile.
 
 ## baseline
 
-The shared baseline selects every pod and isolates both ingress and egress. Eighteen of the 19 app entrypoints include it.
+The shared baseline selects every pod and isolates both ingress and egress. Nineteen of the 20 app entrypoints include it.
 
 `rancher` is the explicit exception. Its Kustomize entrypoint renders a `HelmChart` controller object in `kube-system`; the controller later creates workloads in `cattle-system`. Those generated workloads and required flows are absent from this repository's rendered output, so applying default deny there without a chart-level traffic audit would be unsafe.
 
@@ -77,7 +77,7 @@ The cluster network plugin must implement Kubernetes NetworkPolicy for these res
 
 ## DNS
 
-The shared DNS profile is used only by `immich`, `paperless-ngx`, and `searxng`, whose previous all-pod DNS policies were semantically identical: kube-dns pods on TCP/UDP 53, the `10.43.0.10/32` service IP on TCP/UDP 53, and the `10.42.0.0/16` pod CIDR on TCP/UDP 53.
+The shared DNS profile is used by `immich`, `librechat`, `paperless-ngx`, and `searxng`. LibreChat needs DNS for its in-namespace MongoDB and Meilisearch Services and its configured Ollama hostname. These policies are semantically identical: kube-dns pods on TCP/UDP 53, the `10.43.0.10/32` service IP on TCP/UDP 53, and the `10.42.0.0/16` pod CIDR on TCP/UDP 53.
 
 The eight workload-scoped DNS policies remain app-local because moving them to an all-pod shared selector would broaden access. Board Games also remains app-local because its DNS destination set is narrower. Default-deny egress blocks DNS unless an additive policy permits it ([5]).
 
@@ -89,6 +89,8 @@ No generic component-flow bundle was created. The audited applications do not sh
 - Immich uses server → PostgreSQL, Redis, and machine learning.
 - Paperless-ngx uses web, database, cache, converter, extractor, AI, and GPT components with different edges.
 - SearXNG uses SearXNG → Valkey.
+
+LibreChat uses Traefik → API, API → MongoDB, API → Meilisearch, and API → the existing Ollama host. These flows remain app-local because their selectors and ports are specific to LibreChat.
 
 With ingress and egress isolation, each internal connection still needs permission from the source egress side and destination ingress side ([5]). Those rules remain in each app's `networkpolicy.yaml`, as do Traefik, public egress, LAN, peer, and dependency rules. Reuse would require broader selectors or ports, which would weaken the current policy.
 
@@ -104,7 +106,7 @@ A semantic before/after comparison of all rendered objects passed. Existing obje
 
 ## automated checks
 
-`scripts/validate-network-policies.rb` renders all 19 app entrypoints and both shared bundles with `kubectl kustomize`. It fails when:
+`scripts/validate-network-policies.rb` renders all 20 app entrypoints and both shared bundles with `kubectl kustomize`. It fails when:
 
 - a required app removes the shared baseline reference;
 - Rancher gains the baseline without updating the explicit exception contract;
@@ -122,7 +124,7 @@ A semantic before/after comparison of all rendered objects passed. Existing obje
 - [x] Move only the identical all-pod DNS policies to one opt-in bundle.
 - [x] Keep non-identical DNS, component, Traefik, and other allow rules app-local.
 - [x] Normalize namespaces for baseline consumers.
-- [x] Render all 19 app entrypoints.
+- [x] Render all 20 app entrypoints.
 - [x] Compare pre-change and post-change manifests semantically.
 - [x] Add a CI invariant check and exercise its missing-baseline failure path.
 - [ ] Apply through the normal deployment workflow.
