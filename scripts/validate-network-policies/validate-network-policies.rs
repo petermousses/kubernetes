@@ -9,7 +9,15 @@ use std::process::Command;
 const BASELINE_RESOURCE: &str = "../_shared/network-policy/baseline";
 const DNS_RESOURCE: &str = "../_shared/network-policy/dns-egress";
 const BASELINE_EXCEPTIONS: &[&str] = &["rancher"];
-const SHARED_DNS_APPS: &[&str] = &["immich", "librechat", "paperless-ngx", "searxng"];
+// Monitoring keeps HelmChart objects in kube-system and targets workloads to its app namespace.
+const NAMESPACE_TRANSFORM_EXCEPTIONS: &[&str] = &["monitoring"];
+const SHARED_DNS_APPS: &[&str] = &[
+    "immich",
+    "librechat",
+    "monitoring",
+    "paperless-ngx",
+    "searxng",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct ResourceIdentity(
@@ -232,6 +240,7 @@ fn main() {
             ));
         }
         if requires_baseline
+            && !NAMESPACE_TRANSFORM_EXCEPTIONS.contains(&app)
             && string_at(&kustomization, &["namespace"]).as_deref() != expected_namespace.as_deref()
         {
             errors.push(format!(

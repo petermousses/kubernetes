@@ -1,0 +1,116 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: alloy
+  namespace: kube-system
+spec:
+  # Alloy 1.12.1 / appVersion v1.19.2
+  # sha256: cdd1ec39f99c3c506d5b521156d72236ea143c089f50da6b64398f831734829c
+  chart: https://github.com/grafana/helm-charts/releases/download/alloy-1.12.1/alloy-1.12.1.tgz
+  targetNamespace: monitoring
+  createNamespace: true
+  failurePolicy: abort
+  timeout: 15m
+  valuesContent: |-
+    controller:
+      type: deployment
+      replicas: 1
+    alloy:
+      enableReporting: false
+      configMap:
+        create: true
+        content: |-
+          logging {
+            level = "info"
+          }
+
+          discovery.kubernetes "pods" {
+            role = "pod"
+          }
+
+          discovery.relabel "pod_logs" {
+            targets = discovery.kubernetes.pods.targets
+
+            rule {
+              source_labels = ["__meta_kubernetes_namespace"]
+              action = "replace"
+              target_label = "namespace"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_name"]
+              action = "replace"
+              target_label = "pod"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              action = "replace"
+              target_label = "container"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+              action = "replace"
+              target_label = "app"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_container_name"]
+              separator = "/"
+              action = "replace"
+              target_label = "job"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+              separator = "/"
+              action = "replace"
+              target_label = "__path__"
+              replacement = "/var/log/pods/*$1/*.log"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_id"]
+              action = "replace"
+              target_label = "container_runtime"
+              regex = `^(\S+):\/\/.+$`
+              replacement = "$1"
+            }
+          }
+
+          loki.process "pod_logs" {
+            stage.static_labels {
+              values = {
+                cluster = "openmediavault",
+              }
+            }
+            forward_to = [loki.write.local.receiver]
+          }
+
+          loki.source.kubernetes "pod_logs" {
+            targets    = discovery.relabel.pod_logs.output
+            forward_to = [loki.process.pod_logs.receiver]
+          }
+
+          loki.process "cluster_events" {
+            stage.static_labels {
+              values = {
+                cluster = "openmediavault",
+                job     = "kubernetes-events",
+              }
+            }
+            forward_to = [loki.write.local.receiver]
+          }
+
+          loki.source.kubernetes_events "cluster_events" {
+            job_name   = "integrations/kubernetes/eventhandler"
+            log_format = "logfmt"
+            forward_to = [loki.process.cluster_events.receiver]
+          }
+
+          loki.write "local" {
+            endpoint {
+              url = "http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
+            }
+          }

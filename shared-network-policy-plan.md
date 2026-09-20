@@ -6,6 +6,12 @@
 4. [kubectl kustomize reference](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_kustomize/) — directory build targets and the default `LoadRestrictionsRootOnly` loader.
 5. [Kubernetes: NetworkPolicies](https://kubernetes.io/docs/concepts/services-networking/network-policies/) — namespace scope, selectors, default deny, DNS, additive allows, and the requirement for both source egress and destination ingress to permit a connection.
 6. [Kubernetes recommended labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/) — `app.kubernetes.io/part-of` and `app.kubernetes.io/component` identify an application and its architectural components.
+7. [K3s Helm controller](https://docs.k3s.io/add-ons/helm) — `HelmChart` objects, remote chart archives, target namespaces, and inline values.
+8. [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/README.md) — Prometheus Operator, Grafana, kube-state-metrics, node-exporter, and `ServiceMonitor`/`PodMonitor` discovery.
+9. [Prometheus Operator getting started](https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/developer/getting-started.md) — `ServiceMonitor` and `PodMonitor` target discovery.
+10. [Loki Helm installation](https://grafana.com/docs/loki/latest/setup/install/helm/) — monolithic Loki for small installations and chart installation guidance.
+11. [Grafana Alloy Kubernetes log collection](https://grafana.com/docs/alloy/latest/collect/logs-in-kubernetes/) — Kubernetes discovery, relabeling, `loki.source.kubernetes`, processing, and `loki.write`.
+12. [Promtail](https://grafana.com/docs/loki/latest/send-data/promtail/) — Promtail is deprecated and reached end-of-life on March 2, 2026.
 
 # shared network policy plan
 
@@ -29,6 +35,14 @@ apps/
       dns-egress/
         kustomization.yaml
         allow-dns-egress.yaml
+  monitoring/
+    kustomization.yaml
+    helmchart-kube-prometheus-stack.yaml
+    helmchart-loki.yaml
+    helmchart-alloy.yaml
+    networkpolicy.yaml
+    persistent-volumes.yaml
+    storage-class.yaml
   <app>/
     kustomization.yaml
     networkpolicy.yaml  # app-specific policies
@@ -64,13 +78,14 @@ Ordered from the fewest to the most exceptions from default deny. This ranks pol
 | 2 | IT-Tools, Kiwix, OpenSpeedTest, QR Code Generator, Text2Shop | baseline | Traefik ingress only |
 | 3 | Board Games, Cloudflare, Crafty, Homepage, Jellyfin, n8n, Open WebUI, Syncthing, Vaultwarden | baseline | custom ingress and/or egress, including app-local DNS where needed |
 | 4 | Immich, LibreChat, Paperless-ngx, SearXNG | baseline + DNS egress | custom ingress, egress, and component flows |
-| 5 | Rancher | none | no rendered NetworkPolicy; networking is delegated to Helm-generated resources |
+| 5 | Monitoring | baseline + DNS egress | same-namespace stack traffic, Kubernetes API and kubelet metrics, Traefik → Grafana |
+| 6 | Rancher | none | no rendered NetworkPolicy; networking is delegated to Helm-generated resources |
 
 No app currently has a custom rendered NetworkPolicy without the shared baseline. Rancher is unclassified at the policy layer rather than an intentional unrestricted custom profile.
 
 ## baseline
 
-The shared baseline selects every pod and isolates both ingress and egress. Nineteen of the 20 app entrypoints include it.
+The shared baseline selects every pod and isolates both ingress and egress. Twenty of the 21 app entrypoints include it.
 
 `rancher` is the explicit exception. Its Kustomize entrypoint renders a `HelmChart` controller object in `kube-system`; the controller later creates workloads in `cattle-system`. Those generated workloads and required flows are absent from this repository's rendered output, so applying default deny there without a chart-level traffic audit would be unsafe.
 
@@ -99,17 +114,27 @@ With ingress and egress isolation, each internal connection still needs permissi
 
 The existing `app.kubernetes.io/part-of` and `app.kubernetes.io/component` labels remain useful identifiers ([6]), but matching label names alone do not establish a reusable traffic contract.
 
+## monitoring stack
+
+`apps/monitoring/` is a chart-managed exception to the normal app namespace transformer because K3s `HelmChart` objects must remain in `kube-system` while their workloads target `monitoring` ([7]). The entrypoint still references the shared baseline and DNS directories directly; Kustomize patches their rendered namespace to `monitoring`.
+
+The Prometheus Community chart installs Prometheus Operator, Prometheus, Alertmanager, Grafana, kube-state-metrics, and node-exporter. Prometheus selects `ServiceMonitor`, `PodMonitor`, and `PrometheusRule` objects cluster-wide so future application metrics can opt in through those CRDs ([8], [9]). The chart’s Prometheus and Alertmanager data, Grafana state, and Loki data use retained local volumes under `/filesystem/k3s/data/monitoring/`.
+
+Loki runs as one filesystem-backed monolithic instance with seven-day retention. Grafana receives a Loki datasource through the internal `loki-gateway` Service. Alloy runs as one deployment with cluster-wide read access to Kubernetes pod logs and events, labels streams with namespace, pod, container, app, job, and cluster, and writes them to Loki ([10], [11]). Promtail is intentionally not used because it is end-of-life.
+
+The monitoring policy keeps the shared default deny and DNS profile. Its local rules allow monitoring components to communicate within their namespace, reach the Kubernetes API, let Prometheus reach the node kubelet metrics endpoint, let the Prometheus admission webhook receive API-server traffic, and let Traefik reach Grafana. Application-specific metrics endpoints still need an app-local ingress rule when they are added.
+
 ## namespace handling
 
-Every baseline consumer now declares its namespace in the app kustomization. The shared sources contain no app-specific namespace, and the parent namespace transformer places each rendered policy correctly ([1]).
+Every ordinary baseline consumer declares its namespace in the app kustomization. The shared sources contain no app-specific namespace, and the parent namespace transformer places each rendered policy correctly ([1]). Monitoring is the chart-managed exception: its parent has no namespace transformer because its HelmChart objects remain in `kube-system`; two Kustomize patches place the shared policies in `monitoring`.
 
 `rancher` deliberately has no kustomization-level namespace because that would rewrite its `HelmChart` object from `kube-system` to `cattle-system`. Its manifests keep explicit namespaces.
 
-A semantic before/after comparison of all rendered objects passed. Existing objects were unchanged; the only additions were `default-deny-all` in `cloudflare` and `external-routes`.
+A semantic before/after comparison of the existing app entrypoints passed. Existing non-monitoring objects were unchanged; the shared-policy additions were `default-deny-all` in `cloudflare` and `external-routes`, and the monitoring stack is a new entrypoint.
 
 ## automated checks
 
-`scripts/validate-network-policies/validate-network-policies.rs` renders all 20 app entrypoints and both shared bundles with `kubectl kustomize`. It fails when:
+`scripts/validate-network-policies/validate-network-policies.rs` renders all 21 app entrypoints and both shared bundles with `kubectl kustomize`. It fails when:
 
 - a required app removes the shared baseline reference;
 - Rancher gains the baseline without updating the explicit exception contract;
@@ -127,9 +152,11 @@ A semantic before/after comparison of all rendered objects passed. Existing obje
 - [x] Move only the identical all-pod DNS policies to one opt-in bundle.
 - [x] Keep non-identical DNS, component, Traefik, and other allow rules app-local.
 - [x] Normalize namespaces for baseline consumers.
-- [x] Render all 20 app entrypoints.
+- [x] Render all 21 app entrypoints.
 - [x] Compare pre-change and post-change manifests semantically.
 - [x] Add a CI invariant check and exercise its missing-baseline failure path.
+- [x] Add pinned kube-prometheus-stack, Loki, and Alloy HelmChart definitions with local persistence, Grafana/Loki wiring, and Alloy pod-log collection.
+- [x] Render all three pinned chart archives locally with Helm and render every app entrypoint with Kustomize.
 - [ ] Apply through the normal deployment workflow.
-- [ ] Confirm workload startup, DNS, ingress, internal component traffic, and required egress from live logs.
+- [ ] Confirm PVC binding, workload startup, DNS, Grafana ingress, pod-log ingestion, metric targets, internal component traffic, and required egress from live logs.
 - [ ] Revisit Rancher only after chart-generated workloads and required traffic are audited.
