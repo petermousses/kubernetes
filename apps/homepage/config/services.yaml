@@ -106,7 +106,7 @@
         icon: si-linksys-#000000
         href: http://switch.{{HOMEPAGE_VAR_DOMAIN_NAME}}
         description: Managed Switch with PoE+ and SFP+
-        ping: switch.{{HOMEPAGE_VAR_DOMAIN_NAME}}
+        siteMonitor: http://switch.{{HOMEPAGE_VAR_DOMAIN_NAME}}
     - Access Point:
         icon: mdi-wifi
         href: http://wifi.mousses.xyz
