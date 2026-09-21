@@ -25,6 +25,13 @@ spec:
                   storage: 2Gi
     grafana:
       defaultDashboardsEnabled: true
+      startupProbe:
+        httpGet:
+          path: /api/health
+          port: grafana
+        failureThreshold: 60
+        periodSeconds: 10
+        timeoutSeconds: 5
       persistence:
         enabled: true
         storageClassName: monitoring-local
