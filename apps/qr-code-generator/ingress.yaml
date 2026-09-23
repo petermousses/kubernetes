@@ -6,6 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: qr-code-generator
   annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: qr-code-generator-security-headers@kubernetescrd
     gethomepage.dev/enabled: "true"
     gethomepage.dev/group: Utilities
     gethomepage.dev/name: QR Code Generator

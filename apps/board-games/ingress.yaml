@@ -6,6 +6,7 @@ metadata:
     app.kubernetes.io/name: board-games-web
     app.kubernetes.io/part-of: board-games
   annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: board-games-security-headers@kubernetescrd
     gethomepage.dev/enabled: "true"
     gethomepage.dev/group: Personal
     gethomepage.dev/name: Board Games

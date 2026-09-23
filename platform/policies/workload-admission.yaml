@@ -1,0 +1,79 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: workload-metadata.platform.mousses.xyz
+  labels:
+    app.kubernetes.io/part-of: openmediavault
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+  validations:
+    - expression: "object.metadata.labels.exists(key, key == 'app.kubernetes.io/name') && object.metadata.labels.exists(key, key == 'app.kubernetes.io/part-of')"
+      message: "workloads must declare app.kubernetes.io/name and app.kubernetes.io/part-of"
+      reason: Invalid
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: workload-metadata.platform.mousses.xyz
+  labels:
+    app.kubernetes.io/part-of: openmediavault
+spec:
+  policyName: workload-metadata.platform.mousses.xyz
+  validationActions: [Warn, Audit]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        platform.mousses.xyz/admission: audit
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: workload-host-isolation.platform.mousses.xyz
+  labels:
+    app.kubernetes.io/part-of: openmediavault
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: "!has(object.spec.hostNetwork) || object.spec.hostNetwork == false"
+      message: "pods must not use the host network"
+      reason: Forbidden
+    - expression: "!has(object.spec.hostPID) || object.spec.hostPID == false"
+      message: "pods must not share the host PID namespace"
+      reason: Forbidden
+    - expression: "!has(object.spec.hostIPC) || object.spec.hostIPC == false"
+      message: "pods must not share the host IPC namespace"
+      reason: Forbidden
+    - expression: "object.spec.containers.all(container, !has(container.securityContext) || !has(container.securityContext.privileged) || container.securityContext.privileged == false) && (!has(object.spec.initContainers) || object.spec.initContainers.all(container, !has(container.securityContext) || !has(container.securityContext.privileged) || container.securityContext.privileged == false))"
+      message: "containers must not be privileged"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: workload-host-isolation.platform.mousses.xyz
+  labels:
+    app.kubernetes.io/part-of: openmediavault
+spec:
+  policyName: workload-host-isolation.platform.mousses.xyz
+  validationActions: [Warn, Audit]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        platform.mousses.xyz/admission: audit

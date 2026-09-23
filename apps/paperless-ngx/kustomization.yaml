@@ -14,6 +14,7 @@ resources:
   - integrations.yaml
   - certificates.yaml
   - ingress.yaml
+  - ../_shared/ingress-security
   - ../_shared/network-policy/baseline
   - ../_shared/network-policy/dns-egress
   - networkpolicy.yaml

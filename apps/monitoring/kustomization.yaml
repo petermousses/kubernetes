@@ -9,10 +9,20 @@ resources:
   - helmchart-alloy.yaml
   - certificate.yaml
   - ingress.yaml
+  - ../_shared/ingress-security
   - ../_shared/network-policy/baseline
   - ../_shared/network-policy/dns-egress
   - networkpolicy.yaml
 patches:
+  - target:
+      group: traefik.io
+      version: v1alpha1
+      kind: Middleware
+      name: security-headers
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: monitoring
   - target:
       group: networking.k8s.io
       version: v1

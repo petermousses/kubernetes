@@ -6,6 +6,8 @@ metadata:
   labels:
     app.kubernetes.io/name: jellyfin
     app.kubernetes.io/part-of: jellyfin
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: jellyfin-security-headers@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:

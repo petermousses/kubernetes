@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/component: api
     app.kubernetes.io/part-of: librechat
   annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: librechat-security-headers@kubernetescrd
     gethomepage.dev/enabled: "true"
     gethomepage.dev/group: AI
     gethomepage.dev/name: LibreChat

@@ -4,3 +4,8 @@ metadata:
   name: immich
   labels:
     app.kubernetes.io/part-of: immich
+    platform.mousses.xyz/admission: audit
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest

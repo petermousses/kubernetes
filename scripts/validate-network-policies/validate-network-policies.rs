@@ -8,6 +8,7 @@ use std::process::Command;
 
 const BASELINE_RESOURCE: &str = "../_shared/network-policy/baseline";
 const DNS_RESOURCE: &str = "../_shared/network-policy/dns-egress";
+const INGRESS_SECURITY_RESOURCE: &str = "../_shared/ingress-security";
 const BASELINE_EXCEPTIONS: &[&str] = &["rancher"];
 // Monitoring keeps HelmChart objects in kube-system and targets workloads to its app namespace.
 const NAMESPACE_TRANSFORM_EXCEPTIONS: &[&str] = &["monitoring"];
@@ -17,6 +18,27 @@ const SHARED_DNS_APPS: &[&str] = &[
     "monitoring",
     "paperless-ngx",
     "searxng",
+];
+const INGRESS_SECURITY_APPS: &[&str] = &[
+    "board-games",
+    "crafty",
+    "external-routes",
+    "homepage",
+    "immich",
+    "it-tools",
+    "jellyfin",
+    "kiwix",
+    "librechat",
+    "monitoring",
+    "n8n",
+    "open-speed-test",
+    "open-webui",
+    "paperless-ngx",
+    "qr-code-generator",
+    "searxng",
+    "syncthing",
+    "text2shop",
+    "vaultwarden",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -106,6 +128,97 @@ fn network_policies<'a>(documents: &'a [Value], name: &str) -> Vec<&'a Value> {
         .collect()
 }
 
+fn matching_resources<'a>(
+    documents: &'a [Value],
+    api_version: &str,
+    kind: &str,
+    name: &str,
+) -> Vec<&'a Value> {
+    documents
+        .iter()
+        .filter(|document| {
+            string_at(document, &["apiVersion"]).as_deref() == Some(api_version)
+                && string_at(document, &["kind"]).as_deref() == Some(kind)
+                && string_at(document, &["metadata", "name"]).as_deref() == Some(name)
+        })
+        .collect()
+}
+
+fn ingress_routes_have_security_headers(document: &Value) -> bool {
+    value_at_path(document, &["spec", "routes"])
+        .and_then(Value::as_sequence)
+        .is_some_and(|routes| {
+            !routes.is_empty()
+                && routes.iter().all(|route| {
+                    value_at(route, "middlewares")
+                        .and_then(Value::as_sequence)
+                        .is_some_and(|middlewares| {
+                            middlewares.iter().any(|middleware| {
+                                string_at(middleware, &["name"]).as_deref()
+                                    == Some("security-headers")
+                            })
+                        })
+                })
+        })
+}
+
+fn validate_admission_policies(root: &Path, errors: &mut Vec<String>) {
+    let documents = match render(&root.join("platform/policies")) {
+        Ok(documents) => documents,
+        Err(error) => {
+            errors.push(error);
+            return;
+        }
+    };
+
+    for binding_name in [
+        "workload-metadata.platform.mousses.xyz",
+        "workload-host-isolation.platform.mousses.xyz",
+    ] {
+        let bindings = matching_resources(
+            &documents,
+            "admissionregistration.k8s.io/v1",
+            "ValidatingAdmissionPolicyBinding",
+            binding_name,
+        );
+        if bindings.len() != 1 {
+            errors.push(format!(
+                "admission policy binding {} must render exactly once",
+                binding_name
+            ));
+            continue;
+        }
+        let binding = bindings[0];
+        let actions = value_at_path(binding, &["spec", "validationActions"])
+            .and_then(Value::as_sequence)
+            .map(|actions| actions.iter().filter_map(Value::as_str).collect::<Vec<_>>());
+        if actions.as_deref() != Some(&["Warn", "Audit"]) {
+            errors.push(format!(
+                "admission policy binding {} must remain audit-and-warn only",
+                binding_name
+            ));
+        }
+        if string_at(
+            binding,
+            &[
+                "spec",
+                "matchResources",
+                "namespaceSelector",
+                "matchLabels",
+                "platform.mousses.xyz/admission",
+            ],
+        )
+        .as_deref()
+            != Some("audit")
+        {
+            errors.push(format!(
+                "admission policy binding {} must target opted-in audit namespaces",
+                binding_name
+            ));
+        }
+    }
+}
+
 fn resource_identity(document: &Value) -> ResourceIdentity {
     ResourceIdentity(
         string_at(document, &["apiVersion"]),
@@ -138,7 +251,13 @@ fn main() {
     let expected_baseline_spec: Value =
         serde_yaml::from_str("podSelector: {}\npolicyTypes:\n  - Ingress\n  - Egress\n")
             .expect("baseline spec is valid YAML");
+    let expected_security_headers_spec: Value = serde_yaml::from_str(
+        "headers:\n  contentTypeNosniff: true\n  referrerPolicy: strict-origin-when-cross-origin\n",
+    )
+    .expect("security headers spec is valid YAML");
     let mut errors = Vec::new();
+
+    validate_admission_policies(&root, &mut errors);
 
     let mut app_directories: Vec<PathBuf> = fs::read_dir(&apps_root)
         .unwrap_or_else(|error| {
@@ -220,6 +339,7 @@ fn main() {
         let expected_namespace = string_at(&namespace, &["metadata", "name"]);
         let requires_baseline = !BASELINE_EXCEPTIONS.contains(&app);
         let uses_shared_dns = SHARED_DNS_APPS.contains(&app);
+        let uses_ingress_security = INGRESS_SECURITY_APPS.contains(&app);
 
         if resources.contains(&BASELINE_RESOURCE) != requires_baseline {
             errors.push(format!(
@@ -237,6 +357,17 @@ fn main() {
                 "{}: shared DNS reference must be {}",
                 app,
                 if uses_shared_dns { "present" } else { "absent" }
+            ));
+        }
+        if resources.contains(&INGRESS_SECURITY_RESOURCE) != uses_ingress_security {
+            errors.push(format!(
+                "{}: shared ingress-security reference must be {}",
+                app,
+                if uses_ingress_security {
+                    "present"
+                } else {
+                    "absent"
+                }
             ));
         }
         if requires_baseline
@@ -322,11 +453,86 @@ fn main() {
                 }
             }
         }
+
+        if uses_ingress_security {
+            let middleware = matching_resources(
+                &documents,
+                "traefik.io/v1alpha1",
+                "Middleware",
+                "security-headers",
+            );
+            if middleware.len() != 1 {
+                errors.push(format!(
+                    "{}: expected one shared security-headers middleware, rendered {}",
+                    app,
+                    middleware.len()
+                ));
+            } else if string_at(middleware[0], &["metadata", "namespace"]).as_deref()
+                != expected_namespace.as_deref()
+            {
+                errors.push(format!(
+                    "{}: security-headers rendered in {:?}",
+                    app,
+                    string_at(middleware[0], &["metadata", "namespace"])
+                ));
+            }
+            if middleware.len() == 1
+                && value_at_path(middleware[0], &["spec"]) != Some(&expected_security_headers_spec)
+            {
+                errors.push(format!("{}: security-headers spec changed", app));
+            }
+
+            let ingress_documents: Vec<_> = documents
+                .iter()
+                .filter(|document| {
+                    string_at(document, &["apiVersion"]).as_deref() == Some("networking.k8s.io/v1")
+                        && string_at(document, &["kind"]).as_deref() == Some("Ingress")
+                })
+                .collect();
+            let expected_middleware = format!(
+                "{}-security-headers@kubernetescrd",
+                expected_namespace.as_deref().unwrap_or_default()
+            );
+            if ingress_documents.iter().any(|ingress| {
+                string_at(
+                    ingress,
+                    &[
+                        "metadata",
+                        "annotations",
+                        "traefik.ingress.kubernetes.io/router.middlewares",
+                    ],
+                )
+                .as_deref()
+                    != Some(expected_middleware.as_str())
+            }) {
+                errors.push(format!(
+                    "{}: every Ingress must use its namespace-local security-headers middleware",
+                    app
+                ));
+            }
+
+            let ingress_routes: Vec<_> = documents
+                .iter()
+                .filter(|document| {
+                    string_at(document, &["apiVersion"]).as_deref() == Some("traefik.io/v1alpha1")
+                        && string_at(document, &["kind"]).as_deref() == Some("IngressRoute")
+                })
+                .collect();
+            if ingress_routes
+                .iter()
+                .any(|route| !ingress_routes_have_security_headers(route))
+            {
+                errors.push(format!(
+                    "{}: every IngressRoute rule must use security-headers",
+                    app
+                ));
+            }
+        }
     }
 
     if errors.is_empty() {
         println!(
-            "validated {} app kustomizations and shared network-policy invariants",
+            "validated {} app kustomizations and shared platform invariants",
             app_directories.len()
         );
     } else {

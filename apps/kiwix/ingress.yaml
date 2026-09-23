@@ -7,6 +7,7 @@ metadata:
     app.kubernetes.io/name: kiwix
     app.kubernetes.io/part-of: kiwix
   annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: kiwix-security-headers@kubernetescrd
     gethomepage.dev/enabled: "true"
     gethomepage.dev/group: Media
     gethomepage.dev/name: Kiwix

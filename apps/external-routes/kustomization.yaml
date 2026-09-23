@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - services.yaml
   - ingressroute.yaml
+  - ../_shared/ingress-security
   - certificate-staging.yaml
   - certificate.yaml
   - ../_shared/network-policy/baseline

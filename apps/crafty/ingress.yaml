@@ -12,6 +12,8 @@ spec:
   routes:
     - match: Host(`crafty.omv.mousses.xyz`)
       kind: Rule
+      middlewares:
+        - name: security-headers
       services:
         - name: crafty-admin
           port: 8443
@@ -20,6 +22,8 @@ spec:
           serversTransport: crafty-backend
     - match: Host(`map.omv.mousses.xyz`)
       kind: Rule
+      middlewares:
+        - name: security-headers
       services:
         - name: crafty-map
           port: 8080

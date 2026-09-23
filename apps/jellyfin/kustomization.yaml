@@ -9,6 +9,7 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+  - ../_shared/ingress-security
   - certificate-staging.yaml
   - certificate.yaml
   - ../_shared/network-policy/baseline

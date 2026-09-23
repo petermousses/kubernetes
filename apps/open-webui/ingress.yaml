@@ -7,6 +7,7 @@ metadata:
     app.kubernetes.io/name: open-webui
     app.kubernetes.io/part-of: open-webui
   annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: open-webui-security-headers@kubernetescrd
     gethomepage.dev/enabled: "true"
     gethomepage.dev/group: AI
     gethomepage.dev/name: OpenWebUI

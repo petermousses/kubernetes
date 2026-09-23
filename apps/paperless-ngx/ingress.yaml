@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/component: web
     app.kubernetes.io/part-of: paperless-ngx
   annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: paperless-ngx-security-headers@kubernetescrd
     gethomepage.dev/enabled: "true"
     gethomepage.dev/group: Media
     gethomepage.dev/name: Paperless-ngx
@@ -38,6 +39,7 @@ metadata:
     app.kubernetes.io/component: ai
     app.kubernetes.io/part-of: paperless-ngx
   annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: paperless-ngx-security-headers@kubernetescrd
     gethomepage.dev/enabled: "true"
     gethomepage.dev/group: Media
     gethomepage.dev/name: Paperless-AI
@@ -68,6 +70,7 @@ metadata:
     app.kubernetes.io/component: gpt
     app.kubernetes.io/part-of: paperless-ngx
   annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: paperless-ngx-security-headers@kubernetescrd
     gethomepage.dev/enabled: "true"
     gethomepage.dev/group: Media
     gethomepage.dev/name: Paperless-GPT

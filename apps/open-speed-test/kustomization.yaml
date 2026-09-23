@@ -6,6 +6,7 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+  - ../_shared/ingress-security
   - certificate.yaml
   - ../_shared/network-policy/baseline
   - networkpolicy.yaml

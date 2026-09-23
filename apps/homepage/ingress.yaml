@@ -6,6 +6,8 @@ metadata:
   labels:
     app.kubernetes.io/name: homepage
     app.kubernetes.io/part-of: homepage
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: homepage-security-headers@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:

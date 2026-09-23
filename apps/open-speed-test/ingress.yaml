@@ -6,6 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: open-speed-test
   annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: open-speed-test-security-headers@kubernetescrd
     gethomepage.dev/enabled: "true"
     gethomepage.dev/group: Networking
     gethomepage.dev/name: Speed Test

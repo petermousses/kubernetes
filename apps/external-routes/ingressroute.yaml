@@ -11,12 +11,16 @@ spec:
   routes:
     - match: Host(`nas.omv.mousses.xyz`)
       kind: Rule
+      middlewares:
+        - name: security-headers
       services:
         - name: omv
           port: 80
           passHostHeader: true
     - match: Host(`dns.omv.mousses.xyz`)
       kind: Rule
+      middlewares:
+        - name: security-headers
       services:
         - name: adguard
           port: 80
