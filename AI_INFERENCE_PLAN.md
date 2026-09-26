@@ -32,6 +32,7 @@ raw Halo endpoints remain private and firewall-restricted to the cluster.
 
 ### 1. validate the Halo node before touching k3s
 
+- access the AI node with `ssh ai@redqueen.mousses.xyz -i ~/.ssh/redqueen`.
 - record exact hardware, vendor OS, kernel and firmware.
 - require:
   - the distro/kernel combination appears in AMD’s supported matrix;
