@@ -75,7 +75,15 @@ the vendor OS, Linux kernel, AMD firmware and third-party container contents are
 
 ### 2. deploy the local inference runtimes
 
-- create the dedicated `ai-inference` account, model/cache directories and systemd or Podman Quadlet service definitions with explicit CPU, memory, file and restart limits.
+- mount the local NVMe filesystem at `/srv/ai`; if the vendor OS requires a different physical mount point, use a bind mount so `/srv/ai` remains the stable service-facing path.
+- create the dedicated `ai-inference` account and grant it ownership only where required under `/srv/ai`; systemd or Podman Quadlet service definitions must use explicit CPU, memory, file and restart limits.
+- use this storage layout:
+  - `/srv/ai/models/qwen3.8-27b/` — Qwen3.8 weights, multimodal projection, license, source revision and `SHA256SUMS`;
+  - `/srv/ai/models/jevk5-4b-v0.3/` — JevK5 GGUF, calibration metadata, license, source revision and `SHA256SUMS`;
+  - `/srv/ai/models/qwen-image-2.1/` — Qwen Image model components, license, source revision and `SHA256SUMS`;
+  - `/srv/ai/cache/` — disposable download, conversion and runtime caches; never the authoritative copy of a model;
+  - `/srv/ai/comfyui/` — pinned ComfyUI checkout, immutable workflows and custom-node lock data.
+- configure every runtime to load weights from the authoritative `/srv/ai/models/` directories directly or through read-only symlinks; do not duplicate unmanaged model copies inside application directories or container layers.
 - download the pinned Qwen3.8-27B, JevK5 4B Q8_0 and Qwen Image 2.1 artifacts; record source revisions and SHA-256 hashes, and retain every required license/notice file beside the weights.
 - run separate `llama-server` instances for Qwen3.8 and JevK5, including Qwen’s multimodal projection and each service’s health and metrics endpoints.
 - install a pinned ComfyUI revision and immutable Qwen Image 2.1 workflows for generation, editing, transparency and reference-image input.
@@ -108,6 +116,7 @@ the vendor OS, Linux kernel, AMD firmware and third-party container contents are
 - move `chat.omv.mousses.xyz` to LibreChat, preserve the former LibreChat hostname as a redirect and retain the stopped Open WebUI data volume for 30 days.
 - verify the rollback path by restoring the prior ingress target, then return traffic to LibreChat; commit and push each independently reviewable implementation phase without staging unrelated changes.
 - **exit criterion:** the new path passes every acceptance test under normal and reboot conditions, monitoring is green, rollback is proven, and the repository and remote branch are clean and synchronized.
+- [ ] **owner todo after every exit criterion passes:** choose the final NAS archive destination, manually copy `/srv/ai/models/` from redqueen to it, copy the adjacent licenses/source revisions/`SHA256SUMS`, and verify every destination hash against the source. record the NAS path in this plan after the copy. the NAS archive is a recovery copy; inference continues to load weights from redqueen’s local NVMe.
 
 ## implementation plan
 
@@ -123,7 +132,7 @@ the vendor OS, Linux kernel, AMD firmware and third-party container contents are
   - multiple processes can share `/dev/kfd` without resets.
 - keep the vendor OS only if those gates pass. otherwise stop. pretending an unsupported Debian derivative is “close enough” is how you get weeks of bullshit GPU debugging.
 - reserve roughly 96 GB of the 128 GB unified memory for GPU-accessible TTM/GTT, leaving about 32 GB for the OS and k3s.
-- require at least 250 GB of local NVMe model/cache space.
+- require at least 250 GB of local NVMe model/cache space mounted at the stable path `/srv/ai`.
 
 ### 2. deploy the inference backends on the host
 
