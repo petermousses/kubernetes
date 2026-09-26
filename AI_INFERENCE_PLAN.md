@@ -6,12 +6,12 @@ do **not** make k3s directly manage the AMD Halo GPU workloads in v1. run the in
 
 | layer | selection |
 |---|---|
-| api gateway | LiteLLM |
-| chat ui | LibreChat |
-| identity | Authentik OIDC |
-| Qwen3.8 runtime | `llama.cpp` with ROCm |
-| Qwen Image 2.1 runtime | ComfyUI + thin OpenAI Images adapter |
-| JevK5 runtime | separate `llama.cpp` server + `/v1/systemone` adapter |
+| api gateway | LiteLLM (MIT for the open-source core) |
+| chat ui | LibreChat (MIT) |
+| identity | Authentik OIDC (MIT for the community core) |
+| Qwen3.8 runtime | `llama.cpp` (MIT) with ROCm (component-specific licenses); Qwen3.8-27B weights (Apache-2.0) |
+| Qwen Image 2.1 runtime | ComfyUI (GPL-3.0) + thin OpenAI-compatible Images adapter (planned Apache-2.0); Qwen Image 2.1 weights (Qwen Research License) |
+| JevK5 runtime | separate `llama.cpp` server + `/v1/systemone` adapter; JevK5 code and weights (Apache-2.0) |
 | machine authentication | scoped LiteLLM virtual keys |
 | browser authentication | Authentik SSO |
 
@@ -27,6 +27,40 @@ api clients ──> api.ai... ──────────────┤
 ```
 
 raw Halo endpoints remain private and firewall-restricted to the cluster.
+
+## licenses and use constraints
+
+**Qwen Image 2.1 is the licensing outlier.** Its [Qwen Research License](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE) is a custom, non-OSI license that defines non-commercial use as research or evaluation only. It permits use, modification and redistribution only for those purposes; commercial use requires a separate license from Qwen. Redistribution also requires the license and attribution notice, and using its materials or outputs to improve a distributed AI model triggers a “Built with Qwen” or “Improved using Qwen” notice. A private home-lab deployment is within the stated grant only when it is genuinely research or evaluation. Do not use this model for paid, client-facing or other business activity without obtaining the separate commercial license. This is a project risk classification, not legal advice.
+
+| product or model | license | plan impact |
+|---|---|---|
+| [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/LICENSE) | Apache-2.0 | permissive model license; preserve required notices when redistributing weights or derivatives. |
+| [Qwen Image 2.1](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE) | Qwen Research License | non-commercial research/evaluation only unless a separate commercial license is obtained. |
+| [JevK5 runtime and model](https://github.com/allebee/jevk5/blob/main/LICENSE) | Apache-2.0 | permissive; the selected [GGUF weights](https://huggingface.co/alibiserikbay/JevK5-GGUF) carry the same license. |
+| [`llama.cpp`](https://github.com/ggml-org/llama.cpp/blob/master/LICENSE) | MIT | permissive. |
+| [LiteLLM](https://github.com/BerriAI/litellm/blob/main/LICENSE) | MIT for the open-source core | anything under its `enterprise/` directory has separate terms and is excluded from this plan. |
+| [LibreChat](https://github.com/LibreChat-AI/LibreChat/blob/main/LICENSE) | MIT | permissive. |
+| [Authentik](https://github.com/goauthentik/authentik/blob/main/LICENSE) | MIT for the community core and client JavaScript | enterprise-directory code has separate terms; website content is CC BY-SA 4.0. this plan uses community features only. |
+| [ComfyUI](https://github.com/Comfy-Org/ComfyUI/blob/master/LICENSE) | GPL-3.0 | internal execution over the network does not itself distribute ComfyUI; distributing a modified build requires GPL compliance and corresponding source. |
+| [ROCm](https://github.com/ROCm/rocm-systems#license) | component-specific; no single umbrella license | audit the exact installed driver, firmware, runtime and library packages during node validation. do not label the whole stack “MIT.” |
+| [Podman](https://github.com/podman-container-tools/podman/blob/main/LICENSE) | Apache-2.0 | permissive. |
+| [systemd](https://github.com/systemd/systemd/blob/main/LICENSES/README.md) | LGPL-2.1-or-later generally | udev programs include GPL-2.0-or-later code; normal service use creates no project-specific distribution requirement. |
+| [PostgreSQL](https://www.postgresql.org/about/licence/) | PostgreSQL License | permissive. |
+| [k3s](https://github.com/k3s-io/k3s) | Apache-2.0 | permissive. |
+| [Kubernetes](https://github.com/kubernetes/kubernetes) | Apache-2.0 | permissive. |
+| [Traefik Proxy](https://github.com/traefik/traefik/blob/master/LICENSE.md) | MIT | the separate Traefik Helm chart is Apache-2.0. |
+| [Helm](https://github.com/helm/community/blob/main/governance/governance.md#dco-and-licenses) | Apache-2.0 for code | documentation is CC BY 4.0. |
+| [AMD GPU Operator](https://github.com/ROCm/gpu-operator) | Apache-2.0 | referenced but explicitly not deployed in v1. |
+| [Open WebUI](https://github.com/open-webui/open-webui/blob/main/LICENSE) | Open WebUI License for v0.6.6+; older code is MIT/BSD-3-Clause by commit history | current license is not OSI-approved and restricts branding changes; retain its branding while it remains deployed, then retire it as planned. |
+| [OpenMediaVault](https://github.com/openmediavault/openmediavault/blob/master/COPYING) | GPL-3.0 unless a component states otherwise | normal internal use is fine; comply with source obligations if distributing modified builds. |
+| [Ollama](https://github.com/ollama/ollama/blob/main/LICENSE) | MIT | currently used but replaced by the selected runtime path. model licenses remain independent of Ollama’s software license. |
+| [vLLM](https://github.com/vllm-project/vllm/blob/main/LICENSE) | Apache-2.0 | evaluated but not selected for this hardware. |
+| [SGLang](https://github.com/sgl-project/sglang/blob/main/LICENSE) | Apache-2.0 | evaluated but not selected for this hardware. |
+| [Redis](https://redis.io/legal/licenses/) | version-specific: BSD-3-Clause through 7.2, RSALv2/SSPLv1 for 7.4–7.8, and RSALv2/SSPLv1/AGPL-3.0 choice for 8+ | mentioned only because Authentik no longer requires it; not deployed by this plan. |
+| planned image and JevK5 adapters | Apache-2.0, to be declared when created | first-party code does not exist yet; add an explicit license before distributing it. |
+| OpenAI-compatible API shapes | interface compatibility, not bundled OpenAI software | no OpenAI model, SDK or service license is implied by implementing compatible request and response schemas. |
+
+the vendor OS, Linux kernel, AMD firmware and third-party container contents are aggregate works with component-level terms. capture their package manifests and license notices during validation instead of pretending they have one project-wide license.
 
 ## implementation plan
 
@@ -64,7 +98,7 @@ use pinned Podman Quadlets or systemd services running under a dedicated `ai-inf
   - add a small adapter translating `/v1/images/generations` and `/v1/images/edits` into fixed, versioned ComfyUI workflows.
   - support `b64_json`, prompt, size, seed, transparency and reference images.
   - explicitly regression-test 1024px editing because a current ComfyUI bug affects that path; use 992 or 1056 until the pinned version proves it fixed. [model](https://huggingface.co/Qwen/Qwen-Image-2.1), [ComfyUI issue](https://github.com/Comfy-Org/ComfyUI/issues/16435)
-  - acceptance of the **Qwen Research License** is required before deployment.
+  - before deployment, confirm that all intended use is non-commercial research/evaluation under the **Qwen Research License**, or obtain Qwen’s separate commercial license.
 
 ### 3. add the cluster control plane
 
