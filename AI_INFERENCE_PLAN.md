@@ -62,6 +62,53 @@ raw Halo endpoints remain private and firewall-restricted to the cluster.
 
 the vendor OS, Linux kernel, AMD firmware and third-party container contents are aggregate works with component-level terms. capture their package manifests and license notices during validation instead of pretending they have one project-wide license.
 
+## execution sequence
+
+### 1. validate redqueen
+
+- connect with `ssh ai@redqueen.mousses.xyz -i ~/.ssh/redqueen` and capture the exact hardware, firmware, OS, kernel, installed packages and storage layout.
+- confirm the APU and operating-system combination against AMD’s current support matrix; require working `rocminfo`, expected `gfx1151` enumeration and access to `/dev/kfd` and `/dev/dri`.
+- establish a rollback-safe TTM/GTT configuration targeting roughly 96 GB for GPU-accessible memory, then confirm that the setting persists across reboot without starving the host.
+- compile or install a pinned ROCm-capable `llama.cpp`, run a minimal Qwen model, and complete a ComfyUI image smoke test before downloading the full production models.
+- run simultaneous GPU-process and memory-pressure tests; stop implementation if the driver resets, hangs, corrupts output or requires an unsupported kernel/driver combination.
+- **exit criterion:** the node survives reboot plus a one-hour mixed GPU stress test, and its validated software versions and configuration are recorded in the implementation commit.
+
+### 2. deploy the local inference runtimes
+
+- create the dedicated `ai-inference` account, model/cache directories and systemd or Podman Quadlet service definitions with explicit CPU, memory, file and restart limits.
+- download the pinned Qwen3.8-27B, JevK5 4B Q8_0 and Qwen Image 2.1 artifacts; record source revisions and SHA-256 hashes, and retain every required license/notice file beside the weights.
+- run separate `llama-server` instances for Qwen3.8 and JevK5, including Qwen’s multimodal projection and each service’s health and metrics endpoints.
+- install a pinned ComfyUI revision and immutable Qwen Image 2.1 workflows for generation, editing, transparency and reference-image input.
+- bind inference ports only to the private interface and restrict the host firewall to required cluster sources; no raw model endpoint may be internet- or user-accessible.
+- **exit criterion:** every backend starts automatically after reboot, passes its direct health/functional test and remains inaccessible outside the approved cluster path.
+
+### 3. build the unified API layer
+
+- implement and test the image adapter for `/v1/images/generations` and `/v1/images/edits`, including validation, timeouts, cancellation, queue limits and deterministic ComfyUI workflow mapping.
+- implement and test the JevK5 `/v1/systemone` adapter with typed request/response validation, option-count limits and calibrated model settings.
+- deploy LiteLLM and its dedicated PostgreSQL database with pinned images, non-committed Kubernetes Secrets, network policies, probes, resource limits and persistent storage.
+- register only `qwen3.8-27b`, `qwen-image-2.1` and the exact authenticated `/v1/systemone` pass-through; prohibit wildcard pass-through and caller Authorization-header forwarding.
+- create separate least-privilege virtual keys for LibreChat, administrators and each machine client; enable request, latency, error and queue metrics without logging prompts or image contents by default.
+- **exit criterion:** one API hostname serves all three capabilities, rejects missing or incorrectly scoped keys, and exposes no route that bypasses LiteLLM authentication.
+
+### 4. deploy identity and the user interface
+
+- deploy Authentik and its dedicated PostgreSQL database with pinned versions, persistent storage, initial bootstrap secrets and an MFA-protected local break-glass administrator.
+- apply the Authentik blueprint for the LibreChat confidential OIDC client, strict callback URI, group claim and `librechat_users`/`librechat_admin` access controls.
+- configure LibreChat to use only LiteLLM for chat and image operations; validate OIDC before disabling local login and email registration.
+- issue LibreChat a restricted LiteLLM virtual key that cannot administer the gateway or access routes not required by the UI.
+- add certificates, ingress, default-deny network policies, monitoring and nightly database dumps copied to an off-host backup destination.
+- **exit criterion:** an authorized user can sign in through Authentik and use chat/image features, an unauthorized user is denied, administrative role mapping works, and both databases pass a restore test.
+
+### 5. integrate, test and cut over
+
+- join redqueen as a k3s agent only after the host-runtime gates pass; apply the AI labels and `ai.mousses.xyz/inference=true:NoSchedule` taint.
+- grant tolerations only to explicitly approved monitoring components; keep inference engines host-managed for v1 rather than placing them behind Kubernetes GPU resource claims.
+- run API-contract, OIDC, authorization, network-isolation, reboot-recovery and backup-restore tests, followed by the 30-minute mixed concurrency test defined below.
+- move `chat.omv.mousses.xyz` to LibreChat, preserve the former LibreChat hostname as a redirect and retain the stopped Open WebUI data volume for 30 days.
+- verify the rollback path by restoring the prior ingress target, then return traffic to LibreChat; commit and push each independently reviewable implementation phase without staging unrelated changes.
+- **exit criterion:** the new path passes every acceptance test under normal and reboot conditions, monitoring is green, rollback is proven, and the repository and remote branch are clean and synchronized.
+
 ## implementation plan
 
 ### 1. validate the Halo node before touching k3s
