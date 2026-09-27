@@ -67,11 +67,48 @@ the vendor OS, Linux kernel, AMD firmware and third-party container contents are
 ### 1. validate redqueen
 
 - connect with `ssh ai@redqueen.mousses.xyz -i ~/.ssh/redqueen` and capture the exact hardware, firmware, OS, kernel, installed packages and storage layout.
+- audit every step-1 command as the unprivileged `ai` user. record necessary owner-run commands separately from optional privileged diagnostics; lack of `sudo` on `ai` is intentional and is not itself a failed gate.
 - confirm the APU and operating-system combination against AMD’s current support matrix; require working `rocminfo`, expected `gfx1151` enumeration and access to `/dev/kfd` and `/dev/dri`.
 - establish a rollback-safe TTM/GTT configuration targeting roughly 96 GB for GPU-accessible memory, then confirm that the setting persists across reboot without starving the host.
 - compile or install a pinned ROCm-capable `llama.cpp`, run a minimal Qwen model, and complete a ComfyUI image smoke test before downloading the full production models.
 - run simultaneous GPU-process and memory-pressure tests; stop implementation if the driver resets, hangs, corrupts output or requires an unsupported kernel/driver combination.
 - **exit criterion:** the node survives reboot plus a one-hour mixed GPU stress test, and its validated software versions and configuration are recorded in the implementation commit.
+
+#### step 1 execution record — 2026-09-26
+
+the read-only inventory was run over the documented SSH path as the non-sudo `ai` user. observed baseline:
+
+- official [AMD Ryzen AI Developer Platform](https://www.amd.com/en/blogs/2026/amd-ryzen-ai-developer-platform-open-ready-and-built.html) `RAH-001`, Ryzen AI Max+ 395 / Radeon 8060S, 16 cores / 32 threads, 125 GiB RAM, BIOS `03.04` dated 2026-07-27;
+- AMD vendor OS `rex`, kernel `6.18.44+rex+5-amd64`, ROCm `7.14`, HIP `7.14.60850` and KFD topology target `110501` (`gfx1151`);
+- Micron 4600 2 TB NVMe with the Btrfs root filesystem and about 1.7 TB free. `/srv/ai` will be a stable directory on this existing NVMe; no repartition or additional mount is required;
+- persistent TTM configuration already present at `/etc/modprobe.d/ttm.conf` with `pages_limit=24692260`, exposing 101,139,496,960 bytes (about 94.2 GiB) of GTT. this satisfies the roughly 96 GB target and must not be rewritten without contrary test evidence;
+- vendor ROCm-enabled `llama.cpp-tools` `9413+dfsg-1+rex1bvdebian13.1`, `libllama0` at the same build, and `libggml0` plus `libggml0-backend-hip` `0.13.1-1+rex2bvdebian13.1` from `https://debs.ryai.dev/`. use this exact installed build for validation instead of compiling a redundant copy;
+- rootless Podman `5.4.2`, cgroup v2 and the required subordinate UID/GID ranges are already functional;
+- outbound HTTPS to GitHub, Hugging Face and AMD's OCI registry succeeds;
+- AMD's global ComfyUI user template collides on port `8188` because the existing `peter` session already owns it. leave that instance untouched and use a dedicated `ai`-owned validation service on free port `8189`.
+
+the following commands are necessary but blocked by the deliberate lack of `sudo`. the node owner must run them exactly once:
+
+```bash
+sudo usermod -aG render,video ai
+sudo install -d -o ai -g ai -m 0750 \
+  /srv/ai \
+  /srv/ai/models \
+  /srv/ai/models/qwen3.8-27b \
+  /srv/ai/models/jevk5-4b-v0.3 \
+  /srv/ai/models/qwen-image-2.1 \
+  /srv/ai/cache \
+  /srv/ai/comfyui
+sudo loginctl enable-linger ai
+sudo apt-mark hold llama.cpp-tools libllama0 libggml0 libggml0-backend-hip
+sudo reboot
+```
+
+the reboot intentionally terminates SSH. after it returns, reconnect as `ai` and verify `id`, `rocminfo`, `llama-server --list-devices`, directory ownership, package holds and `loginctl show-user ai -p Linger` before any model download. the package hold is reversible with `sudo apt-mark unhold` for the same four packages; linger is reversible with `sudo loginctl disable-linger ai`; group membership is reversible with `sudo gpasswd -d ai render` and `sudo gpasswd -d ai video`.
+
+privileged kernel-log collection is diagnostic rather than a standing permission requirement. after each stress run, the owner should run `sudo journalctl -k -b --since '<test start time>'` and provide the output for reset/OOM/fault review; do not add `ai` to broad journal-reading groups merely for convenience.
+
+pending step-1 gates after the owner batch: unprivileged ROCm enumeration, a minimal Qwen GGUF smoke test, a dedicated ComfyUI generation smoke test on port `8189`, simultaneous GPU/memory pressure, reboot persistence and the final one-hour mixed stress run.
 
 ### 2. deploy the local inference runtimes
 
