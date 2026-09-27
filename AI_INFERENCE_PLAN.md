@@ -79,11 +79,13 @@ the vendor OS, Linux kernel, AMD firmware and third-party container contents are
 the read-only inventory was run over the documented SSH path as the non-sudo `ai` user. observed baseline:
 
 - official [AMD Ryzen AI Developer Platform](https://www.amd.com/en/blogs/2026/amd-ryzen-ai-developer-platform-open-ready-and-built.html) `RAH-001`, Ryzen AI Max+ 395 / Radeon 8060S, 16 cores / 32 threads, 125 GiB RAM, BIOS `03.04` dated 2026-07-27;
+- `redqueen.mousses.xyz` currently resolves to `10.9.20.242`, while the machine's configured hostname is `amd-halo`. retain the DNS alias, but reserve the address before creating a Kubernetes `EndpointSlice` that depends on it;
 - AMD vendor OS `rex`, kernel `6.18.44+rex+5-amd64`, ROCm `7.14`, HIP `7.14.60850` and KFD topology target `110501` (`gfx1151`);
-- Micron 4600 2 TB NVMe with the Btrfs root filesystem and about 1.7 TB free. `/srv/ai` will be a stable directory on this existing NVMe; no repartition or additional mount is required;
+- Micron 4600 2 TB NVMe with the Btrfs root filesystem and about 1.7 TB free. `/srv/ai` will be a stable directory on this existing NVMe; no repartition or additional mount is required. the host has no swap, so the stress gate must exercise real memory pressure and confirm that service limits prevent a host OOM;
 - persistent TTM configuration already present at `/etc/modprobe.d/ttm.conf` with `pages_limit=24692260`, exposing 101,139,496,960 bytes (about 94.2 GiB) of GTT. this satisfies the roughly 96 GB target and must not be rewritten without contrary test evidence;
 - vendor ROCm-enabled `llama.cpp-tools` `9413+dfsg-1+rex1bvdebian13.1`, `libllama0` at the same build, and `libggml0` plus `libggml0-backend-hip` `0.13.1-1+rex2bvdebian13.1` from `https://debs.ryai.dev/`. use this exact installed build for validation instead of compiling a redundant copy;
-- rootless Podman `5.4.2`, cgroup v2 and the required subordinate UID/GID ranges are already functional;
+- rootless Podman `5.4.2`, cgroup v2 and the required subordinate UID/GID ranges are already functional. Python `3.13.5` and the vendor PyTorch ROCm `2.10` packages are also preinstalled;
+- the vendor `lemond.service` is already active as the non-login `lemonade` account, and AMD's root-owned `/var/cache/models` contains existing Lemonade/Hugging Face models. these are pre-existing platform assets, not authoritative project storage; do not mutate or adopt them in place of `/srv/ai/models`;
 - outbound HTTPS to GitHub, Hugging Face and AMD's OCI registry succeeds;
 - AMD's global ComfyUI user template collides on port `8188` because the existing `peter` session already owns it. leave that instance untouched and use a dedicated `ai`-owned validation service on free port `8189`.
 
@@ -108,7 +110,16 @@ the reboot intentionally terminates SSH. after it returns, reconnect as `ai` and
 
 privileged kernel-log collection is diagnostic rather than a standing permission requirement. after each stress run, the owner should run `sudo journalctl -k -b --since '<test start time>'` and provide the output for reset/OOM/fault review; do not add `ai` to broad journal-reading groups merely for convenience.
 
-pending step-1 gates after the owner batch: unprivileged ROCm enumeration, a minimal Qwen GGUF smoke test, a dedicated ComfyUI generation smoke test on port `8189`, simultaneous GPU/memory pressure, reboot persistence and the final one-hour mixed stress run.
+post-reboot verification passed on 2026-09-26:
+
+- `ai` is a member of `render` and `video` and can read/write `/dev/kfd`, `/dev/dri/renderD128` and `/dev/dri/card0` without `sudo`;
+- `rocminfo` exits successfully and enumerates the Radeon 8060S as `gfx1151`; `llama-server --list-devices` reports `ROCm0`;
+- all planned `/srv/ai` directories exist with mode `0750` and owner `ai:ai` on the NVMe-backed Btrfs root;
+- the four ROCm `llama.cpp` packages are held, user linger is enabled, and the 101,139,496,960-byte GTT setting survived reboot;
+- system and `ai` user service managers report zero failed units;
+- the first ROCm Qwen smoke test passed using AMD's existing read-only `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf`: expected text was generated at 63.6 tokens/s after a 125.4 tokens/s prompt evaluation. the interactive `llama-cli` frontend did not exit on closed stdin and was terminated after successful inference; use `llama-server` for subsequent automated tests. GPU memory returned to its pre-test baseline.
+
+pending step-1 gates: a dedicated ComfyUI generation smoke test on port `8189`, simultaneous GPU/memory pressure and the final one-hour mixed stress run with privileged kernel-log review.
 
 ### 2. deploy the local inference runtimes
 
@@ -127,6 +138,39 @@ pending step-1 gates after the owner batch: unprivileged ROCm enumeration, a min
 - bind inference ports only to the private interface and restrict the host firewall to required cluster sources; no raw model endpoint may be internet- or user-accessible.
 - **exit criterion:** every backend starts automatically after reboot, passes its direct health/functional test and remains inaccessible outside the approved cluster path.
 
+#### image API and ComfyUI access are separate paths
+
+LiteLLM is the authenticated model API gateway; it is not the reverse proxy for the ComfyUI browser application. use this split:
+
+```text
+application/API path:
+client -> Traefik -> LiteLLM /v1/images/* -> Kubernetes Service
+       -> EndpointSlice 10.9.20.242:8190 -> image adapter
+       -> ComfyUI 127.0.0.1:8189
+
+operator UI path:
+browser http://127.0.0.1:8189 -> SSH local forward
+       -> redqueen 127.0.0.1:8189 -> ComfyUI
+```
+
+- bind ComfyUI only to `127.0.0.1:8189`. do not create a Kubernetes Ingress or LAN listener for the raw ComfyUI UI/API in v1;
+- run the image adapter as `ai`, bind it to redqueen's private address on port `8190`, require a separate upstream credential and permit the port through the host firewall only from the cluster node addresses;
+- make the adapter accept only the planned OpenAI-compatible `/v1/images/generations` and `/v1/images/edits` schemas and map them to immutable, versioned workflows. it must not expose arbitrary ComfyUI prompt graphs, filesystem paths, uploads outside the bounded request schema or ComfyUI administrative routes;
+- represent the host adapter in Kubernetes with a selectorless `Service` and manually managed `EndpointSlice`. Kubernetes explicitly supports selectorless Services for backends outside the cluster; the endpoint must use redqueen's reserved non-loopback address, not `127.0.0.1`. [Kubernetes Service documentation](https://kubernetes.io/docs/concepts/services-networking/service/#services-without-selectors)
+- register the adapter's cluster Service as the `qwen-image-2.1` backend in LiteLLM. LiteLLM supplies virtual-key authentication, model allowlisting, rate/queue controls and the public OpenAI-compatible image endpoints; the adapter supplies the ComfyUI-specific translation. [LiteLLM supported endpoints](https://docs.litellm.ai/docs/supported_endpoints)
+- from any authorized workstation, start the UI tunnel with:
+
+```bash
+ssh -N -T \
+  -L 127.0.0.1:8189:127.0.0.1:8189 \
+  -i ~/.ssh/redqueen \
+  ai@redqueen.mousses.xyz
+```
+
+then open `http://127.0.0.1:8189`. if local port `8189` is occupied, use `-L 127.0.0.1:18189:127.0.0.1:8189` and open `http://127.0.0.1:18189`. provision a separate SSH key for each workstation instead of copying one private key among machines.
+
+SSH authentication is the v1 security boundary for the operator UI. if browser-only SSO access is desired later, add `comfy.omv.mousses.xyz` as a separate Traefik route protected by an Authentik single-application forward-auth provider; never route it through LiteLLM. Authentik documents this mode for applications without native OIDC, and Traefik's `ForwardAuth` middleware delegates the authorization check. [Authentik proxy-provider documentation](https://docs.goauthentik.io/add-secure-apps/providers/proxy/create-proxy-provider/), [Traefik ForwardAuth documentation](https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/forwardauth/)
+
 ### 3. build the unified API layer
 
 - implement and test the image adapter for `/v1/images/generations` and `/v1/images/edits`, including validation, timeouts, cancellation, queue limits and deterministic ComfyUI workflow mapping.
@@ -139,6 +183,7 @@ pending step-1 gates after the owner batch: unprivileged ROCm enumeration, a min
 ### 4. deploy identity and the user interface
 
 - deploy Authentik and its dedicated PostgreSQL database with pinned versions, persistent storage, initial bootstrap secrets and an MFA-protected local break-glass administrator.
+- require an Authentik build containing the `CVE-2026-25748` forward-auth fix (`2025.10.4`, `2025.12.4` or a later patched stable release); affected builds are forbidden for any optional ComfyUI browser route. [Authentik advisory](https://docs.goauthentik.io/security/cves/CVE-2026-25748/)
 - apply the Authentik blueprint for the LibreChat confidential OIDC client, strict callback URI, group claim and `librechat_users`/`librechat_admin` access controls.
 - configure LibreChat to use only LiteLLM for chat and image operations; validate OIDC before disabling local login and email registration.
 - issue LibreChat a restricted LiteLLM virtual key that cannot administer the gateway or access routes not required by the UI.
