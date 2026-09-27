@@ -113,7 +113,7 @@ pending step-1 gates after the owner batch: unprivileged ROCm enumeration, a min
 ### 2. deploy the local inference runtimes
 
 - mount the local NVMe filesystem at `/srv/ai`; if the vendor OS requires a different physical mount point, use a bind mount so `/srv/ai` remains the stable service-facing path.
-- create the dedicated `ai-inference` account and grant it ownership only where required under `/srv/ai`; systemd or Podman Quadlet service definitions must use explicit CPU, memory, file and restart limits.
+- use the existing dedicated, non-sudo `ai` account and grant it ownership only where required under `/srv/ai`; systemd or Podman Quadlet service definitions must use explicit CPU, memory, file and restart limits.
 - use this storage layout:
   - `/srv/ai/models/qwen3.8-27b/` — Qwen3.8 weights, multimodal projection, license, source revision and `SHA256SUMS`;
   - `/srv/ai/models/jevk5-4b-v0.3/` — JevK5 GGUF, calibration metadata, license, source revision and `SHA256SUMS`;
@@ -173,7 +173,7 @@ pending step-1 gates after the owner batch: unprivileged ROCm enumeration, a min
 
 ### 2. deploy the inference backends on the host
 
-use pinned Podman Quadlets or systemd services running under a dedicated `ai-inference` account:
+use pinned Podman Quadlets or systemd services running under the dedicated, non-sudo `ai` account:
 
 - **Qwen3.8-27B**
   - start with a pinned Q4_K-class GGUF, 64k context and multimodal projection.
