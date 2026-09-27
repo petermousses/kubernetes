@@ -138,6 +138,20 @@ pending step-1 gates: a dedicated ComfyUI generation smoke test on port `8189`, 
 - bind inference ports only to the private interface and restrict the host firewall to required cluster sources; no raw model endpoint may be internet- or user-accessible.
 - **exit criterion:** every backend starts automatically after reboot, passes its direct health/functional test and remains inaccessible outside the approved cluster path.
 
+#### deferred exploration: image runtime and mobile editing workflow
+
+ComfyUI remains the initial step-2 implementation so validation can proceed against a known Qwen Image workflow, but it is not a permanent architectural requirement. after the baseline works, evaluate these alternatives before finalizing the image stack:
+
+- **official Diffusers BF16 worker:** run `QwenImage21Pipeline` directly behind a small OpenAI-compatible `/v1/images/generations` and `/v1/images/edits` service. treat this as the reference implementation for output quality and model behavior because it follows the official pipeline without a graph runtime;
+- **`stable-diffusion.cpp` `sd-server`:** test its native OpenAI-compatible generation/edit endpoints, asynchronous jobs and HIP backend. it could replace both ComfyUI and the translation adapter if `gfx1151` stability, features and output quality match the Diffusers reference;
+- **SGLang Diffusion or vLLM-Omni:** reconsider only after Qwen Image 2.1 support is released and the project documents or demonstrates reliable ROCm operation on the Radeon 8060S/`gfx1151`; current datacenter-AMD or unmerged support is insufficient;
+- **InvokeAI:** consider if a rich desktop canvas, layers, masks and reusable visual workflows become more important than a narrow API service. verify Qwen Image 2.1 and this exact ROCm device before adoption;
+- **mobile clients:** use LibreChat first for phone-friendly prompt, upload, multi-reference and conversational edit flows. evaluate Open WebUI as a PWA alternative only if it materially improves the experience; for touch masks, crop/outpaint framing and reference ordering, prefer a small dedicated mobile-first PWA behind Authentik over trying to operate a node graph on a phone.
+
+the deferred comparison must use the official BF16 Diffusers pipeline as the behavioral baseline and cover text-to-image, image editing, multiple references, masks, RGBA transparency, the known 1024px edit regression, 2K memory pressure, queueing, cancellation, restart recovery and OpenAI Images API compatibility. no alternative replaces ComfyUI until it passes those gates and preserves the `/srv/ai/models/` storage contract, private-network boundary and LiteLLM/Authentik access model.
+
+- **later exploration todo:** after the initial image backend and unified API are working, benchmark the candidates above and record the keep/replace decision before declaring step 2 final.
+
 #### image API and ComfyUI access are separate paths
 
 LiteLLM is the authenticated model API gateway; it is not the reverse proxy for the ComfyUI browser application. use this split:
