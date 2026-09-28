@@ -108,7 +108,7 @@ sudo reboot
 
 the reboot intentionally terminates SSH. after it returns, reconnect as `ai` and verify `id`, `rocminfo`, `llama-server --list-devices`, directory ownership, package holds and `loginctl show-user ai -p Linger` before any model download. the package hold is reversible with `sudo apt-mark unhold` for the same four packages; linger is reversible with `sudo loginctl disable-linger ai`; group membership is reversible with `sudo gpasswd -d ai render` and `sudo gpasswd -d ai video`.
 
-privileged kernel-log collection is diagnostic rather than a standing permission requirement. after each stress run, the owner should run `sudo journalctl -k -b --since '<test start time>'` and provide the output for reset/OOM/fault review; do not add `ai` to broad journal-reading groups merely for convenience.
+privileged kernel-log collection is diagnostic rather than a standing permission requirement. immediately after each stress run and before another reboot, the owner should run `sudo journalctl -k --boot 0 --since '<test start time>' --until '<test end time>' --no-pager` and provide the output for reset/OOM/fault review. when selecting an older boot explicitly, use the 32-character hexadecimal boot ID reported by `journalctl --list-boots`, without UUID hyphens; `journalctl` rejects the hyphenated form as an invalid match. do not add `ai` to broad journal-reading groups merely for convenience.
 
 post-reboot verification passed on 2026-09-26:
 
@@ -119,7 +119,7 @@ post-reboot verification passed on 2026-09-26:
 - system and `ai` user service managers report zero failed units;
 - the first ROCm Qwen smoke test passed using AMD's existing read-only `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf`: expected text was generated at 63.6 tokens/s after a 125.4 tokens/s prompt evaluation. the interactive `llama-cli` frontend did not exit on closed stdin and was terminated after successful inference; use `llama-server` for subsequent automated tests. GPU memory returned to its pre-test baseline.
 
-pending step-1 gate: the owner must provide the privileged kernel log for the completed one-hour mixed GPU/memory stress window so it can be checked for driver resets, faults, hangs and host OOM evidence. every unprivileged step-1 runtime gate has passed.
+step 1 is **complete**. the one-hour mixed GPU/memory stress gate, reboot recovery and all unprivileged runtime gates passed. the owner-provided privileged kernel journal for the exact stress window contained one benign `perf` sampling-rate throttle (`interrupt took too long (2514 > 2500)`) and no AMDGPU/KFD reset, GPU fault, hang, watchdog, timeout, OOM or killed-process evidence.
 
 ### 2. deploy the local inference runtimes
 
@@ -171,11 +171,12 @@ direct functional evidence:
 - the final mixed stress run used `hosts/redqueen/tests/step2-stress.sh` from `2026-09-28T12:32:48-07:00` through `2026-09-28T13:33:22-07:00`, including worker drain. run-specific seeds prevented ComfyUI cache reuse. all 716 operations succeeded: 88 Qwen3.8 requests, 604 JevK5 requests across four slots and 24 image jobs, including five successful 2048×2048 generations. all 24 PNGs decoded at their declared dimensions. peak GTT use was 81,436,590,080 bytes (75.85 GiB), minimum host-available memory was 14,955,782,144 bytes (13.93 GiB), and the aggregate inference cgroup peaked at 48,621,404,160 bytes (45.28 GiB). all three services stayed active with zero restarts; every service/slice `oom`, `oom_kill` and `oom_group_kill` counter stayed at zero; and the `ai` user manager ended with no failed units;
 - both model downloaders passed an idempotent rerun over the complete 75.5 GB store. disposable corrupt-prefix fixtures also proved that each downloader discards a checksum-failing partial and retries from byte zero instead of remaining permanently wedged;
 - reboot recovery passed on 2026-09-28: linger restored all three enabled user services, each raw listener returned on its loopback-only port, and the pinned text-to-image request reproduced the original 512×512 RGBA output byte-for-byte (`74e4c0219fa06879a2b61fea8a853c360ad09decfbe08abbfcc6b040d474b8a5`);
+- the privileged kernel journal for the exact mixed-stress window contained only one adaptive `perf` sampling-rate throttle (`interrupt took too long (2514 > 2500), lowering kernel.perf_event_max_sample_rate to 79500`). it contained no AMDGPU/KFD reset, GPU fault, ring failure, hang, watchdog, timeout, OOM or killed-process evidence. the temporary exported journal file was deleted after review;
 - ComfyUI's Model Library loads folders lazily. select **Load All Folders** or expand `diffusion_models`, `text_encoders` and `vae`; the live UI then reports 1, 3 and 1 installed files respectively. the upstream workflow's direct model links are ordinary browser downloads to the workstation, not server-side installation controls. the redqueen workflow variants replace that misleading note with the authoritative server path and inventory;
 - ComfyUI reported that its flash-attention probe is unsupported on this `gfx1151` build and automatically selected its sub-quadratic fallback. this is a performance caveat, not a correctness failure. the system-site venv also makes `pip check` report unrelated vendor-OS packages with missing or mismatched optional dependencies, so targeted imports, compilation and live API tests are the meaningful gates.
 - after accepting the Xcode license, the repository validator exposed a separate local toolchain mismatch: Xcode `27.0` cannot load its `CoreDevice` framework on macOS `26.6.2`, while Command Line Tools `26.6` work correctly. `DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo run --manifest-path scripts/validate-network-policies/Cargo.toml --locked` passes and validates all 21 app kustomizations plus shared platform invariants; repair or upgrade the full Xcode installation before selecting it again.
 
-step 2 is **in progress**, not complete. every unprivileged runtime, image-correctness, reboot and one-hour stress gate has passed; only the owner-provided privileged kernel-log review for the exact stress window remains. raw ports deliberately remain loopback-only until the cluster source CIDRs, upstream credentials and owner-installed firewall rules are ready. do not weaken that boundary merely to make cluster wiring easier.
+step 2's host-runtime deployment and validation are **complete**. every runtime, image-correctness, reboot, one-hour stress and privileged kernel-log gate passed. raw ports deliberately remain loopback-only until step 3 supplies the adapters, cluster source CIDRs, upstream credentials and owner-installed firewall rules. do not weaken that boundary merely to make cluster wiring easier.
 
 #### deferred exploration: image runtime and mobile editing workflow
 
@@ -189,7 +190,7 @@ ComfyUI remains the initial step-2 implementation so validation can proceed agai
 
 the deferred comparison must use the official BF16 Diffusers pipeline as the behavioral baseline and cover text-to-image, image editing, multiple references, masks, RGBA transparency, the known 1024px edit regression, 2K memory pressure, queueing, cancellation, restart recovery and OpenAI Images API compatibility. no alternative replaces ComfyUI until it passes those gates and preserves the `/srv/ai/models/` storage contract, private-network boundary and LiteLLM/Authentik access model.
 
-- **later exploration todo:** after the initial image backend and unified API are working, benchmark the candidates above and record the keep/replace decision before declaring step 2 final.
+- **later exploration todo:** after the initial image backend and unified API are working, benchmark the candidates above and record the keep/replace decision before replacing the validated ComfyUI baseline. this non-blocking comparison does not reopen the completed step-2 host-runtime gate.
 
 #### image API and ComfyUI access are separate paths
 
