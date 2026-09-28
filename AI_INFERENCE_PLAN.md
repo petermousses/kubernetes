@@ -164,9 +164,12 @@ direct functional evidence:
 - the official JevK5 GGUF client selected `misdelivered` with calibrated confidence `0.921107539238246` from a three-option parcel example, using temperature `1.22` and knockout temperature `0.93`;
 - Qwen Image generated a valid 512×512 RGBA red-cube PNG in 56.25 seconds at four smoke-test steps, then used that file as a reference and changed it to a blue cube while preserving its geometry/background in 27.03 seconds. the output SHA-256 values are `74e4c0219fa06879a2b61fea8a853c360ad09decfbe08abbfcc6b040d474b8a5` and `ee6bafb0fb5b1ab5c1ce6b7406239a005cc2d6165a6c798a782a051a7748ee1f` respectively;
 - both model downloaders passed an idempotent rerun over the complete 75.5 GB store. disposable corrupt-prefix fixtures also proved that each downloader discards a checksum-failing partial and retries from byte zero instead of remaining permanently wedged;
+- reboot recovery passed on 2026-09-28: linger restored all three enabled user services, each raw listener returned on its loopback-only port, and the pinned text-to-image request reproduced the original 512×512 RGBA output byte-for-byte (`74e4c0219fa06879a2b61fea8a853c360ad09decfbe08abbfcc6b040d474b8a5`);
+- ComfyUI's Model Library loads folders lazily. select **Load All Folders** or expand `diffusion_models`, `text_encoders` and `vae`; the live UI then reports 1, 3 and 1 installed files respectively. the upstream workflow's direct model links are ordinary browser downloads to the workstation, not server-side installation controls. the redqueen workflow variants replace that misleading note with the authoritative server path and inventory;
 - ComfyUI reported that its flash-attention probe is unsupported on this `gfx1151` build and automatically selected its sub-quadratic fallback. this is a performance caveat, not a correctness failure. the system-site venv also makes `pip check` report unrelated vendor-OS packages with missing or mismatched optional dependencies, so targeted imports, compilation and live API tests are the meaningful gates.
+- after accepting the Xcode license, the repository validator exposed a separate local toolchain mismatch: Xcode `27.0` cannot load its `CoreDevice` framework on macOS `26.6.2`, while Command Line Tools `26.6` work correctly. `DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo run --manifest-path scripts/validate-network-policies/Cargo.toml --locked` passes and validates all 21 app kustomizations plus shared platform invariants; repair or upgrade the full Xcode installation before selecting it again.
 
-step 2 is **in progress**, not complete. remaining gates are transparency, multiple-reference, 1024px edit-regression and 2K memory tests; the one-hour mixed stress run plus owner kernel-log review; and a reboot recovery test for all three enabled user services. raw ports deliberately remain loopback-only until the cluster source CIDRs, upstream credentials and owner-installed firewall rules are ready. do not weaken that boundary merely to make cluster wiring easier.
+step 2 is **in progress**, not complete. remaining gates are transparency, multiple-reference, 1024px edit-regression and 2K memory tests, plus the one-hour mixed stress run and owner kernel-log review. raw ports deliberately remain loopback-only until the cluster source CIDRs, upstream credentials and owner-installed firewall rules are ready. do not weaken that boundary merely to make cluster wiring easier.
 
 #### deferred exploration: image runtime and mobile editing workflow
 
@@ -193,7 +196,7 @@ client -> Traefik -> LiteLLM /v1/images/* -> Kubernetes Service
        -> ComfyUI 127.0.0.1:8189
 
 operator UI path:
-browser http://127.0.0.1:8189 -> SSH local forward
+browser http://127.0.0.1:18189 -> SSH local forward
        -> redqueen 127.0.0.1:8189 -> ComfyUI
 ```
 
@@ -205,13 +208,16 @@ browser http://127.0.0.1:8189 -> SSH local forward
 - from any authorized workstation, start the UI tunnel with:
 
 ```bash
-ssh -N -T \
-  -L 127.0.0.1:8189:127.0.0.1:8189 \
+ssh -fN -T \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=15 \
+  -o ServerAliveCountMax=3 \
+  -L 127.0.0.1:18189:127.0.0.1:8189 \
   -i ~/.ssh/redqueen \
   ai@redqueen.mousses.xyz
 ```
 
-then open `http://127.0.0.1:8189`. if local port `8189` is occupied, use `-L 127.0.0.1:18189:127.0.0.1:8189` and open `http://127.0.0.1:18189`. provision a separate SSH key for each workstation instead of copying one private key among machines.
+then open `http://127.0.0.1:18189`. `-fN` backgrounds the tunnel; do not suspend a foreground tunnel with `Ctrl-Z`. the keepalive options terminate a dead or unresponsive SSH transport and release its stale local listening socket after the server reboots. `ExitOnForwardFailure` also reports an occupied local port immediately. if an older tunnel already owns the port while requests fail, identify only that listener with `lsof -nP -iTCP:18189 -sTCP:LISTEN`, terminate its exact PID with `kill <pid>`, and rerun the command above. provision a separate SSH key for each workstation instead of copying one private key among machines.
 
 SSH authentication is the v1 security boundary for the operator UI. if browser-only SSO access is desired later, add `comfy.omv.mousses.xyz` as a separate Traefik route protected by an Authentik single-application forward-auth provider; never route it through LiteLLM. Authentik documents this mode for applications without native OIDC, and Traefik's `ForwardAuth` middleware delegates the authorization check. [Authentik proxy-provider documentation](https://docs.goauthentik.io/add-secure-apps/providers/proxy/create-proxy-provider/), [Traefik ForwardAuth documentation](https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/forwardauth/)
 
