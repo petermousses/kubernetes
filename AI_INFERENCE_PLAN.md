@@ -119,7 +119,7 @@ post-reboot verification passed on 2026-09-26:
 - system and `ai` user service managers report zero failed units;
 - the first ROCm Qwen smoke test passed using AMD's existing read-only `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf`: expected text was generated at 63.6 tokens/s after a 125.4 tokens/s prompt evaluation. the interactive `llama-cli` frontend did not exit on closed stdin and was terminated after successful inference; use `llama-server` for subsequent automated tests. GPU memory returned to its pre-test baseline.
 
-pending step-1 gates: a dedicated ComfyUI generation smoke test on port `8189`, simultaneous GPU/memory pressure and the final one-hour mixed stress run with privileged kernel-log review.
+pending step-1 gates: the final one-hour mixed GPU/memory stress run and privileged kernel-log review. the step-2 generation/edit smoke tests and concurrent three-service residency test below satisfy the earlier ComfyUI and multi-process gates at smoke-test duration, but not the required one-hour duration.
 
 ### 2. deploy the local inference runtimes
 
@@ -137,6 +137,36 @@ pending step-1 gates: a dedicated ComfyUI generation smoke test on port `8189`, 
 - install a pinned ComfyUI revision and immutable Qwen Image 2.1 workflows for generation, editing, transparency and reference-image input.
 - bind inference ports only to the private interface and restrict the host firewall to required cluster sources; no raw model endpoint may be internet- or user-accessible.
 - **exit criterion:** every backend starts automatically after reboot, passes its direct health/functional test and remains inaccessible outside the approved cluster path.
+
+#### step 2 execution record — 2026-09-27–28
+
+the first host-runtime deployment is live under the non-sudo `ai` account:
+
+- the cached AMD image `oci-registry.ryai.dev/ryai-comfyui@sha256:7ba03a5d07aa1687f4d1163aced5a1b15af7f672ba82d563acef523d4309184c` contains ComfyUI `0.21.1` from 2026-09-03 and predates native Qwen Image 2.1 support. its containerized PyTorch also needs an otherwise undocumented torch-library `LD_LIBRARY_PATH` adjustment before lazy ROCm initialization. do not use that image for this deployment;
+- ComfyUI now runs directly from the clean detached checkout `4ef23c34d950eecc37040a21ee1741a49d2e44b1` (`0.37.0`) at `/srv/ai/comfyui/source`, using the vendor ROCm PyTorch `2.10.0`/ROCm `7.14` through an isolated system-site virtual environment. the venv-local dependency lock is versioned at `hosts/redqueen/comfyui/requirements.lock`;
+- the official UI workflows are pinned to `Comfy-Org/workflow_templates@99e3d43745926b78466d99f937c0cd2bb622423a`. deterministic BF16 variants replace only the diffusion model and Qwen3-VL encoder defaults; the Qwen3.5 T2I/I2I prompt-enhancer files remain upstream INT8 because Comfy-Org does not publish BF16 equivalents in this repository;
+- `comfyui.service` is enabled in the lingering `ai` user manager, binds only `127.0.0.1:8189`, and runs in the shared `ai-inference.slice`. the service has explicit CPU, memory, task, file-descriptor, restart and filesystem-sandbox limits. the documented SSH forward to local port `18189` returned both the UI and `/system_stats` successfully;
+- `qwen38.service` is enabled on `127.0.0.1:8081` with a 65,536-token slot, Q4_K_M language weights, the Q8_0 multimodal projector, Jinja chat templates, metrics and no llama.cpp UI. `jevk5.service` is enabled on `127.0.0.1:8082` with four concurrent 8,192-token slots; llama.cpp divides `--ctx-size` across slots, so the correct aggregate setting is `32768`, not `8192`;
+- the aggregate slice caps the three inference services at 30 CPU cores, 104 GiB memory high-water and 112 GiB hard memory maximum. the image generation/edit run with both llama.cpp backends resident peaked at 34,417,971,200 cgroup bytes (about 32.1 GiB), and all three services remained active with zero failed `ai` user units.
+- after enabling private keyrings, personality locking, namespace denial and explicit socket-family allowlists, `systemd-analyze security` rates each user unit `5.7 MEDIUM`. its `User=`/root findings are an analysis artifact for user-manager units: the processes run as `ai`. the remaining device, network and writable-executable-memory exposure is intentional for the GPU runtimes and loopback servers.
+
+authoritative model artifacts are complete on the local NVMe, read-only to the service processes, accompanied by source revisions, licenses/model cards and verified `SHA256SUMS`:
+
+| backend | pinned source and selected artifacts | bytes |
+|---|---|---:|
+| Qwen3.8-27B | `ggml-org/Qwen3.8-27B-GGUF@71bc7b627595dc8a91039addd9c791ae548d6747`: `Qwen3.8-27B-Q4_K_M.gguf` plus `mmproj-Qwen3.8-27B-Q8_0.gguf`; license/model card from `Qwen/Qwen3.8-27B@1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0` | 19,603,117,536 |
+| JevK5 4B v0.3 | `alibiserikbay/JevK5-GGUF@ec67b0bfce5119a8b11a2cdb430bb43e3fa3e82a`: `jevk5-4b-v0.3-Q8_0.gguf`; license from `allebee/jevk5@f944fe37ff1d5ed3830aa4c8d88b7189c8c1268a` | 4,482,402,720 |
+| Qwen Image 2.1 | `Comfy-Org/Qwen-Image-2.1@9a44dbdb47cefd046be9c0a13476192f34c8db8e`: BF16 diffusion model, BF16 Qwen3-VL encoder, INT8 T2I/I2I prompt enhancers and BF16 VAE; license/model card from `Qwen/Qwen-Image-2.1@790c92633540aa0cb11d9abf19eb46d861714758` | 51,382,269,424 |
+
+direct functional evidence:
+
+- Qwen3.8 returned exactly `pong` through `/v1/chat/completions` at 10.56 generated tokens/s and accepted a data-URL image through its loaded multimodal projector;
+- the official JevK5 GGUF client selected `misdelivered` with calibrated confidence `0.921107539238246` from a three-option parcel example, using temperature `1.22` and knockout temperature `0.93`;
+- Qwen Image generated a valid 512×512 RGBA red-cube PNG in 56.25 seconds at four smoke-test steps, then used that file as a reference and changed it to a blue cube while preserving its geometry/background in 27.03 seconds. the output SHA-256 values are `74e4c0219fa06879a2b61fea8a853c360ad09decfbe08abbfcc6b040d474b8a5` and `ee6bafb0fb5b1ab5c1ce6b7406239a005cc2d6165a6c798a782a051a7748ee1f` respectively;
+- both model downloaders passed an idempotent rerun over the complete 75.5 GB store. disposable corrupt-prefix fixtures also proved that each downloader discards a checksum-failing partial and retries from byte zero instead of remaining permanently wedged;
+- ComfyUI reported that its flash-attention probe is unsupported on this `gfx1151` build and automatically selected its sub-quadratic fallback. this is a performance caveat, not a correctness failure. the system-site venv also makes `pip check` report unrelated vendor-OS packages with missing or mismatched optional dependencies, so targeted imports, compilation and live API tests are the meaningful gates.
+
+step 2 is **in progress**, not complete. remaining gates are transparency, multiple-reference, 1024px edit-regression and 2K memory tests; the one-hour mixed stress run plus owner kernel-log review; and a reboot recovery test for all three enabled user services. raw ports deliberately remain loopback-only until the cluster source CIDRs, upstream credentials and owner-installed firewall rules are ready. do not weaken that boundary merely to make cluster wiring easier.
 
 #### deferred exploration: image runtime and mobile editing workflow
 
