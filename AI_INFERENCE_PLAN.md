@@ -217,6 +217,13 @@ ssh -fN -T \
   ai@redqueen.mousses.xyz
 ```
 
+sever the local tunnel without touching any remote service:
+
+```bash
+pid="$(lsof -tiTCP:18189 -sTCP:LISTEN)"
+[[ -n "${pid}" ]] && kill "${pid}"
+```
+
 then open `http://127.0.0.1:18189`. `-fN` backgrounds the tunnel; do not suspend a foreground tunnel with `Ctrl-Z`. the keepalive options terminate a dead or unresponsive SSH transport and release its stale local listening socket after the server reboots. `ExitOnForwardFailure` also reports an occupied local port immediately. if an older tunnel already owns the port while requests fail, identify only that listener with `lsof -nP -iTCP:18189 -sTCP:LISTEN`, terminate its exact PID with `kill <pid>`, and rerun the command above. provision a separate SSH key for each workstation instead of copying one private key among machines.
 
 SSH authentication is the v1 security boundary for the operator UI. if browser-only SSO access is desired later, add `comfy.omv.mousses.xyz` as a separate Traefik route protected by an Authentik single-application forward-auth provider; never route it through LiteLLM. Authentik documents this mode for applications without native OIDC, and Traefik's `ForwardAuth` middleware delegates the authorization check. [Authentik proxy-provider documentation](https://docs.goauthentik.io/add-secure-apps/providers/proxy/create-proxy-provider/), [Traefik ForwardAuth documentation](https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/forwardauth/)
