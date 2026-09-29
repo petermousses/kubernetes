@@ -258,7 +258,7 @@ the v1 boundary is frozen: redqueen remains outside k3s, while one LiteLLM repli
 
 the implementation is versioned under `apps/litellm/` and `hosts/redqueen/` with these controls:
 
-- LiteLLM `v1.103.0` is pinned by a Cosign-verified OCI index digest, runs as UID/GID 101 with a read-only root filesystem, one worker, one replica, a fixed 1 CPU/4 GiB envelope, production mode, probes, the admin UI disabled and schema updates disabled during normal startup;
+- LiteLLM `v1.103.0` is pinned by a Cosign-verified OCI index digest, runs as UID/GID 101 with a read-only root filesystem, one worker, one replica, a fixed 1 CPU/4 GiB envelope, production mode and probes. schema updates remain disabled during normal startup. the Admin UI is enabled inside the Pod but no UI or management path is present on the public API Ingress;
 - a separate, explicitly ordered migration Job runs before the gateway. it uses LiteLLM's dedicated, offline `litellm-migrations:v1.103.0` image pinned to a Cosign-verified index digest, its native v2 resolver, UID/GID 65532 and a read-only root filesystem. `apps/litellm/deploy.sh` exists because plain `kubectl apply -k .` would create a migration/startup race; use the script for installs and upgrades;
 - PostgreSQL `16.14-bookworm` is pinned by digest, runs as UID/GID 999, uses the retained static PV, and is reachable only from the gateway and migration pods;
 - secrets are never committed. `bootstrap-secrets.sh` prompts for the three redqueen upstream keys, generates the database password, LiteLLM master key and permanent salt, then refuses accidental rotation if the Secret already exists;
@@ -272,7 +272,7 @@ the execution order is deliberately split at the privilege boundary:
 1. [x] copy the committed host files to redqueen, install the adapters as `ai`, and stop before exposing listeners;
 2. [x] the node owner installs the nftables package and enables the dedicated `redqueen-inference-firewall.service`, which owns only its `inet redqueen_inference` table and never flushes the host ruleset; the owner also creates `/srv/ai/secrets`, then `ai` runs `hosts/redqueen/create-secrets.sh` to create—but not print or overwrite—the three upstream credentials. the package, firewall and directory commands are owner work because `ai` intentionally has no sudo;
 3. [ ] enable and start the three authenticated redqueen listeners, then verify from the NAS that allowed health/API requests succeed and an ordinary LAN client is rejected. the listeners, redqueen-local checks and ordinary-LAN denial pass; only the NAS-origin allow test remains;
-4. [ ] the NAS storage directory and non-committed Secret exist, the base resources were applied, and PostgreSQL is healthy. do **not** rerun `bootstrap-secrets.sh`; pull the latest `feat/litellm` commit and rerun `apps/litellm/deploy.sh` to replace the failed migration Job and continue with the gateway rollout;
+4. [x] the NAS storage directory and non-committed Secret exist, PostgreSQL is healthy, the migration completed, LiteLLM rolled out with zero restarts, and the TLS-protected public API passed authenticated access;
 5. [ ] after the migration and rollout succeed, create least-privilege LiteLLM virtual keys and run the full external contract/authentication/isolation tests. do not mark step 3 complete until wrong/missing/scoped keys fail correctly on every public route.
 
 live redqueen verification on 2026-09-28 established that the dedicated nftables unit loaded successfully, all three authenticated listeners were active on their intended addresses, ComfyUI remained loopback-only, and a non-allowlisted workstation timed out against ports `8081`, `8190` and `8191`. missing and invalid credentials were rejected for Qwen chat, image and Jev inference; valid credentials passed real Qwen chat and Jev decision requests. a real 512 px Qwen Image request initially exposed near-opaque alpha values (`254–255`) and was correctly redacted as `502`; commit `785e862` added deterministic opaque compositing, after which the same request returned a 512×512 RGB PNG. twelve adapter tests pass on both the development host and redqueen.
@@ -283,11 +283,28 @@ the retained failure and live network inspection on 2026-09-29 narrowed the next
 
 this symptom matches kube-router's documented startup race: k3s uses kube-router's network-policy controller, policy rules are applied asynchronously after Pod creation, and the default-deny tail can reject traffic before the Pod-specific firewall chain is programmed. both the migration Job and gateway therefore use a hardened init container that retries a real TCP `pg_isready` call for at most ten minutes before application startup. PostgreSQL's own startup, readiness and liveness probes now specify `-h 127.0.0.1`, so they verify the TCP listener rather than only its Unix socket. the next NAS deployment is the integration proof: success closes the race diagnosis; a full ten-minute init-container timeout instead proves persistent kube-router rule-programming failure and preserves the relevant logs. [k3s network-policy controller](https://docs.k3s.io/networking/networking-services), [kube-router policy-startup troubleshooting](https://github.com/cloudnativelabs/kube-router/blob/master/docs/troubleshoot.md)
 
+the 2026-09-29 redeployment passed that integration proof: the migration Job completed, LiteLLM became `1/1 Running` with zero restarts, Traefik published the TLS Ingress, and authenticated `/v1/models` access succeeded. keep the public hostname limited to its five exact inference paths.
+
+the LiteLLM Admin UI is intentionally available only through an operator tunnel until Authentik exists. from a workstation, use one SSH process that also starts the NAS-side Kubernetes port-forward:
+
+```bash
+ssh -t \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -L 14000:127.0.0.1:14000 \
+  <normal-nas-ssh-target> \
+  'kubectl -n litellm port-forward --address 127.0.0.1 service/litellm 14000:4000'
+```
+
+open `http://127.0.0.1:14000/ui`, sign in as `admin` with the existing `LITELLM_MASTER_KEY`, and use `Ctrl-C` to sever both forwarding layers. the key is a root credential; retrieve it from the Kubernetes Secret only when needed and store it in a password manager, never in the repository. [LiteLLM Admin UI quickstart](https://docs.litellm.ai/docs/proxy/docker_quick_start)
+
 ### 4. deploy identity and the user interface
 
 - deploy Authentik and its dedicated PostgreSQL database with pinned versions, persistent storage, initial bootstrap secrets and an MFA-protected local break-glass administrator.
 - require an Authentik build containing the `CVE-2026-25748` forward-auth fix (`2025.10.4`, `2025.12.4` or a later patched stable release); affected builds are forbidden for any optional ComfyUI browser route. [Authentik advisory](https://docs.goauthentik.io/security/cves/CVE-2026-25748/)
 - apply the Authentik blueprint for the LibreChat confidential OIDC client, strict callback URI, group claim and `librechat_users`/`librechat_admin` access controls.
+- add a separate `admin.ai.omv.mousses.xyz` OIDC client and Ingress for the LiteLLM Admin UI; never broaden `api.ai.omv.mousses.xyz` beyond its exact inference paths. use LiteLLM's native generic OIDC flow so authenticated identity and roles reach LiteLLM rather than placing a blind forward-auth gate in front of its root UI. retain the SSH-only master-key login as break glass. LiteLLM documents Admin UI SSO as free for up to five users; more users require its Enterprise license. [LiteLLM feature comparison](https://docs.litellm.ai/docs/enterprise)
 - configure LibreChat to use only LiteLLM for chat and image operations; validate OIDC before disabling local login and email registration.
 - issue LibreChat a restricted LiteLLM virtual key that cannot administer the gateway or access routes not required by the UI.
 - add certificates, ingress, default-deny network policies, monitoring and nightly database dumps copied to an off-host backup destination.

@@ -107,8 +107,6 @@ spec:
             - secretRef:
                 name: litellm-env
           env:
-            - name: DISABLE_ADMIN_UI
-              value: "true"
             - name: DISABLE_SCHEMA_UPDATE
               value: "true"
             - name: LITELLM_LOG

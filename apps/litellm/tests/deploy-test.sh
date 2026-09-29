@@ -90,6 +90,33 @@ for manifest in migration-job.yaml deployment.yaml; do
   require_manifest_line 'pg_isready -h "$POSTGRES_HOST"' "${manifest}"
 done
 
+if grep -Fq 'name: DISABLE_ADMIN_UI' "${app_root}/deployment.yaml"; then
+  printf 'the LiteLLM Admin UI must remain enabled for private tunnel access\n' >&2
+  exit 1
+fi
+
+readonly -a public_api_paths=(
+  /v1/chat/completions
+  /v1/images/generations
+  /v1/images/edits
+  /v1/models
+  /typesafe/v1/systemone
+)
+for public_api_path in "${public_api_paths[@]}"; do
+  if ! grep -Fq -- "- path: ${public_api_path}" "${app_root}/ingress.yaml"; then
+    printf 'public API Ingress is missing its exact path: %s\n' \
+      "${public_api_path}" >&2
+    exit 1
+  fi
+done
+public_path_count="$(grep -Ec '^[[:space:]]+- path: ' "${app_root}/ingress.yaml")"
+exact_path_count="$(grep -Fc 'pathType: Exact' "${app_root}/ingress.yaml")"
+if [[ "${public_path_count}" -ne "${#public_api_paths[@]}" \
+  || "${exact_path_count}" -ne "${#public_api_paths[@]}" ]]; then
+  printf 'public API Ingress must contain only five exact inference paths\n' >&2
+  exit 1
+fi
+
 tcp_probe_count="$(
   grep -Fc 'command: [pg_isready, -h, 127.0.0.1, -U, litellm, -d, litellm]' \
     "${app_root}/postgres.yaml"
