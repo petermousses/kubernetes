@@ -97,6 +97,26 @@ if grep -Fq 'name: DISABLE_ADMIN_UI' "${app_root}/deployment.yaml"; then
   exit 1
 fi
 
+for metrics_contract in \
+  '            - --prometheus_metrics_port' \
+  '            - "4001"' \
+  '              containerPort: 4001'; do
+  if ! grep -Fq -- "${metrics_contract}" "${app_root}/deployment.yaml"; then
+    printf 'LiteLLM is missing its dedicated metrics listener: %s\n' \
+      "${metrics_contract}" >&2
+    exit 1
+  fi
+done
+grep -Fq 'kind: ServiceMonitor' "${app_root}/service-monitor.yaml"
+grep -Fq 'path: /metrics/' "${app_root}/service-monitor.yaml"
+grep -Fq 'name: litellm-metrics' "${app_root}/metrics-service.yaml"
+grep -Fq 'port: 4001' "${app_root}/metrics-service.yaml"
+grep -Fq '  - metrics-service.yaml' "${app_root}/kustomization.yaml"
+grep -Fq '  - service-monitor.yaml' "${app_root}/kustomization.yaml"
+grep -Fq 'name: allow-prometheus-metrics-ingress' "${app_root}/networkpolicy.yaml"
+grep -Fq 'name: allow-litellm-metrics-egress' \
+  "${app_root}/../monitoring/networkpolicy.yaml"
+
 for typesafe_contract in \
   'name: TYPESAFE_API_BASE' \
   'value: http://jevk5-redqueen:8191'; do

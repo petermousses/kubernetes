@@ -99,9 +99,14 @@ spec:
             - "4000"
             - --num_workers
             - "1"
+            - --prometheus_metrics_port
+            - "4001"
           ports:
             - name: http
               containerPort: 4000
+              protocol: TCP
+            - name: metrics
+              containerPort: 4001
               protocol: TCP
           envFrom:
             - secretRef:

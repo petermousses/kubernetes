@@ -12,6 +12,8 @@ resources:
   - migration-job.yaml
   - deployment.yaml
   - service.yaml
+  - metrics-service.yaml
+  - service-monitor.yaml
   - request-limits.yaml
   - ingress.yaml
   - ../_shared/ingress-security

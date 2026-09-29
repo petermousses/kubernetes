@@ -83,6 +83,20 @@ the forwarded `/v1/systemone` request with `TYPESAFE_API_KEY`. The public
 IngressRoute exposes only that exact TypeSafe path. this follows LiteLLM's
 [native TypeSafe pass-through contract](https://docs.litellm.ai/docs/pass_through/typesafe).
 
+JevK5 does not appear in `/v1/models`: that inventory lists `model_list`
+entries, and the typed TypeSafe route is not a chat or image model. create a
+JevK5-only virtual key through the private `/key/generate` API using the master
+key and a nonempty route allowlist, for example:
+
+```json
+{"key_alias":"jevk5-eval","duration":"7d","allowed_routes":["/typesafe/v1/systemone"]}
+```
+
+the `models` allowlist does not restrict this pass-through. an absent or empty
+`allowed_routes` list is not a deny-all; verify that the resulting key can call
+JevK5 but gets denied on Qwen chat and image routes. never send the master or
+virtual key to the public API hostname's management paths; they are not exposed.
+
 run the combined JevK5 and Qwen Image contract check from a workstation:
 
 ```sh
