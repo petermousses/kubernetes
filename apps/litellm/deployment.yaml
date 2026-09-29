@@ -119,6 +119,8 @@ spec:
               value: /app/migrations
             - name: PRISMA_BINARY_CACHE_DIR
               value: /app/cache/prisma
+            # LiteLLM appends the exact /v1/systemone suffix and replaces the
+            # caller's virtual key with TYPESAFE_API_KEY from litellm-env.
             - name: TYPESAFE_API_BASE
               value: http://jevk5-redqueen:8191
             - name: XDG_CACHE_HOME

@@ -97,6 +97,21 @@ if grep -Fq 'name: DISABLE_ADMIN_UI' "${app_root}/deployment.yaml"; then
   exit 1
 fi
 
+for typesafe_contract in \
+  'name: TYPESAFE_API_BASE' \
+  'value: http://jevk5-redqueen:8191'; do
+  if ! grep -Fq "${typesafe_contract}" "${app_root}/deployment.yaml"; then
+    printf 'LiteLLM is missing its JevK5 TypeSafe configuration: %s\n' \
+      "${typesafe_contract}" >&2
+    exit 1
+  fi
+done
+grep -Fq 'TYPESAFE_API_KEY "${typesafe_api_key}"' \
+  "${app_root}/bootstrap-secrets.sh"
+grep -Fq 'name: jevk5-redqueen' "${app_root}/redqueen-backends.yaml"
+grep -Fq 'port: 8191' "${app_root}/redqueen-backends.yaml"
+grep -Fq 'port: 8191' "${app_root}/networkpolicy.yaml"
+
 grep -Fxq 'kind: IngressRoute' "${app_root}/ingress.yaml"
 if grep -Fxq 'kind: Ingress' "${app_root}/ingress.yaml"; then
   printf 'the public API must use IngressRoute for HTTP method matching\n' >&2
@@ -169,5 +184,7 @@ if [[ "${tcp_probe_count}" -ne 3 ]]; then
     "${tcp_probe_count}" >&2
   exit 1
 fi
+
+PYTHONDONTWRITEBYTECODE=1 python3 "${test_root}/test_validate_inference.py"
 
 printf 'litellm deploy tests passed\n'

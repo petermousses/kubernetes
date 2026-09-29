@@ -258,14 +258,14 @@ the v1 boundary is frozen: redqueen remains outside k3s, while one LiteLLM repli
 
 the implementation is versioned under `apps/litellm/` and `hosts/redqueen/` with these controls:
 
-- LiteLLM `v1.103.0` is pinned by a Cosign-verified OCI index digest, runs as UID/GID 101 with a read-only root filesystem, one worker, one replica, a fixed 1 CPU/4 GiB envelope, production mode and probes. schema updates remain disabled during normal startup. the Admin UI is enabled inside the Pod but no UI or management path is present on the public API Ingress;
+- LiteLLM `v1.103.0` is pinned by a Cosign-verified OCI index digest, runs as UID/GID 101 with a read-only root filesystem, one worker, one replica, a fixed 1 CPU/4 GiB envelope, production mode and probes. schema updates remain disabled during normal startup. the Admin UI is enabled inside the Pod but no UI or management path is present on the public API IngressRoute;
 - a separate, explicitly ordered migration Job runs before the gateway. it uses LiteLLM's dedicated, offline `litellm-migrations:v1.103.0` image pinned to a Cosign-verified index digest, its native v2 resolver, UID/GID 65532 and a read-only root filesystem. `apps/litellm/deploy.sh` exists because plain `kubectl apply -k .` would create a migration/startup race; use the script for installs and upgrades;
 - PostgreSQL `16.14-bookworm` is pinned by digest, runs as UID/GID 999, uses the retained static PV, and is reachable only from the gateway and migration pods;
 - secrets are never committed. `bootstrap-secrets.sh` prompts for the three redqueen upstream keys, generates the database password, LiteLLM master key and permanent salt, then refuses accidental rotation if the Secret already exists;
 - the redqueen image adapter exposes only bounded `/v1/images/generations` and `/v1/images/edits` contracts, maps requests into fixed workflows, limits execution to one active/four waiting jobs, cleans request-scoped inputs/outputs, verifies returned PNG dimensions and the requested alpha contract, and composites RGBA output onto a white matte for `background=opaque` so the response is truly opaque RGB;
 - the JevK5 adapter exposes only `/v1/systemone`, enforces TypeSafe-style typed inputs/outputs and uses the selected Q8_0 file's documented `temperature=1.22` and `knockout_temperature=0.93` calibration. its vendored prompt/readout is attributed to JevK5 v0.3.0 and SemIf;
 - Qwen binds to `10.9.20.242:8081`; the image and Jev adapters bind to `10.9.20.242:8190` and `:8191`. separate 256-bit upstream credentials protect every inference operation, and the host firewall admits only the NAS, redqueen itself and the k3s pod CIDR to those ports. llama.cpp leaves `/v1/models` metadata unauthenticated even with `--api-key-file`; this is accepted only behind that source-IP firewall, while the public `/v1/models` route remains behind LiteLLM authentication;
-- the public Ingress uses exact paths for authenticated `/v1/models`, `/v1/chat/completions`, `/v1/images/generations`, `/v1/images/edits` and `/typesafe/v1/systemone`; health, metrics and administrative routes remain cluster-only. the redqueen Jev adapter's internal route remains `/v1/systemone`.
+- the public Traefik IngressRoute uses method-scoped allowlists: `GET`/`POST` only for the exact `/v1/responses` path and its slash-delimited subpaths, `GET` only for `/v1/models` and its slash-delimited subpaths, and `POST` only for the approved exact chat, image and `/typesafe/v1/systemone` paths. health, metrics and administrative routes remain cluster-only. the redqueen Jev adapter's internal route remains `/v1/systemone`.
 
 the execution order is deliberately split at the privilege boundary:
 
@@ -283,21 +283,41 @@ the retained failure and live network inspection on 2026-09-29 narrowed the next
 
 this symptom matches kube-router's documented startup race: k3s uses kube-router's network-policy controller, policy rules are applied asynchronously after Pod creation, and the default-deny tail can reject traffic before the Pod-specific firewall chain is programmed. both the migration Job and gateway therefore use a hardened init container that retries a real TCP `pg_isready` call for at most ten minutes before application startup. PostgreSQL's own startup, readiness and liveness probes now specify `-h 127.0.0.1`, so they verify the TCP listener rather than only its Unix socket. the next NAS deployment is the integration proof: success closes the race diagnosis; a full ten-minute init-container timeout instead proves persistent kube-router rule-programming failure and preserves the relevant logs. [k3s network-policy controller](https://docs.k3s.io/networking/networking-services), [kube-router policy-startup troubleshooting](https://github.com/cloudnativelabs/kube-router/blob/master/docs/troubleshoot.md)
 
-the 2026-09-29 redeployment passed that integration proof: the migration Job completed, LiteLLM became `1/1 Running` with zero restarts, Traefik published the TLS Ingress, and authenticated `/v1/models` access succeeded. keep the public hostname limited to its five exact inference paths.
+the 2026-09-29 redeployment passed that integration proof: the migration Job completed, LiteLLM became `1/1 Running` with zero restarts, Traefik published the TLS IngressRoute, and authenticated `/v1/models` access succeeded. keep the public hostname limited to the method-scoped inference allowlist.
 
 the LiteLLM Admin UI is intentionally available only through an operator tunnel until Authentik exists. from a workstation, use one SSH process that also starts the NAS-side Kubernetes port-forward:
+
+retrieve the master key directly on the NAS:
+
+```bash
+kubectl -n litellm get secret litellm-env \
+  -o jsonpath='{.data.LITELLM_MASTER_KEY}' | base64 --decode
+printf '\n'
+```
+
+or retrieve it from a workstation through the normal NAS SSH account:
+
+```bash
+ssh peter@openmediavault \
+  "kubectl -n litellm get secret litellm-env \
+    -o jsonpath='{.data.LITELLM_MASTER_KEY}' | base64 --decode; printf '\\n'"
+```
+
+then open the tunnel:
 
 ```bash
 ssh -t \
   -o ExitOnForwardFailure=yes \
   -o ServerAliveInterval=30 \
   -o ServerAliveCountMax=3 \
-  -L 14000:127.0.0.1:14000 \
-  <normal-nas-ssh-target> \
+  -L 127.0.0.1:14000:127.0.0.1:14000 \
+  peter@openmediavault \
   'kubectl -n litellm port-forward --address 127.0.0.1 service/litellm 14000:4000'
 ```
 
-open `http://127.0.0.1:14000/ui`, sign in as `admin` with the existing `LITELLM_MASTER_KEY`, and use `Ctrl-C` to sever both forwarding layers. the key is a root credential; retrieve it from the Kubernetes Secret only when needed and store it in a password manager, never in the repository. [LiteLLM Admin UI quickstart](https://docs.litellm.ai/docs/proxy/docker_quick_start)
+open `http://127.0.0.1:14000/ui`, sign in as `admin` with the existing `LITELLM_MASTER_KEY`, and use `Ctrl-C` to sever both forwarding layers. the key is a root credential; retrieve it only when needed and store it in a password manager, never in shell history or the repository. [LiteLLM Admin UI quickstart](https://docs.litellm.ai/docs/proxy/docker_quick_start)
+
+run `./apps/litellm/validate_inference.py` from a workstation with a disposable or restricted virtual key at its hidden prompt. it proves public wrong-method and missing/invalid-key denial, a semantic JevK5 decision, a 512×512 Qwen Image generation and an edit of the generated PNG. inspect both saved outputs before closing step 3.
 
 ### 4. deploy identity and the user interface
 
