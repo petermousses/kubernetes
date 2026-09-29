@@ -15,6 +15,11 @@ rg -q 'enabled: false' "${app_root}/helmchart.yaml"
 rg -q 'existingSecret:' "${app_root}/helmchart.yaml"
 rg -q 'serviceAccountName: default' "${app_root}/helmchart.yaml"
 rg -q 'automountServiceAccountToken: false' "${app_root}/helmchart.yaml"
+if [[ "$(rg -c 'name: ndots' "${app_root}/helmchart.yaml")" != 2 ]] ||
+   [[ "$(rg -c 'value: "1"' "${app_root}/helmchart.yaml")" != 2 ]]; then
+  printf 'server and worker must each set ndots=1\n' >&2
+  exit 1
+fi
 
 rg -q 'get secret authentik-env' "${app_root}/bootstrap-secrets.sh"
 rg -q 'rollout status statefulset/postgres' "${app_root}/deploy.sh"

@@ -51,6 +51,10 @@ spec:
       create: false
     server:
       replicas: 1
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
       serviceAccountName: default
       automountServiceAccountToken: false
       initContainers:
@@ -93,6 +97,10 @@ spec:
           interval: 30s
     worker:
       replicas: 1
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
       serviceAccountName: default
       automountServiceAccountToken: false
       initContainers:
