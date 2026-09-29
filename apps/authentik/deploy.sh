@@ -11,6 +11,11 @@ if ! kubectl -n authentik get secret authentik-env >/dev/null 2>&1; then
   printf 'run %s/bootstrap-secrets.sh first\n' "${app_root}" >&2
   exit 1
 fi
+if ! kubectl -n authentik get secret authentik-librechat-oidc >/dev/null 2>&1 ||
+   ! kubectl -n librechat get secret librechat-oidc >/dev/null 2>&1; then
+  printf 'run %s/bootstrap-librechat-oidc-secrets.sh first\n' "${app_root}" >&2
+  exit 1
+fi
 
 kubectl apply -k "${app_root}"
 kubectl -n authentik rollout status statefulset/postgres --timeout=5m

@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authentik-librechat-oidc-blueprint
+  namespace: authentik
+data:
+  librechat.yaml: |
+    version: 1
+    metadata:
+      name: AI - LibreChat OIDC
+    entries:
+      - model: authentik_core.group
+        id: librechat-users
+        identifiers:
+          name: librechat_users
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        identifiers:
+          name: librechat_admin
+        attrs:
+          is_superuser: false
+      - model: authentik_providers_oauth2.oauth2provider
+        id: librechat-provider
+        identifiers:
+          name: librechat-oidc
+        attrs:
+          authentication_flow: !Find [authentik_flows.flow, [slug, default-authentication-flow]]
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          client_type: confidential
+          grant_types: [authorization_code]
+          client_id: !Env LIBRECHAT_OIDC_CLIENT_ID
+          client_secret: !Env LIBRECHAT_OIDC_CLIENT_SECRET
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://librechat.omv.mousses.xyz/oauth/openid/callback
+          issuer_mode: per_provider
+          include_claims_in_id_token: true
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+      - model: authentik_core.application
+        id: librechat-app
+        identifiers:
+          slug: librechat
+        attrs:
+          name: LibreChat
+          provider: !KeyOf librechat-provider
+          meta_launch_url: https://librechat.omv.mousses.xyz/
+      - model: authentik_policies.policybinding
+        identifiers:
+          target: !KeyOf librechat-app
+          order: 10
+        attrs:
+          group: !KeyOf librechat-users

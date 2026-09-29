@@ -8,6 +8,7 @@ resources:
   - persistent-volume-claim.yaml
   - postgres.yaml
   - certificate.yaml
+  - librechat-oidc-blueprint.yaml
   - ../_shared/ingress-security
   - ../_shared/network-policy/baseline
   - ../_shared/network-policy/dns-egress

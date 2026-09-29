@@ -47,6 +47,9 @@ spec:
         secretName: authentik-env
     postgresql:
       enabled: false
+    blueprints:
+      configMaps:
+        - authentik-librechat-oidc-blueprint
     serviceAccount:
       create: false
     server:
@@ -97,6 +100,9 @@ spec:
           interval: 30s
     worker:
       replicas: 1
+      envFrom:
+        - secretRef:
+            name: authentik-librechat-oidc
       dnsConfig:
         options:
           - name: ndots
