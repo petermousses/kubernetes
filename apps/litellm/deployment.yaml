@@ -36,6 +36,55 @@ spec:
         runAsGroup: 101
         fsGroup: 101
         fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        - name: wait-for-postgres
+          # postgres:16.14-bookworm
+          image: docker.io/library/postgres@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              readiness_timeout_seconds=600
+              retry_delay_seconds=5
+              readiness_deadline=$(( $(date +%s) + readiness_timeout_seconds ))
+
+              while ! pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t 1 >/dev/null 2>&1; do
+                remaining_seconds=$((readiness_deadline - $(date +%s)))
+                if [ "$remaining_seconds" -le 0 ]; then
+                  printf '%s\n' 'PostgreSQL did not become reachable within 600 seconds.' >&2
+                  exit 1
+                fi
+                if [ "$remaining_seconds" -lt "$retry_delay_seconds" ]; then
+                  sleep "$remaining_seconds"
+                else
+                  sleep "$retry_delay_seconds"
+                fi
+              done
+          env:
+            - name: POSTGRES_HOST
+              value: postgres
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              value: litellm
+            - name: POSTGRES_DB
+              value: litellm
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
       containers:
         - name: litellm
           # ghcr.io/berriai/litellm:v1.103.0; Cosign-verified index digest.

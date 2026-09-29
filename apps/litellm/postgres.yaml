@@ -73,19 +73,19 @@ spec:
               value: /var/lib/postgresql/data/pgdata
           startupProbe:
             exec:
-              command: [pg_isready, -U, litellm, -d, litellm]
+              command: [pg_isready, -h, 127.0.0.1, -U, litellm, -d, litellm]
             failureThreshold: 60
             periodSeconds: 5
             timeoutSeconds: 3
           readinessProbe:
             exec:
-              command: [pg_isready, -U, litellm, -d, litellm]
+              command: [pg_isready, -h, 127.0.0.1, -U, litellm, -d, litellm]
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
           livenessProbe:
             exec:
-              command: [pg_isready, -U, litellm, -d, litellm]
+              command: [pg_isready, -h, 127.0.0.1, -U, litellm, -d, litellm]
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 3

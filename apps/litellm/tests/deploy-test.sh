@@ -61,8 +61,42 @@ if grep -Eq '^[[:space:]]+envFrom:' "${app_root}/migration-job.yaml"; then
   printf 'migration Job receives secrets it does not need\n' >&2
   exit 1
 fi
-if grep -Eq '^[[:space:]]+(command|workingDir):' "${app_root}/migration-job.yaml"; then
+if awk '
+  $0 == "        - name: migrations" { in_migrations = 1; next }
+  in_migrations && $0 ~ /^        - name:/ { in_migrations = 0 }
+  in_migrations && ($0 == "          command:" || $0 ~ /^          workingDir:/) {
+    found_override = 1
+  }
+  END { exit found_override ? 0 : 1 }
+' "${app_root}/migration-job.yaml"; then
   printf 'migration Job overrides the dedicated image entrypoint\n' >&2
+  exit 1
+fi
+
+require_manifest_line() {
+  local pattern="$1"
+  local manifest="$2"
+
+  if ! grep -Fq "${pattern}" "${app_root}/${manifest}"; then
+    printf '%s is missing required PostgreSQL readiness configuration: %s\n' \
+      "${manifest}" "${pattern}" >&2
+    exit 1
+  fi
+}
+
+for manifest in migration-job.yaml deployment.yaml; do
+  require_manifest_line 'name: wait-for-postgres' "${manifest}"
+  require_manifest_line 'readiness_timeout_seconds=600' "${manifest}"
+  require_manifest_line 'pg_isready -h "$POSTGRES_HOST"' "${manifest}"
+done
+
+tcp_probe_count="$(
+  grep -Fc 'command: [pg_isready, -h, 127.0.0.1, -U, litellm, -d, litellm]' \
+    "${app_root}/postgres.yaml"
+)"
+if [[ "${tcp_probe_count}" -ne 3 ]]; then
+  printf 'all three PostgreSQL health probes must verify TCP; found %s\n' \
+    "${tcp_probe_count}" >&2
   exit 1
 fi
 
