@@ -264,6 +264,28 @@ class AdapterTestCase(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(wrong_size.status, 502)
 
+    async def test_opaque_image_output_is_flattened_to_rgb(self) -> None:
+        class NearlyOpaqueBackend(FakeImageBackend):
+            async def generate(self, request: dict) -> bytes:
+                return png(alpha=254)
+
+        client = await self.client(
+            create_image_app(ImageSettings(api_key=TOKEN), NearlyOpaqueBackend())
+        )
+        response = await client.post(
+            "/v1/images/generations",
+            headers=self.auth(),
+            json={"prompt": "x", "background": "opaque"},
+        )
+        self.assertEqual(response.status, 200)
+        body = await response.json()
+        with Image.open(
+            io.BytesIO(base64.b64decode(body["data"][0]["b64_json"]))
+        ) as image:
+            image.load()
+            self.assertEqual(image.size, (1024, 1024))
+            self.assertEqual(image.mode, "RGB")
+
     async def test_comfy_workflow_mapping_is_fixed_and_request_scoped(self) -> None:
         backend = RecordingComfyBackend()
         generation = {

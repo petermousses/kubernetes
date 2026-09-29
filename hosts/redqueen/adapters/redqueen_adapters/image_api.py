@@ -187,7 +187,7 @@ def _validate_reference(content_type: str, data: bytes) -> None:
             raise ValueError("reference image is invalid or corrupt") from error
 
 
-def _validate_output(data: bytes, request: dict) -> None:
+def _normalize_output(data: bytes, request: dict) -> bytes:
     expected_size = tuple(int(value) for value in request["size"].split("x"))
     try:
         with Image.open(io.BytesIO(data)) as image:
@@ -198,6 +198,13 @@ def _validate_output(data: bytes, request: dict) -> None:
                 raise RuntimeError("image backend returned incorrect dimensions")
             alpha = image.getchannel("A") if "A" in image.getbands() else None
             alpha_extrema = alpha.getextrema() if alpha is not None else (255, 255)
+            if request["background"] == "opaque" and alpha is not None:
+                rgba = image.convert("RGBA")
+                flattened = Image.new("RGBA", image.size, (255, 255, 255, 255))
+                flattened.alpha_composite(rgba)
+                output = io.BytesIO()
+                flattened.convert("RGB").save(output, format="PNG")
+                data = output.getvalue()
     except (
         UnidentifiedImageError,
         OSError,
@@ -208,8 +215,7 @@ def _validate_output(data: bytes, request: dict) -> None:
         raise RuntimeError("image backend returned an invalid PNG") from error
     if request["background"] == "transparent" and alpha_extrema[0] == 255:
         raise RuntimeError("image backend failed to produce transparency")
-    if request["background"] == "opaque" and alpha_extrema[0] != 255:
-        raise RuntimeError("image backend failed to produce an opaque image")
+    return data
 
 
 async def _read_bounded_part(
@@ -530,7 +536,7 @@ def create_image_app(
         try:
             async with gate.enter():
                 image = await operation()
-                await asyncio.to_thread(_validate_output, image, normalized)
+                image = await asyncio.to_thread(_normalize_output, image, normalized)
         except RuntimeError as error:
             if str(error) == "image queue is full":
                 response = error_response(429, str(error), "rate_limit_error")
