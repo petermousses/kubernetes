@@ -273,8 +273,8 @@ the execution order is deliberately split at the privilege boundary:
 2. [x] the node owner installs the nftables package and enables the dedicated `redqueen-inference-firewall.service`, which owns only its `inet redqueen_inference` table and never flushes the host ruleset; the owner also creates `/srv/ai/secrets`, then `ai` runs `hosts/redqueen/create-secrets.sh` to create—but not print or overwrite—the three upstream credentials. the package, firewall and directory commands are owner work because `ai` intentionally has no sudo;
 3. [x] enable and start the three authenticated redqueen listeners, then verify from the NAS that allowed health/API requests succeed and an ordinary LAN client is rejected. the listeners, redqueen-local checks and ordinary-LAN denial pass; the NAS routes to `10.9.20.242` from `10.9.20.14` and received HTTP 200 from `:8081/health`, `:8190/healthz` and `:8191/healthz`;
 4. [x] the NAS storage directory and non-committed Secret exist, PostgreSQL is healthy, the migration completed, LiteLLM rolled out with zero restarts, and the TLS-protected public API passed authenticated access;
-5. [ ] after the migration and rollout succeed, create least-privilege LiteLLM virtual keys and run the full external contract/authentication/isolation tests. do not mark step 3 complete until wrong/missing/scoped keys fail correctly on every public route.
-6. [ ] deploy the dedicated LiteLLM Prometheus listener and ServiceMonitor into the existing monitoring stack, then confirm the scrape target and request, error, latency and proxy queue-time series are live. the listener is unauthenticated on port 4001, so keep it off public Ingress and allow only Prometheus through bidirectional network policies.
+5. [ ] **deferred by owner on 2026-09-29:** create least-privilege LiteLLM virtual keys and run the full external contract/authentication/isolation matrix. broad-key functional success does not prove wrong/missing/scoped-key denial. complete this before relying on key isolation or calling the security acceptance gates passed.
+6. [ ] **deferred by owner on 2026-09-29:** confirm the deployed dedicated LiteLLM Prometheus listener and ServiceMonitor yield a healthy scrape target and live request, error, latency and proxy queue-time series. the listener is unauthenticated on port 4001, so keep it off public Ingress and allow only Prometheus through bidirectional network policies.
 
 live redqueen verification on 2026-09-28 established that the dedicated nftables unit loaded successfully, all three authenticated listeners were active on their intended addresses, ComfyUI remained loopback-only, and a non-allowlisted workstation timed out against ports `8081`, `8190` and `8191`. missing and invalid credentials were rejected for Qwen chat, image and Jev inference; valid credentials passed real Qwen chat and Jev decision requests. a real 512 px Qwen Image request initially exposed near-opaque alpha values (`254–255`) and was correctly redacted as `502`; commit `785e862` added deterministic opaque compositing, after which the same request returned a 512×512 RGB PNG. twelve adapter tests pass on both the development host and redqueen.
 
@@ -320,7 +320,7 @@ open `http://127.0.0.1:14000/ui`, sign in as `admin` with the existing `LITELLM_
 
 run `./apps/litellm/validate_inference.py` from a workstation with a disposable or restricted virtual key at its hidden prompt. it proves public wrong-method and missing/invalid-key denial, a semantic JevK5 decision, a 512×512 Qwen Image generation and an edit of the generated PNG. inspect both saved outputs before closing step 3.
 
-the 2026-09-29 public validation passed with a virtual key: JevK5 chose `misdelivered` at confidence `0.998321`, and Qwen Image returned valid 512×512 generation and edit PNGs. visual inspection confirmed that the edit changed the centered cube from red to blue while preserving its shape and plain background. LiteLLM v1.103.0 forwards edit uploads as `image[]`; redqueen adapter commit `720cb2e` accepts that field through its existing bounded image validation. all 13 adapter tests passed on redqueen, and a live `image[]` edit returned HTTP 200 with a valid 512×512 PNG. the NAS-origin firewall allow probe subsequently passed. step 3 remains open for route-by-route scoped-key denials and live Prometheus scrape verification.
+the 2026-09-29 public validation passed with a virtual key: JevK5 chose `misdelivered` at confidence `0.998321`, and Qwen Image returned valid 512×512 generation and edit PNGs. visual inspection confirmed that the edit changed the centered cube from red to blue while preserving its shape and plain background. LiteLLM v1.103.0 forwards edit uploads as `image[]`; redqueen adapter commit `720cb2e` accepts that field through its existing bounded image validation. all 13 adapter tests passed on redqueen, and a live `image[]` edit returned HTTP 200 with a valid 512×512 PNG. the NAS-origin firewall allow probe subsequently passed. the owner elected to proceed to step 4 with the scoped-key matrix and live Prometheus scrape check explicitly deferred, not passed.
 
 JevK5 is deliberately absent from `/v1/models`: that list contains LiteLLM `model_list` entries for OpenAI-compatible calls, while JevK5 is a typed decision API behind the native `/typesafe/v1/systemone` pass-through. a virtual key for JevK5 must be restricted by nonempty `allowed_routes` containing `/typesafe/v1/systemone`; its `models` allowlist does not govern this pass-through. do not add a fake chat model merely to make JevK5 appear in `/v1/models`. future decision models need an explicit typed route or a dedicated decision router with model-aware authorization; a shared unrestricted pass-through would make per-model key isolation impossible. verify the key's actual denials before relying on this boundary.
 
@@ -334,6 +334,37 @@ JevK5 is deliberately absent from `/v1/models`: that list contains LiteLLM `mode
 - issue LibreChat a restricted LiteLLM virtual key that cannot administer the gateway or access routes not required by the UI.
 - add certificates, ingress, default-deny network policies, monitoring and nightly database dumps copied to an off-host backup destination.
 - **exit criterion:** an authorized user can sign in through Authentik and use chat/image features, an unauthorized user is denied, administrative role mapping works, and both databases pass a restore test.
+
+#### step 4 deployment sequence
+
+the owner confirmed on 2026-09-29 that LibreChat has not been used and its existing database may be reset if needed. do not delete it merely for convenience; the identity cutover can proceed without preserving its users or sessions.
+
+phase 4a installs Authentik `2026.8.3` (chart and digest-pinned server/worker image), a separate PostgreSQL 16 instance, retained local database and `/data` volumes, a private metrics ServiceMonitor and a certificate. the public `auth.omv.mousses.xyz` IngressRoute exists in `apps/authentik/ingress.yaml` but is deliberately excluded from `kubectl apply -k` and `apps/authentik/deploy.sh` until the local `akadmin` account has MFA enrolled and a fresh login demonstrably requires it. the chart has no Kubernetes service-account token or bundled database; the app is default-deny except for PostgreSQL, DNS, Traefik and Prometheus flows. [Authentik Kubernetes install](https://docs.goauthentik.io/install-config/install/kubernetes), [2026.8 release](https://docs.goauthentik.io/releases/2026.8/), [MFA stage behavior](https://docs.goauthentik.io/add-secure-apps/flows-stages/stages/authenticator_validate/)
+
+on the NAS, after pulling the commit into the clone and changing to its root:
+
+```bash
+sudo install -d -o 999 -g 999 -m 0700 /filesystem/k3s/data/authentik/postgres
+sudo install -d -o 1000 -g 1000 -m 0700 /filesystem/k3s/data/authentik/data
+./apps/authentik/bootstrap-secrets.sh
+kubectl apply -f apps/monitoring/networkpolicy.yaml
+./apps/authentik/deploy.sh
+```
+
+`bootstrap-secrets.sh` prompts invisibly for a 20+ character `akadmin` password and creates the permanent Authentik signing key plus matching PostgreSQL credentials without printing them. it refuses rotation if `authentik-env` already exists. keep the password in a password manager. PostgreSQL and `/data` must later be included in off-host backup/restore tests; the backup destination is still an owner decision.
+
+for the initial browser setup, from a workstation open this single NAS tunnel:
+
+```bash
+ssh -t -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:19000:127.0.0.1:19000 \
+  peter@openmediavault \
+  'kubectl -n authentik port-forward --address 127.0.0.1 service/authentik-server 19000:80'
+```
+
+visit `http://127.0.0.1:19000/` and sign in as `akadmin`. enroll TOTP, inspect the default authentication flow's Authenticator Validation stage and ensure its *Not configured action* cannot skip MFA for the admin. log out, start a fresh private browser session, and prove password alone cannot complete login. `Ctrl-C` closes the tunnel. confirm `auth.omv.mousses.xyz` resolves to Traefik and the Authentik Certificate is `Ready=True`; only then publish the public route with `kubectl apply -f apps/authentik/ingress.yaml` and verify HTTPS/browser login. WebAuthn may be added after the public HTTPS hostname is live; do not enroll an authenticator under the `localhost` tunnel and assume it will work on the public domain. [Authenticator validation stage](https://docs.goauthentik.io/add-secure-apps/flows-stages/stages/authenticator_validate/)
+
+phase 4b, after Authentik is live, adds the OIDC blueprint and cross-namespace egress/ingress rules, connects the existing LibreChat deployment and a restricted LiteLLM key, then independently enables LiteLLM Admin UI OIDC on its separate hostname. do not cut off LibreChat local login until authorized, unauthorized and admin group tests pass. phase 4c adds nightly off-host database dumps and verifies restores; neither a successful chart rollout nor a Prometheus manifest alone proves those gates.
 
 ### 5. integrate, test and cut over
 

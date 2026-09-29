@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: authentik-postgres
+  labels:
+    app.kubernetes.io/name: authentik
+    app.kubernetes.io/component: database
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: authentik-local
+  local:
+    path: /filesystem/k3s/data/authentik/postgres
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: authentik-data
+  labels:
+    app.kubernetes.io/name: authentik
+    app.kubernetes.io/component: file-storage
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: authentik-local
+  local:
+    path: /filesystem/k3s/data/authentik/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault

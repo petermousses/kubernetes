@@ -1,0 +1,19 @@
+# Apply separately only after the local akadmin has MFA enrolled.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: authentik
+  namespace: authentik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`auth.omv.mousses.xyz`)
+      middlewares:
+        - name: security-headers
+      services:
+        - name: authentik-server
+          port: http
+  tls:
+    secretName: authentik-tls

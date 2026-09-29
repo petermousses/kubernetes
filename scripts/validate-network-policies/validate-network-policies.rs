@@ -13,6 +13,7 @@ const BASELINE_EXCEPTIONS: &[&str] = &["rancher"];
 // Monitoring keeps HelmChart objects in kube-system and targets workloads to its app namespace.
 const NAMESPACE_TRANSFORM_EXCEPTIONS: &[&str] = &["monitoring"];
 const SHARED_DNS_APPS: &[&str] = &[
+    "authentik",
     "immich",
     "librechat",
     "litellm",
@@ -21,6 +22,7 @@ const SHARED_DNS_APPS: &[&str] = &[
     "searxng",
 ];
 const INGRESS_SECURITY_APPS: &[&str] = &[
+    "authentik",
     "board-games",
     "crafty",
     "external-routes",
