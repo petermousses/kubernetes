@@ -1,5 +1,5 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
 metadata:
   name: litellm
   namespace: litellm
@@ -7,50 +7,65 @@ metadata:
     app.kubernetes.io/name: litellm
     app.kubernetes.io/component: gateway
     app.kubernetes.io/part-of: litellm
-  annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: litellm-security-headers@kubernetescrd,litellm-request-limits@kubernetescrd
 spec:
-  ingressClassName: traefik
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && (Method(`GET`) || Method(`POST`)) && (Path(`/v1/responses`) || PathPrefix(`/v1/responses/`))
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/chat/completions`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/chat/completions/input_tokens`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`GET`) && (Path(`/v1/models`) || PathPrefix(`/v1/models/`))
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/images/generations`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/images/edits`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/typesafe/v1/systemone`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
   tls:
-    - hosts:
-        - api.ai.omv.mousses.xyz
-      secretName: litellm-tls
-  rules:
-    - host: api.ai.omv.mousses.xyz
-      http:
-        paths:
-          - path: /v1/chat/completions
-            pathType: Exact
-            backend:
-              service:
-                name: litellm
-                port:
-                  name: http
-          - path: /v1/images/generations
-            pathType: Exact
-            backend:
-              service:
-                name: litellm
-                port:
-                  name: http
-          - path: /v1/images/edits
-            pathType: Exact
-            backend:
-              service:
-                name: litellm
-                port:
-                  name: http
-          - path: /v1/models
-            pathType: Exact
-            backend:
-              service:
-                name: litellm
-                port:
-                  name: http
-          - path: /typesafe/v1/systemone
-            pathType: Exact
-            backend:
-              service:
-                name: litellm
-                port:
-                  name: http
+    secretName: litellm-tls

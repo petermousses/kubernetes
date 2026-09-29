@@ -100,6 +100,9 @@ if ! wait_for_migration; then
   exit 1
 fi
 
+# The public router changed from a Kubernetes Ingress to a Traefik
+# IngressRoute. kubectl apply does not prune resources whose kind changed.
+kubectl -n "${namespace}" delete ingress litellm --ignore-not-found
 kubectl apply -k "${app_root}"
 kubectl -n "${namespace}" rollout status deployment/litellm --timeout=10m
-kubectl -n "${namespace}" get pods,svc,ingress,certificate,endpointslice
+kubectl -n "${namespace}" get pods,svc,ingressroute,certificate,endpointslice

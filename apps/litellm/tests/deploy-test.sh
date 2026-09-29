@@ -49,7 +49,9 @@ fi
 
 success_log="${scratch}/successful-kubectl.log"
 run_deploy complete "${success_log}" >"${scratch}/successful.out" 2>"${scratch}/successful.err"
+grep -Fq 'delete ingress litellm --ignore-not-found' "${success_log}"
 grep -Fq "apply -k ${app_root}" "${success_log}"
+grep -Fq 'get pods\,svc\,ingressroute\,certificate\,endpointslice' "${success_log}"
 
 grep -Fq 'backoffLimit: 0' "${app_root}/migration-job.yaml"
 grep -Fq 'restartPolicy: Never' "${app_root}/migration-job.yaml"
@@ -95,27 +97,68 @@ if grep -Fq 'name: DISABLE_ADMIN_UI' "${app_root}/deployment.yaml"; then
   exit 1
 fi
 
-readonly -a public_api_paths=(
-  /v1/chat/completions
-  /v1/images/generations
-  /v1/images/edits
-  /v1/models
-  /typesafe/v1/systemone
+grep -Fxq 'kind: IngressRoute' "${app_root}/ingress.yaml"
+if grep -Fxq 'kind: Ingress' "${app_root}/ingress.yaml"; then
+  printf 'the public API must use IngressRoute for HTTP method matching\n' >&2
+  exit 1
+fi
+
+readonly public_host='Host(`api.ai.omv.mousses.xyz`)'
+readonly -a public_api_rules=(
+  "${public_host} && (Method(\`GET\`) || Method(\`POST\`)) && (Path(\`/v1/responses\`) || PathPrefix(\`/v1/responses/\`))"
+  "${public_host} && Method(\`POST\`) && Path(\`/v1/chat/completions\`)"
+  "${public_host} && Method(\`POST\`) && Path(\`/v1/chat/completions/input_tokens\`)"
+  "${public_host} && Method(\`GET\`) && (Path(\`/v1/models\`) || PathPrefix(\`/v1/models/\`))"
+  "${public_host} && Method(\`POST\`) && Path(\`/v1/images/generations\`)"
+  "${public_host} && Method(\`POST\`) && Path(\`/v1/images/edits\`)"
+  "${public_host} && Method(\`POST\`) && Path(\`/typesafe/v1/systemone\`)"
 )
-for public_api_path in "${public_api_paths[@]}"; do
-  if ! grep -Fq -- "- path: ${public_api_path}" "${app_root}/ingress.yaml"; then
-    printf 'public API Ingress is missing its exact path: %s\n' \
-      "${public_api_path}" >&2
+for public_api_rule in "${public_api_rules[@]}"; do
+  if ! grep -Fq -- "match: ${public_api_rule}" "${app_root}/ingress.yaml"; then
+    printf 'public API IngressRoute is missing its rule: %s\n' \
+      "${public_api_rule}" >&2
     exit 1
   fi
 done
-public_path_count="$(grep -Ec '^[[:space:]]+- path: ' "${app_root}/ingress.yaml")"
-exact_path_count="$(grep -Fc 'pathType: Exact' "${app_root}/ingress.yaml")"
-if [[ "${public_path_count}" -ne "${#public_api_paths[@]}" \
-  || "${exact_path_count}" -ne "${#public_api_paths[@]}" ]]; then
-  printf 'public API Ingress must contain only five exact inference paths\n' >&2
+
+public_rule_count="$(grep -Ec '^[[:space:]]+match: ' "${app_root}/ingress.yaml")"
+if [[ "${public_rule_count}" -ne "${#public_api_rules[@]}" ]]; then
+  printf 'public API IngressRoute must contain only the seven approved route rules\n' >&2
   exit 1
 fi
+if grep -Fq 'PathPrefix(`/v1/responses`)' "${app_root}/ingress.yaml" \
+  || grep -Fq 'PathPrefix(`/v1/models`)' "${app_root}/ingress.yaml"; then
+  printf 'route-family prefixes must end in / to prevent prefix confusion\n' >&2
+  exit 1
+fi
+
+for required_line in \
+  'apiVersion: traefik.io/v1alpha1' \
+  '    - websecure' \
+  'name: security-headers' \
+  'name: request-limits' \
+  'name: litellm' \
+  'port: http' \
+  'secretName: litellm-tls'; do
+  if ! grep -Fq "${required_line}" "${app_root}/ingress.yaml"; then
+    printf 'public API IngressRoute is missing required configuration: %s\n' \
+      "${required_line}" >&2
+    exit 1
+  fi
+done
+
+for repeated_line in \
+  '        - name: security-headers' \
+  '        - name: request-limits' \
+  '        - name: litellm' \
+  '          port: http'; do
+  repeated_line_count="$(grep -Fxc "${repeated_line}" "${app_root}/ingress.yaml")"
+  if [[ "${repeated_line_count}" -ne "${#public_api_rules[@]}" ]]; then
+    printf 'each public route must contain required configuration: %s\n' \
+      "${repeated_line}" >&2
+    exit 1
+  fi
+done
 
 tcp_probe_count="$(
   grep -Fc 'command: [pg_isready, -h, 127.0.0.1, -U, litellm, -d, litellm]' \
