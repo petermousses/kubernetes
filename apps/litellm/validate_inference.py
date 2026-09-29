@@ -267,13 +267,14 @@ def _decode_image_response(response: dict) -> bytes:
 def _multipart_edit(image: bytes) -> tuple[bytes, str]:
     boundary = f"litellm-validation-{secrets.token_hex(16)}"
     parts: list[bytes] = []
+    # LiteLLM treats this as a GPT Image-compatible request. Those models
+    # always return base64 and do not accept the DALL-E-only response_format.
     fields = {
         "model": "qwen-image-2.1",
         "prompt": "change the red cube to a blue cube; preserve composition",
         "size": "512x512",
         "quality": "low",
         "background": "opaque",
-        "response_format": "b64_json",
     }
     for name, value in fields.items():
         parts.extend(
@@ -355,7 +356,6 @@ def validate(
         "quality": "low",
         "background": "opaque",
         "n": 1,
-        "response_format": "b64_json",
     }
     jev_body = json.dumps(jev_payload, separators=(",", ":")).encode()
     image_body = json.dumps(generation_payload, separators=(",", ":")).encode()

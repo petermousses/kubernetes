@@ -89,6 +89,12 @@ class FakeOpener:
                 },
             )
         if path == "/v1/images/generations":
+            payload = json.loads(body)
+            if "response_format" in payload:
+                return FakeResponse(
+                    400,
+                    {"error": {"message": "response_format is not valid for GPT Image"}},
+                )
             return FakeResponse(
                 200,
                 {"data": [{"b64_json": base64.b64encode(self.image).decode()}]},
@@ -99,6 +105,11 @@ class FakeOpener:
                 return FakeResponse(400, {"error": {"message": "not multipart"}})
             if b"filename=\"generated.png\"" not in body or self.image not in body:
                 return FakeResponse(400, {"error": {"message": "missing image"}})
+            if b'name="response_format"' in body:
+                return FakeResponse(
+                    400,
+                    {"error": {"message": "response_format is not valid for GPT Image"}},
+                )
             return FakeResponse(
                 200,
                 {"data": [{"b64_json": base64.b64encode(self.image).decode()}]},
