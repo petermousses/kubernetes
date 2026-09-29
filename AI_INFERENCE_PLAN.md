@@ -240,9 +240,40 @@ SSH authentication is the v1 security boundary for the operator UI. if browser-o
 - implement and test the image adapter for `/v1/images/generations` and `/v1/images/edits`, including validation, timeouts, cancellation, queue limits and deterministic ComfyUI workflow mapping.
 - implement and test the JevK5 `/v1/systemone` adapter with typed request/response validation, option-count limits and calibrated model settings.
 - deploy LiteLLM and its dedicated PostgreSQL database with pinned images, non-committed Kubernetes Secrets, network policies, probes, resource limits and persistent storage.
-- register only `qwen3.8-27b`, `qwen-image-2.1` and the exact authenticated `/v1/systemone` pass-through; prohibit wildcard pass-through and caller Authorization-header forwarding.
+- register only `qwen3.8-27b`, `qwen-image-2.1` and LiteLLM's native authenticated `/typesafe/v1/systemone` pass-through, which forwards the exact `/v1/systemone` suffix to the redqueen adapter; prohibit wildcard pass-through and caller Authorization-header forwarding. [LiteLLM TypeSafe pass-through](https://docs.litellm.ai/docs/pass_through/typesafe)
 - create separate least-privilege virtual keys for LibreChat, administrators and each machine client; enable request, latency, error and queue metrics without logging prompts or image contents by default.
 - **exit criterion:** one API hostname serves all three capabilities, rejects missing or incorrectly scoped keys, and exposes no route that bypasses LiteLLM authentication.
+
+#### step 3 preflight and deployment record — 2026-09-28
+
+the NAS preflight passed with these observed facts:
+
+- k3s client/server `v1.33.5+k3s1` and Kustomize `v5.6.0`; the sole node `openmediavault` is `Ready` at `10.9.20.14` on Debian 12;
+- the repeated `/etc/rancher/k3s/config.yaml: permission denied` warnings are noisy but non-fatal because all requested API reads succeeded. do not broaden kubeconfig permissions merely to suppress them;
+- `letsencrypt-production-cloudflare` is `Ready=True`, and the default `local-path` provisioner plus the existing static local-storage pattern are available;
+- `/filesystem/k3s/data` resolves onto the 37 TB k3s filesystem, with 33 TB free. LiteLLM PostgreSQL gets a dedicated retained static volume at `/filesystem/k3s/data/litellm/postgres` rather than borrowing another application's storage class;
+- the initial `git status` failed only because it was run outside the repository clone. rerun it after changing into the clone; it says nothing about cluster health.
+
+the v1 boundary is frozen: redqueen remains outside k3s, while one LiteLLM replica and one dedicated PostgreSQL 16 instance run on `openmediavault`. selectorless Services and manually managed EndpointSlices represent redqueen at reserved address `10.9.20.242`; Kubernetes explicitly supports this external-backend pattern. [Kubernetes selectorless Services](https://kubernetes.io/docs/concepts/services-networking/service/#services-without-selectors)
+
+the implementation is versioned under `apps/litellm/` and `hosts/redqueen/` with these controls:
+
+- LiteLLM `v1.103.0` is pinned by a Cosign-verified OCI index digest, runs as UID/GID 101 with a read-only root filesystem, one worker, one replica, a fixed 1 CPU/4 GiB envelope, production mode, probes, the admin UI disabled and schema updates disabled during normal startup;
+- a separate, explicitly ordered migration Job runs before the gateway. `apps/litellm/deploy.sh` exists because plain `kubectl apply -k .` would create a migration/startup race; use the script for installs and upgrades;
+- PostgreSQL `16.14-bookworm` is pinned by digest, runs as UID/GID 999, uses the retained static PV, and is reachable only from the gateway and migration pods;
+- secrets are never committed. `bootstrap-secrets.sh` prompts for the three redqueen upstream keys, generates the database password, LiteLLM master key and permanent salt, then refuses accidental rotation if the Secret already exists;
+- the redqueen image adapter exposes only bounded `/v1/images/generations` and `/v1/images/edits` contracts, maps requests into fixed workflows, limits execution to one active/four waiting jobs, cleans request-scoped inputs/outputs, and verifies returned PNG dimensions and the requested alpha contract;
+- the JevK5 adapter exposes only `/v1/systemone`, enforces TypeSafe-style typed inputs/outputs and uses the selected Q8_0 file's documented `temperature=1.22` and `knockout_temperature=0.93` calibration. its vendored prompt/readout is attributed to JevK5 v0.3.0 and SemIf;
+- Qwen binds to `10.9.20.242:8081`; the image and Jev adapters bind to `10.9.20.242:8190` and `:8191`. separate 256-bit upstream credentials protect all three, and the host firewall admits only the NAS, redqueen itself and the k3s pod CIDR to those ports;
+- the public Ingress uses exact paths for authenticated `/v1/models`, `/v1/chat/completions`, `/v1/images/generations`, `/v1/images/edits` and `/typesafe/v1/systemone`; health, metrics and administrative routes remain cluster-only. the redqueen Jev adapter's internal route remains `/v1/systemone`.
+
+the remaining execution order is deliberately split at the privilege boundary:
+
+1. copy the committed host files to redqueen, install the adapters as `ai`, and stop before exposing listeners;
+2. the node owner installs the nftables package and enables the dedicated `redqueen-inference-firewall.service`, which owns only its `inet redqueen_inference` table and never flushes the host ruleset; the owner also creates `/srv/ai/secrets`, then `ai` runs `hosts/redqueen/create-secrets.sh` to create—but not print or overwrite—the three upstream credentials. the package, firewall and directory commands are owner work because `ai` intentionally has no sudo;
+3. enable and start the three authenticated redqueen listeners, then verify from the NAS that allowed health/API requests succeed and an ordinary LAN client is rejected;
+4. on the NAS, create `/filesystem/k3s/data/litellm/postgres` as UID/GID 999, pull this commit in the correct clone, run `apps/litellm/bootstrap-secrets.sh`, then run `apps/litellm/deploy.sh`;
+5. after the migration and rollout succeed, create least-privilege LiteLLM virtual keys and run the full external contract/authentication/isolation tests. do not mark step 3 complete until wrong/missing/scoped keys fail correctly on every public route.
 
 ### 4. deploy identity and the user interface
 
@@ -309,7 +340,7 @@ use pinned Podman Quadlets or systemd services running under the dedicated, non-
 
   - `qwen3.8-27b` through `/v1/chat/completions`
   - `qwen-image-2.1` through `/v1/images/generations` and `/v1/images/edits`
-  - JevK5 through exact `/v1/systemone` pass-through
+  - JevK5 through LiteLLM's native `/typesafe/v1/systemone` pass-through to redqueen's exact `/v1/systemone` adapter
 
 - use LiteLLM virtual keys:
   - one restricted key for LibreChat;
@@ -317,7 +348,7 @@ use pinned Podman Quadlets or systemd services running under the dedicated, non-
   - model allowlists, request limits and audit metadata per key;
   - master key usable only for administration.
 
-[LiteLLM supports virtual keys, routing and OpenAI image endpoints](https://docs.litellm.ai/docs/). for JevK5, use an **exact authenticated pass-through**, never wildcard `include_subpath`, and never forward the caller’s Authorization header; current bugs make those patterns unsafe or unreliable. [wildcard auth issue](https://github.com/BerriAI/litellm/issues/36508), [header-forwarding issue](https://github.com/BerriAI/litellm/issues/32202)
+[LiteLLM supports virtual keys, routing and OpenAI image endpoints](https://docs.litellm.ai/docs/). for JevK5, use the native TypeSafe integration at `/typesafe/v1/systemone`, never wildcard `include_subpath`, and never forward the caller’s Authorization header; current bugs make those generic patterns unsafe or unreliable. [LiteLLM TypeSafe pass-through](https://docs.litellm.ai/docs/pass_through/typesafe), [wildcard auth issue](https://github.com/BerriAI/litellm/issues/36508), [header-forwarding issue](https://github.com/BerriAI/litellm/issues/32202)
 
 ### 4. deploy Authentik and connect LibreChat
 
@@ -369,7 +400,7 @@ do not install the AMD GPU Operator or move the inference services into pods in 
   - Authentik group admission, admin mapping, logout and revoked-user denial;
   - streaming chat, vision input and tool calls;
   - image generation, editing, transparency and multiple references;
-  - typed JevK5 decisions through `/v1/systemone`;
+  - typed JevK5 decisions through `/typesafe/v1/systemone`;
   - 30-minute mixed load: two Qwen streams + one JevK5 request + one image job, with no OOM, driver reset, stalled stream or 5xx;
   - raw Halo ports unreachable from users;
   - Authentik and LiteLLM PostgreSQL restore tests.

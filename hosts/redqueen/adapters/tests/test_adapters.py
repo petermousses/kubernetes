@@ -1,0 +1,447 @@
+from __future__ import annotations
+
+import asyncio
+import base64
+import io
+import tempfile
+import unittest
+from pathlib import Path
+
+from aiohttp.test_utils import TestClient, TestServer
+from PIL import Image
+
+from redqueen_adapters.image_api import (
+    MAX_IMAGE_BYTES,
+    ComfyBackend,
+    ImageSettings,
+    create_image_app,
+)
+from redqueen_adapters.jev_api import JevSettings, create_jev_app
+
+
+TOKEN = "adapter-test-token"
+
+
+def png(size: tuple[int, int] = (1024, 1024), alpha: int = 0) -> bytes:
+    output = io.BytesIO()
+    Image.new("RGBA", size, (255, 0, 0, alpha)).save(output, format="PNG")
+    return output.getvalue()
+
+
+def jpeg(size: tuple[int, int] = (64, 64)) -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", size, (0, 255, 0)).save(output, format="JPEG")
+    return output.getvalue()
+
+
+class FakeImageBackend:
+    def __init__(self) -> None:
+        self.requests: list[dict] = []
+        self.release = asyncio.Event()
+        self.block = False
+
+    async def generate(self, request: dict) -> bytes:
+        self.requests.append(request)
+        if self.block:
+            await self.release.wait()
+        return png()
+
+    async def edit(self, request: dict, images: list[tuple[str, bytes, str]]) -> bytes:
+        self.requests.append({**request, "images": images})
+        return png((512, 512))
+
+
+class FakeJevBackend:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, dict]] = []
+
+    async def decide(self, state: object, question: dict) -> dict:
+        self.calls.append((state, question))
+        if question["type"] == "noul":
+            return {"type": "noul", "confidence": 0.8, "noul": 0.8, "input_tokens": 9}
+        probabilities = {
+            key: 1 / len(question["criteria"]) for key in question["criteria"]
+        }
+        return {
+            "type": question["type"],
+            "confidence": max(probabilities.values()),
+            "choice": next(iter(probabilities)),
+            "probabilities": probabilities,
+            "input_tokens": 11,
+        }
+
+
+class RecordingComfyBackend(ComfyBackend):
+    def __init__(self) -> None:
+        workflow_dir = Path(__file__).resolve().parents[2] / "comfyui"
+        super().__init__(ImageSettings(api_key=TOKEN, workflow_dir=workflow_dir))
+        self.workflows: list[dict] = []
+        self.removed: list[tuple[str, str, str]] = []
+
+    async def _run(self, workflow: dict) -> bytes:
+        self.workflows.append(workflow)
+        return png()
+
+    async def _upload(
+        self, request_id: str, filename: str, data: bytes, content_type: str
+    ) -> str:
+        suffix = ".png" if content_type == "image/png" else ".jpg"
+        return f"api/{request_id}/{len(self.removed)}{suffix}"
+
+    def _remove_file(self, area: str, subfolder: str, filename: str) -> None:
+        self.removed.append((area, subfolder, filename))
+
+
+class AdapterTestCase(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self._clients: list[TestClient] = []
+
+    async def asyncTearDown(self) -> None:
+        for client in reversed(self._clients):
+            await client.close()
+
+    async def client(self, app) -> TestClient:
+        client = TestClient(TestServer(app))
+        await client.start_server()
+        self._clients.append(client)
+        return client
+
+    @staticmethod
+    def auth(token: str = TOKEN) -> dict[str, str]:
+        return {"Authorization": f"Bearer {token}"}
+
+    async def test_image_generation_requires_bearer_auth_and_returns_b64(self) -> None:
+        backend = FakeImageBackend()
+        client = await self.client(
+            create_image_app(ImageSettings(api_key=TOKEN), backend)
+        )
+
+        missing = await client.post(
+            "/v1/images/generations", json={"prompt": "a red cube"}
+        )
+        self.assertEqual(missing.status, 401)
+        self.assertEqual(missing.headers["Cache-Control"], "no-store")
+
+        response = await client.post(
+            "/v1/images/generations",
+            headers=self.auth(),
+            json={
+                "model": "qwen-image-2.1",
+                "prompt": "a red cube",
+                "size": "1024x1024",
+                "quality": "high",
+                "background": "transparent",
+                "seed": 42,
+                "n": 1,
+                "response_format": "b64_json",
+            },
+        )
+        self.assertEqual(response.status, 200)
+        body = await response.json()
+        self.assertEqual(base64.b64decode(body["data"][0]["b64_json"]), png())
+        self.assertEqual(
+            backend.requests,
+            [
+                {
+                    "model": "qwen-image-2.1",
+                    "prompt": "a red cube",
+                    "size": "1024x1024",
+                    "quality": "high",
+                    "background": "transparent",
+                    "seed": 42,
+                    "n": 1,
+                    "response_format": "b64_json",
+                }
+            ],
+        )
+
+    async def test_image_generation_rejects_unsupported_or_oversized_input(
+        self,
+    ) -> None:
+        client = await self.client(
+            create_image_app(ImageSettings(api_key=TOKEN), FakeImageBackend())
+        )
+        for payload in (
+            {"prompt": "x", "n": 2},
+            {"prompt": "x", "size": "640x640"},
+            {"prompt": "x", "response_format": "url"},
+            {"prompt": "x", "model": "arbitrary"},
+            {"prompt": "x", "seed": 1.5},
+            {"prompt": "x" * 10_001},
+        ):
+            with self.subTest(payload=payload):
+                response = await client.post(
+                    "/v1/images/generations", headers=self.auth(), json=payload
+                )
+                self.assertEqual(response.status, 400)
+
+    async def test_image_edit_accepts_two_bounded_references_and_rejects_mask(
+        self,
+    ) -> None:
+        backend = FakeImageBackend()
+        client = await self.client(
+            create_image_app(ImageSettings(api_key=TOKEN), backend)
+        )
+        form = {
+            "model": "qwen-image-2.1",
+            "prompt": "make it green",
+            "size": "512x512",
+            "response_format": "b64_json",
+        }
+        data = __import__("aiohttp").FormData()
+        for key, value in form.items():
+            data.add_field(key, value)
+        data.add_field(
+            "image", png((64, 64)), filename="one.png", content_type="image/png"
+        )
+        data.add_field("image", jpeg(), filename="two.jpg", content_type="image/jpeg")
+        response = await client.post("/v1/images/edits", headers=self.auth(), data=data)
+        self.assertEqual(response.status, 200)
+        self.assertEqual(len(backend.requests[0]["images"]), 2)
+
+        masked = __import__("aiohttp").FormData()
+        masked.add_field("prompt", "x")
+        masked.add_field(
+            "image", png((64, 64)), filename="one.png", content_type="image/png"
+        )
+        masked.add_field(
+            "mask", png((64, 64)), filename="mask.png", content_type="image/png"
+        )
+        response = await client.post(
+            "/v1/images/edits", headers=self.auth(), data=masked
+        )
+        self.assertEqual(response.status, 400)
+        self.assertIn("mask", (await response.json())["error"]["message"])
+
+        corrupt = __import__("aiohttp").FormData()
+        corrupt.add_field("prompt", "x")
+        corrupt.add_field(
+            "image",
+            b"\x89PNG\r\n\x1a\nnot-a-png",
+            filename="bad.png",
+            content_type="image/png",
+        )
+        response = await client.post(
+            "/v1/images/edits", headers=self.auth(), data=corrupt
+        )
+        self.assertEqual(response.status, 400)
+
+        oversized = __import__("aiohttp").FormData()
+        oversized.add_field("prompt", "x")
+        oversized.add_field(
+            "image",
+            io.BytesIO(b"x" * (MAX_IMAGE_BYTES + 1)),
+            filename="oversized.png",
+            content_type="image/png",
+        )
+        response = await client.post(
+            "/v1/images/edits", headers=self.auth(), data=oversized
+        )
+        self.assertEqual(response.status, 400)
+        self.assertIn("exceeds", (await response.json())["error"]["message"])
+
+    async def test_image_output_contract_rejects_wrong_size_or_alpha(self) -> None:
+        class BadBackend(FakeImageBackend):
+            async def generate(self, request: dict) -> bytes:
+                if request["background"] == "transparent":
+                    return png(alpha=255)
+                return png((512, 512), alpha=0)
+
+        client = await self.client(
+            create_image_app(ImageSettings(api_key=TOKEN), BadBackend())
+        )
+        transparent = await client.post(
+            "/v1/images/generations",
+            headers=self.auth(),
+            json={"prompt": "x", "background": "transparent"},
+        )
+        self.assertEqual(transparent.status, 502)
+
+        wrong_size = await client.post(
+            "/v1/images/generations",
+            headers=self.auth(),
+            json={"prompt": "x", "background": "opaque"},
+        )
+        self.assertEqual(wrong_size.status, 502)
+
+    async def test_comfy_workflow_mapping_is_fixed_and_request_scoped(self) -> None:
+        backend = RecordingComfyBackend()
+        generation = {
+            "model": "qwen-image-2.1",
+            "prompt": "glass sphere",
+            "size": "512x512",
+            "quality": "low",
+            "background": "transparent",
+            "seed": 44,
+            "n": 1,
+            "response_format": "b64_json",
+        }
+        await backend.generate(generation)
+        workflow = backend.workflows[-1]
+        self.assertEqual(workflow["5"]["inputs"]["width"], 512)
+        self.assertEqual(workflow["5"]["inputs"]["height"], 512)
+        self.assertEqual(workflow["7"]["inputs"]["seed"], 44)
+        self.assertEqual(workflow["7"]["inputs"]["steps"], 4)
+        self.assertIn("RGBA format", workflow["4"]["inputs"]["prompt"])
+        self.assertRegex(
+            workflow["9"]["inputs"]["filename_prefix"], r"^api/[0-9a-f]{32}/"
+        )
+
+        edit = {
+            **generation,
+            "prompt": "recolor",
+            "background": "auto",
+            "quality": "high",
+        }
+        images = [
+            ("one.png", b"one", "image/png"),
+            ("two.jpg", b"two", "image/jpeg"),
+        ]
+        await backend.edit(edit, images)
+        workflow = backend.workflows[-1]
+        self.assertEqual(workflow["8"]["inputs"]["seed"], 44)
+        self.assertEqual(workflow["8"]["inputs"]["steps"], 25)
+        self.assertRegex(workflow["1"]["inputs"]["image"], r"^api/[0-9a-f]{32}/0\.png$")
+        self.assertRegex(workflow["2"]["inputs"]["image"], r"^api/[0-9a-f]{32}/0\.jpg$")
+        self.assertEqual([item[0] for item in backend.removed], ["input", "input"])
+
+    async def test_comfy_cleanup_refuses_paths_outside_its_state_area(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "state" / "output" / "api" / "job"
+            output.mkdir(parents=True)
+            inside = output / "image.png"
+            outside = root / "outside.png"
+            inside.write_bytes(b"inside")
+            outside.write_bytes(b"outside")
+            settings = ImageSettings(
+                api_key=TOKEN,
+                workflow_dir=Path(__file__).resolve().parents[2] / "comfyui",
+                comfy_state_dir=root / "state",
+            )
+            backend = ComfyBackend(settings)
+            backend._remove_file("output", "api/job", "image.png")
+            backend._remove_file("output", "../../", "outside.png")
+            self.assertFalse(inside.exists())
+            self.assertTrue(outside.exists())
+
+    async def test_image_queue_rejects_excess_work_instead_of_growing_unbounded(
+        self,
+    ) -> None:
+        backend = FakeImageBackend()
+        backend.block = True
+        settings = ImageSettings(api_key=TOKEN, max_active=1, max_waiting=0)
+        client = await self.client(create_image_app(settings, backend))
+        first = asyncio.create_task(
+            client.post(
+                "/v1/images/generations", headers=self.auth(), json={"prompt": "first"}
+            )
+        )
+        while not backend.requests:
+            await asyncio.sleep(0)
+        second = await client.post(
+            "/v1/images/generations", headers=self.auth(), json={"prompt": "second"}
+        )
+        self.assertEqual(second.status, 429)
+        self.assertEqual(second.headers["Retry-After"], "5")
+        backend.release.set()
+        self.assertEqual((await first).status, 200)
+
+    async def test_jev_contract_auth_validation_and_usage(self) -> None:
+        backend = FakeJevBackend()
+        client = await self.client(create_jev_app(JevSettings(api_key=TOKEN), backend))
+        payload = {
+            "model": "jev-latest",
+            "state": {"ticket": "customer asks for refund"},
+            "questions": {
+                "refund": {"type": "noul", "instructions": "is this a refund request?"},
+                "route": {
+                    "type": "choice",
+                    "instructions": "where should it go?",
+                    "criteria": {"billing": "billing", "support": "technical support"},
+                },
+            },
+        }
+        unauthorized = await client.post("/v1/systemone", json=payload)
+        self.assertEqual(unauthorized.status, 401)
+
+        response = await client.post("/v1/systemone", headers=self.auth(), json=payload)
+        self.assertEqual(response.status, 200)
+        body = await response.json()
+        self.assertEqual(body["model"], "jevk5-4b-v0.3")
+        self.assertEqual(body["usage"], {"input_tokens": 20, "output_tokens": 0})
+        self.assertEqual(set(body["answers"]), {"refund", "route"})
+
+        bad = await client.post(
+            "/v1/systemone",
+            headers=self.auth(),
+            json={
+                "state": "x",
+                "questions": {
+                    "q": {"type": "choice", "instructions": "x", "criteria": ["only"]}
+                },
+            },
+        )
+        self.assertEqual(bad.status, 400)
+
+    async def test_jev_rejects_unknown_models_and_too_many_questions(self) -> None:
+        client = await self.client(
+            create_jev_app(JevSettings(api_key=TOKEN), FakeJevBackend())
+        )
+        for payload in (
+            {
+                "model": "wrong",
+                "state": "x",
+                "questions": {"q": {"type": "noul", "instructions": "x"}},
+            },
+            {
+                "state": "x",
+                "questions": {
+                    str(index): {"type": "noul", "instructions": "x"}
+                    for index in range(33)
+                },
+            },
+        ):
+            response = await client.post(
+                "/v1/systemone", headers=self.auth(), json=payload
+            )
+            self.assertEqual(response.status, 400)
+
+    async def test_jev_backend_failure_is_redacted_as_502(self) -> None:
+        class BrokenJevBackend(FakeJevBackend):
+            async def decide(self, state: object, question: dict) -> dict:
+                raise RuntimeError("secret upstream detail")
+
+        client = await self.client(
+            create_jev_app(JevSettings(api_key=TOKEN), BrokenJevBackend())
+        )
+        response = await client.post(
+            "/v1/systemone",
+            headers=self.auth(),
+            json={
+                "state": "x",
+                "questions": {"q": {"type": "noul", "instructions": "x"}},
+            },
+        )
+        self.assertEqual(response.status, 502)
+        self.assertNotIn("secret", await response.text())
+
+    async def test_health_is_local_probe_only_and_models_requires_auth(self) -> None:
+        image = await self.client(
+            create_image_app(ImageSettings(api_key=TOKEN), FakeImageBackend())
+        )
+        self.assertEqual((await image.get("/healthz")).status, 200)
+        self.assertEqual((await image.get("/v1/models")).status, 401)
+        self.assertEqual(
+            (await image.get("/v1/models", headers=self.auth())).status, 200
+        )
+
+        jev = await self.client(
+            create_jev_app(JevSettings(api_key=TOKEN), FakeJevBackend())
+        )
+        self.assertEqual((await jev.get("/healthz")).status, 200)
+        self.assertEqual((await jev.get("/v1/models", headers=self.auth())).status, 200)
+
+
+if __name__ == "__main__":
+    unittest.main()

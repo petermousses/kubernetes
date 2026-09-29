@@ -1,0 +1,56 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: litellm
+  namespace: litellm
+  labels:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: litellm
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: litellm-security-headers@kubernetescrd,litellm-request-limits@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - api.ai.omv.mousses.xyz
+      secretName: litellm-tls
+  rules:
+    - host: api.ai.omv.mousses.xyz
+      http:
+        paths:
+          - path: /v1/chat/completions
+            pathType: Exact
+            backend:
+              service:
+                name: litellm
+                port:
+                  name: http
+          - path: /v1/images/generations
+            pathType: Exact
+            backend:
+              service:
+                name: litellm
+                port:
+                  name: http
+          - path: /v1/images/edits
+            pathType: Exact
+            backend:
+              service:
+                name: litellm
+                port:
+                  name: http
+          - path: /v1/models
+            pathType: Exact
+            backend:
+              service:
+                name: litellm
+                port:
+                  name: http
+          - path: /typesafe/v1/systemone
+            pathType: Exact
+            backend:
+              service:
+                name: litellm
+                port:
+                  name: http
