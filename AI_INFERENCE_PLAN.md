@@ -319,6 +319,8 @@ open `http://127.0.0.1:14000/ui`, sign in as `admin` with the existing `LITELLM_
 
 run `./apps/litellm/validate_inference.py` from a workstation with a disposable or restricted virtual key at its hidden prompt. it proves public wrong-method and missing/invalid-key denial, a semantic JevK5 decision, a 512×512 Qwen Image generation and an edit of the generated PNG. inspect both saved outputs before closing step 3.
 
+the 2026-09-29 public validation passed with a virtual key: JevK5 chose `misdelivered` at confidence `0.998321`, and Qwen Image returned valid 512×512 generation and edit PNGs. visual inspection confirmed that the edit changed the centered cube from red to blue while preserving its shape and plain background. LiteLLM v1.103.0 forwards edit uploads as `image[]`; redqueen adapter commit `720cb2e` accepts that field through its existing bounded image validation. all 13 adapter tests passed on redqueen, and a live `image[]` edit returned HTTP 200 with a valid 512×512 PNG. step 3 remains open for the NAS-origin firewall allow probe and the full route-by-route scoped-key denial matrix required above.
+
 ### 4. deploy identity and the user interface
 
 - deploy Authentik and its dedicated PostgreSQL database with pinned versions, persistent storage, initial bootstrap secrets and an MFA-protected local break-glass administrator.
