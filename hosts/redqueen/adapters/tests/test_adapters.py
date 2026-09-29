@@ -240,6 +240,61 @@ class AdapterTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 400)
         self.assertIn("exceeds", (await response.json())["error"]["message"])
 
+    async def test_image_edit_accepts_openai_array_field_name(self) -> None:
+        backend = FakeImageBackend()
+        client = await self.client(
+            create_image_app(ImageSettings(api_key=TOKEN), backend)
+        )
+        data = __import__("aiohttp").FormData()
+        data.add_field("prompt", "make it blue")
+        data.add_field("size", "512x512")
+        data.add_field(
+            "image[]", png((64, 64)), filename="one.png", content_type="image/png"
+        )
+        data.add_field(
+            "image[]", jpeg(), filename="two.jpg", content_type="image/jpeg"
+        )
+
+        response = await client.post(
+            "/v1/images/edits", headers=self.auth(), data=data
+        )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(
+            [
+                (name, content_type)
+                for name, _, content_type in backend.requests[0]["images"]
+            ],
+            [("one.png", "image/png"), ("two.jpg", "image/jpeg")],
+        )
+
+        too_many = __import__("aiohttp").FormData()
+        too_many.add_field("prompt", "make it blue")
+        for field_name in ("image", "image[]", "image[]"):
+            too_many.add_field(
+                field_name,
+                png((64, 64)),
+                filename="reference.png",
+                content_type="image/png",
+            )
+        response = await client.post(
+            "/v1/images/edits", headers=self.auth(), data=too_many
+        )
+        self.assertEqual(response.status, 400)
+        self.assertIn("at most two", (await response.json())["error"]["message"])
+
+        unknown = __import__("aiohttp").FormData()
+        unknown.add_field("prompt", "make it blue")
+        unknown.add_field(
+            "image[0]", png((64, 64)), filename="one.png", content_type="image/png"
+        )
+        response = await client.post(
+            "/v1/images/edits", headers=self.auth(), data=unknown
+        )
+        self.assertEqual(response.status, 400)
+        self.assertIn("unsupported multipart field", (await response.json())["error"]["message"])
+        self.assertEqual(len(backend.requests), 1)
+
     async def test_image_output_contract_rejects_wrong_size_or_alpha(self) -> None:
         class BadBackend(FakeImageBackend):
             async def generate(self, request: dict) -> bytes:

@@ -240,7 +240,7 @@ async def parse_edit(request: web.Request) -> tuple[dict, list[tuple[str, bytes,
             raise ValueError(
                 "mask edits are not validated and are intentionally unsupported"
             )
-        if part.name == "image":
+        if part.name in {"image", "image[]"}:
             if len(images) >= 2:
                 raise ValueError("at most two reference images are supported")
             content_type = part.headers.get("Content-Type", "").split(";", 1)[0].lower()
