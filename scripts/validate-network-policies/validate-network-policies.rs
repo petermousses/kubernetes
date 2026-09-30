@@ -13,13 +13,16 @@ const BASELINE_EXCEPTIONS: &[&str] = &["rancher"];
 // Monitoring keeps HelmChart objects in kube-system and targets workloads to its app namespace.
 const NAMESPACE_TRANSFORM_EXCEPTIONS: &[&str] = &["monitoring"];
 const SHARED_DNS_APPS: &[&str] = &[
+    "authentik",
     "immich",
     "librechat",
+    "litellm",
     "monitoring",
     "paperless-ngx",
     "searxng",
 ];
 const INGRESS_SECURITY_APPS: &[&str] = &[
+    "authentik",
     "board-games",
     "crafty",
     "external-routes",
@@ -29,10 +32,10 @@ const INGRESS_SECURITY_APPS: &[&str] = &[
     "jellyfin",
     "kiwix",
     "librechat",
+    "litellm",
     "monitoring",
     "n8n",
     "open-speed-test",
-    "open-webui",
     "paperless-ngx",
     "qr-code-generator",
     "searxng",
@@ -160,6 +163,15 @@ fn ingress_routes_have_security_headers(document: &Value) -> bool {
                         })
                 })
         })
+}
+
+fn middleware_annotation_contains(annotation: Option<String>, expected: &str) -> bool {
+    annotation.is_some_and(|value| {
+        value
+            .split(',')
+            .map(str::trim)
+            .any(|middleware| middleware == expected)
+    })
 }
 
 fn validate_admission_policies(root: &Path, errors: &mut Vec<String>) {
@@ -494,16 +506,17 @@ fn main() {
                 expected_namespace.as_deref().unwrap_or_default()
             );
             if ingress_documents.iter().any(|ingress| {
-                string_at(
-                    ingress,
-                    &[
-                        "metadata",
-                        "annotations",
-                        "traefik.ingress.kubernetes.io/router.middlewares",
-                    ],
+                !middleware_annotation_contains(
+                    string_at(
+                        ingress,
+                        &[
+                            "metadata",
+                            "annotations",
+                            "traefik.ingress.kubernetes.io/router.middlewares",
+                        ],
+                    ),
+                    &expected_middleware,
                 )
-                .as_deref()
-                    != Some(expected_middleware.as_str())
             }) {
                 errors.push(format!(
                     "{}: every Ingress must use its namespace-local security-headers middleware",
@@ -540,5 +553,39 @@ fn main() {
             eprintln!("- {}", error);
         }
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::middleware_annotation_contains;
+
+    #[test]
+    fn matches_one_or_multiple_middleware_references() {
+        let expected = "litellm-security-headers@kubernetescrd";
+
+        assert!(middleware_annotation_contains(
+            Some(expected.to_owned()),
+            expected
+        ));
+        assert!(middleware_annotation_contains(
+            Some(format!("litellm-request-limits@kubernetescrd, {expected}")),
+            expected
+        ));
+    }
+
+    #[test]
+    fn rejects_missing_or_partial_middleware_references() {
+        let expected = "litellm-security-headers@kubernetescrd";
+
+        assert!(!middleware_annotation_contains(None, expected));
+        assert!(!middleware_annotation_contains(
+            Some("litellm-security-headers".to_owned()),
+            expected
+        ));
+        assert!(!middleware_annotation_contains(
+            Some("other-security-headers@kubernetescrd".to_owned()),
+            expected
+        ));
     }
 }

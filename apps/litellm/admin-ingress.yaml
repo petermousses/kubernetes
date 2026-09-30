@@ -1,0 +1,30 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: litellm-admin
+  namespace: litellm
+  labels:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: litellm
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`admin.ai.omv.mousses.xyz`) && PathPrefix(`/fallback/login`)
+      middlewares:
+        - name: admin-fallback-lan-only
+        - name: security-headers
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`admin.ai.omv.mousses.xyz`) && !PathPrefix(`/fallback/login`)
+      middlewares:
+        - name: security-headers
+      services:
+        - name: litellm
+          port: http
+  tls:
+    secretName: litellm-admin-tls

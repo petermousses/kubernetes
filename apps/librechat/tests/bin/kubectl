@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "$*" >> "${LIBRECHAT_TEST_CALLS:?}"
+
+case "$*" in
+  'get namespace librechat'|'-n librechat get secret librechat-oidc')
+    if [[ "${LIBRECHAT_TEST_MISSING_PREREQUISITE:-false}" == true ]]; then
+      exit 1
+    fi
+    ;;
+  '-n librechat get secret librechat-env')
+    if [[ "${LIBRECHAT_TEST_EXISTING_SECRET:-false}" == true ]]; then
+      exit 0
+    fi
+    exit 1
+    ;;
+  '-n librechat create secret generic librechat-env --from-env-file=/dev/stdin')
+    umask 077
+    while IFS= read -r line; do
+      printf '%s\n' "${line}" >> "${LIBRECHAT_TEST_SECRET:?}"
+    done
+    printf 'secret/librechat-env created\n'
+    ;;
+  *)
+    printf 'unexpected kubectl call: %s\n' "$*" >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: litellm-postgres
+  labels:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: litellm
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: litellm-local
+  local:
+    path: /filesystem/k3s/data/litellm/postgres
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - openmediavault

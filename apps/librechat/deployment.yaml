@@ -22,12 +22,19 @@ spec:
         app.kubernetes.io/name: librechat
         app.kubernetes.io/component: api
         app.kubernetes.io/part-of: librechat
+        mousses.xyz/authentik-oidc-client: "true"
     spec:
       automountServiceAccountToken: false
       dnsConfig:
         options:
           - name: ndots
             value: "1"
+      # Keep the public issuer hostname (and TLS SNI) while routing server-side
+      # OIDC calls through Traefik's internal Service. Browser DNS is unchanged.
+      hostAliases:
+        - ip: 10.43.204.62
+          hostnames:
+            - auth.omv.mousses.xyz
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -48,6 +55,14 @@ spec:
                 name: librechat-config
             - secretRef:
                 name: librechat-env
+            - secretRef:
+                name: librechat-oidc
+          env:
+            - name: IMAGE_GEN_OAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: librechat-env
+                  key: LITELLM_API_KEY
           startupProbe:
             httpGet:
               path: /health

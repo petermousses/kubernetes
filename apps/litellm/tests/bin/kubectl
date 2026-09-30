@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${FAKE_KUBECTL_LOG:?FAKE_KUBECTL_LOG is required}"
+: "${FAKE_MIGRATION_RESULT:?FAKE_MIGRATION_RESULT is required}"
+
+printf '%q ' "$@" >>"${FAKE_KUBECTL_LOG}"
+printf '\n' >>"${FAKE_KUBECTL_LOG}"
+
+arguments=" $* "
+
+if [[ "${arguments}" == *" get secret litellm-env "* ]]; then
+  exit 0
+fi
+
+if [[ "${arguments}" == *" get deployment litellm "* ]]; then
+  exit 1
+fi
+
+if [[ "${arguments}" == *" get job/litellm-migrations-v1-103-0 -o jsonpath="* ]]; then
+  case "${FAKE_MIGRATION_RESULT}" in
+    complete)
+      printf 'Complete=True\n'
+      ;;
+    failed)
+      printf 'Failed=True\n'
+      ;;
+    pending)
+      ;;
+    *)
+      printf 'unknown FAKE_MIGRATION_RESULT: %s\n' "${FAKE_MIGRATION_RESULT}" >&2
+      exit 2
+      ;;
+  esac
+fi
+
+if [[ "${arguments}" == *" logs -l job-name=litellm-migrations-v1-103-0 "* ]]; then
+  printf 'retained migration failure log\n'
+fi

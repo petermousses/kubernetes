@@ -1,0 +1,71 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: litellm
+  namespace: litellm
+  labels:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: litellm
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && (Method(`GET`) || Method(`POST`)) && (Path(`/v1/responses`) || PathPrefix(`/v1/responses/`))
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/chat/completions`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/chat/completions/input_tokens`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`GET`) && (Path(`/v1/models`) || PathPrefix(`/v1/models/`))
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/images/generations`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/images/edits`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/typesafe/v1/systemone`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+  tls:
+    secretName: litellm-tls

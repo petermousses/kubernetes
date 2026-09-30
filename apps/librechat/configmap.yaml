@@ -11,14 +11,32 @@ data:
   HOST: 0.0.0.0
   PORT: "3080"
   NODE_ENV: production
-  DOMAIN_CLIENT: https://librechat.omv.mousses.xyz
-  DOMAIN_SERVER: https://librechat.omv.mousses.xyz
+  DOMAIN_CLIENT: https://chat.omv.mousses.xyz
+  DOMAIN_SERVER: https://chat.omv.mousses.xyz
   MONGO_URI: mongodb://mongodb:27017/LibreChat
   MEILI_HOST: http://meilisearch:7700
   MEILI_NO_ANALYTICS: "true"
   SEARCH: "true"
   CONFIG_PATH: /app/librechat.yaml
   LIBRECHAT_TEMP_CREDENTIALS_PATH: /app/data/.env.temp
+  OPENID_ISSUER: https://auth.omv.mousses.xyz/application/o/librechat/.well-known/openid-configuration
+  OPENID_CALLBACK_URL: /oauth/openid/callback
+  OPENID_SCOPE: openid profile email
+  OPENID_BUTTON_LABEL: Sign in with Authentik
+  OPENID_USE_END_SESSION_ENDPOINT: "true"
+  OPENID_REQUIRED_ROLE: librechat_users
+  OPENID_REQUIRED_ROLE_TOKEN_KIND: id
+  OPENID_REQUIRED_ROLE_PARAMETER_PATH: groups
+  OPENID_ADMIN_ROLE: librechat_admin
+  OPENID_ADMIN_ROLE_TOKEN_KIND: id
+  OPENID_ADMIN_ROLE_PARAMETER_PATH: groups
+  ALLOW_SOCIAL_LOGIN: "true"
+  ALLOW_REGISTRATION: "false"
+  # Keep the local login form during the staged OIDC test. No local account is
+  # bootstrapped; turn this off only after authorized/admin/denied tests pass.
+  ALLOW_EMAIL_LOGIN: "true"
+  IMAGE_GEN_OAI_MODEL: qwen-image-2.1
+  IMAGE_GEN_OAI_BASEURL: http://litellm.litellm.svc.cluster.local:4000/v1
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -37,13 +55,12 @@ data:
       fileSearch: false
     endpoints:
       custom:
-        - name: Ollama
-          apiKey: ollama
-          baseURL: http://tower.mousses.xyz:11434/v1/
+        - name: LiteLLM
+          apiKey: '${LITELLM_API_KEY}'
+          baseURL: http://litellm.litellm.svc.cluster.local:4000/v1
           models:
-            default:
-              - llama3.2:3b
+            default: [qwen3.8-27b]
             fetch: true
           titleConvo: true
-          titleModel: llama3.2:3b
-          modelDisplayLabel: Ollama
+          titleModel: qwen3.8-27b
+          modelDisplayLabel: Local AI

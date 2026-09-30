@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: litellm
+  labels:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: litellm
+data:
+  config.yaml: |
+    model_list:
+      - model_name: qwen3.8-27b
+        litellm_params:
+          model: openai/qwen3.8-27b
+          api_base: http://qwen-redqueen:8081/v1
+          api_key: os.environ/QWEN_API_KEY
+          timeout: 900
+      - model_name: gemma-4-e4b-it
+        litellm_params:
+          model: openai/gemma-4-e4b-it
+          api_base: http://qwen-redqueen:8081/v1
+          api_key: os.environ/QWEN_API_KEY
+          timeout: 900
+      - model_name: gemma-4-12b-it
+        litellm_params:
+          model: openai/gemma-4-12b-it
+          api_base: http://qwen-redqueen:8081/v1
+          api_key: os.environ/QWEN_API_KEY
+          timeout: 900
+      - model_name: gemma-4-26b-a4b-it
+        litellm_params:
+          model: openai/gemma-4-26b-a4b-it
+          api_base: http://qwen-redqueen:8081/v1
+          api_key: os.environ/QWEN_API_KEY
+          timeout: 900
+      - model_name: qwen3.6-35b-a3b
+        litellm_params:
+          model: openai/qwen3.6-35b-a3b
+          api_base: http://qwen-redqueen:8081/v1
+          api_key: os.environ/QWEN_API_KEY
+          timeout: 900
+      - model_name: qwen-image-2.1
+        litellm_params:
+          model: openai/qwen-image-2.1
+          api_base: http://qwen-image-redqueen:8190/v1
+          api_key: os.environ/QWEN_IMAGE_API_KEY
+          timeout: 900
+      - model_name: qwen-image-2.1-uncensored
+        litellm_params:
+          model: openai/qwen-image-2.1-uncensored
+          api_base: http://qwen-image-redqueen:8190/v1
+          api_key: os.environ/QWEN_IMAGE_API_KEY
+          timeout: 900
+
+    litellm_settings:
+      callbacks:
+        - prometheus
+      json_logs: true
+      key_alias_pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+      redact_messages_in_exceptions: true
+      request_timeout: 900
+      set_verbose: false
+      turn_off_message_logging: true
+
+    general_settings:
+      database_connection_pool_limit: 5
+      database_url: os.environ/DATABASE_URL
+      disable_error_logs: true
+      master_key: os.environ/LITELLM_MASTER_KEY
+      proxy_batch_write_at: 60
+      store_model_in_db: false
+      store_prompts_in_spend_logs: false
+      ui_access_mode: admin_only
+      trusted_proxy_ranges:
+        - 10.42.0.0/16
+        - 10.9.20.14/32

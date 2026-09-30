@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: litellm
+resources:
+  - namespace.yaml
+  - storage-class.yaml
+  - persistent-volume.yaml
+  - persistent-volume-claim.yaml
+  - postgres.yaml
+  - redqueen-backends.yaml
+  - configmap.yaml
+  - migration-job.yaml
+  - deployment.yaml
+  - service.yaml
+  - metrics-service.yaml
+  - service-monitor.yaml
+  - request-limits.yaml
+  - ingress.yaml
+  - admin-ingress.yaml
+  - admin-fallback-access.yaml
+  - ../_shared/ingress-security
+  - certificate.yaml
+  - admin-certificate.yaml
+  - ../_shared/network-policy/baseline
+  - ../_shared/network-policy/dns-egress
+  - ../_shared/network-policy/authentik-oidc-egress
+  - networkpolicy.yaml

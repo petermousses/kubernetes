@@ -1,0 +1,152 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: authentik
+  namespace: kube-system
+spec:
+  chart: authentik
+  repo: https://charts.goauthentik.io
+  version: 2026.8.3
+  targetNamespace: authentik
+  createNamespace: false
+  failurePolicy: abort
+  timeout: 15m
+  valuesContent: |-
+    global:
+      image:
+        repository: ghcr.io/goauthentik/server
+        tag: 2026.8.3
+        digest: sha256:ab9b4e8cc4ab3f8d1198d2db6aeea66bafea1963b3f2843589e0d163f97d9849
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: authentik-data
+      volumeMounts:
+        - name: data
+          mountPath: /data
+      env:
+        - name: AUTHENTIK_POSTGRESQL__HOST
+          value: postgres.authentik.svc.cluster.local
+        - name: AUTHENTIK_POSTGRESQL__NAME
+          value: authentik
+        - name: AUTHENTIK_POSTGRESQL__USER
+          value: authentik
+        - name: AUTHENTIK_POSTGRESQL__SSLMODE
+          value: disable
+        - name: AUTHENTIK_WEB__BASE_URL
+          value: https://auth.omv.mousses.xyz
+        - name: AUTHENTIK_OUTPOSTS__DISABLE_EMBEDDED_OUTPOST
+          value: "true"
+        - name: AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS
+          value: 10.42.0.0/16
+    authentik:
+      enabled: false
+      existingSecret:
+        secretName: authentik-env
+    postgresql:
+      enabled: false
+    blueprints:
+      configMaps:
+        - authentik-librechat-oidc-blueprint
+        - authentik-litellm-admin-oidc-blueprint
+    serviceAccount:
+      create: false
+    server:
+      replicas: 1
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      serviceAccountName: default
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres
+          image: docker.io/library/postgres@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8
+          command: [/bin/sh, -ec]
+          args:
+            - |
+              for attempt in $(seq 1 150); do
+                pg_isready -h postgres.authentik.svc.cluster.local -U authentik -d authentik && exit 0
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+      resources:
+        requests:
+          cpu: 250m
+          memory: 1Gi
+        limits:
+          cpu: "2"
+          memory: 3Gi
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
+          interval: 30s
+    worker:
+      replicas: 1
+      envFrom:
+        - secretRef:
+            name: authentik-librechat-oidc
+        - secretRef:
+            name: authentik-litellm-admin-oidc
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      serviceAccountName: default
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres
+          image: docker.io/library/postgres@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8
+          command: [/bin/sh, -ec]
+          args:
+            - |
+              for attempt in $(seq 1 150); do
+                pg_isready -h postgres.authentik.svc.cluster.local -U authentik -d authentik && exit 0
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+      resources:
+        requests:
+          cpu: 250m
+          memory: 1Gi
+        limits:
+          cpu: "2"
+          memory: 3Gi
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
+          interval: 30s

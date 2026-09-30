@@ -6,7 +6,7 @@ metadata:
 spec:
   secretName: librechat-tls
   dnsNames:
-    - librechat.omv.mousses.xyz
+    - chat.omv.mousses.xyz
   issuerRef:
     name: letsencrypt-production-cloudflare
     kind: ClusterIssuer

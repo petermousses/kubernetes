@@ -52,11 +52,16 @@ spec:
         - protocol: TCP
           port: 7700
     - to:
-        - ipBlock:
-            cidr: 10.9.20.7/32
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: litellm
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: litellm
+              app.kubernetes.io/component: gateway
       ports:
         - protocol: TCP
-          port: 11434
+          port: 4000
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
