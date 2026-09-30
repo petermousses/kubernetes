@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "$*" >> "${OIDC_TEST_CALLS:?}"
+
+case "$*" in
+  'apply -f '*'/librechat/namespace.yaml')
+    if [[ "${OIDC_TEST_APPLY_FAIL:-false}" == true ]]; then
+      exit 1
+    fi
+    : > "${OIDC_TEST_NAMESPACE_READY:?}"
+    ;;
+  'get namespace authentik')
+    ;;
+  'get namespace librechat')
+    [[ -f "${OIDC_TEST_NAMESPACE_READY:?}" ]]
+    ;;
+  '-n authentik get secret authentik-librechat-oidc'|'-n librechat get secret librechat-oidc')
+    if [[ "${OIDC_TEST_EXISTING_SECRET:-false}" == true ]]; then
+      exit 0
+    fi
+    exit 1
+    ;;
+  '-n authentik create secret generic authentik-librechat-oidc --from-env-file=/dev/stdin'|'-n librechat create secret generic librechat-oidc --from-env-file=/dev/stdin')
+    while IFS= read -r _; do :; done
+    ;;
+  *)
+    printf 'unexpected kubectl call: %s\n' "$*" >&2
+    exit 2
+    ;;
+esac

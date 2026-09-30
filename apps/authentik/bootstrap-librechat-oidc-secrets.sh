@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+app_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
 for binary in kubectl openssl; do
   if ! command -v "${binary}" >/dev/null; then
     printf '%s is required\n' "${binary}" >&2
@@ -8,12 +10,15 @@ for binary in kubectl openssl; do
   fi
 done
 
-for namespace in authentik librechat; do
-  if ! kubectl get namespace "${namespace}" >/dev/null; then
-    printf '%s namespace is missing\n' "${namespace}" >&2
-    exit 1
-  fi
-done
+if ! kubectl get namespace authentik >/dev/null; then
+  printf 'authentik namespace is missing; deploy Authentik first\n' >&2
+  exit 1
+fi
+
+# LibreChat itself may not be deployed yet. Its namespace and Secret can exist
+# independently, so create only the namespace from its committed manifest.
+kubectl apply -f "${app_root}/../librechat/namespace.yaml"
+kubectl get namespace librechat >/dev/null
 
 if kubectl -n authentik get secret authentik-librechat-oidc >/dev/null 2>&1 ||
    kubectl -n librechat get secret librechat-oidc >/dev/null 2>&1; then
