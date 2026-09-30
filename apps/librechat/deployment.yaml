@@ -22,16 +22,17 @@ spec:
         app.kubernetes.io/name: librechat
         app.kubernetes.io/component: api
         app.kubernetes.io/part-of: librechat
+        mousses.xyz/authentik-oidc-client: "true"
     spec:
       automountServiceAccountToken: false
       dnsConfig:
         options:
           - name: ndots
             value: "1"
-      # Keep server-side OIDC discovery/token calls on the NAS HTTPS ingress
-      # without opening broad public egress. The browser still uses normal DNS.
+      # Keep the public issuer hostname (and TLS SNI) while routing server-side
+      # OIDC calls through Traefik's internal Service. Browser DNS is unchanged.
       hostAliases:
-        - ip: 10.9.20.14
+        - ip: 10.43.204.62
           hostnames:
             - auth.omv.mousses.xyz
       securityContext:

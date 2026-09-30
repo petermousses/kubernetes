@@ -44,10 +44,11 @@ before applying the kustomization, confirm all of the following:
 3. `librechat.omv.mousses.xyz` resolves to the Traefik entrypoint. The
    [`Certificate`](certificate.yaml) uses the existing
    `letsencrypt-production-cloudflare` ClusterIssuer.
-4. the Authentik OIDC discovery URL returns HTTP 200, and `librechat-oidc`
-   exists in the `librechat` namespace. LibreChat pins the Authentik hostname
-   to the NAS's `10.9.20.14` HTTPS entrypoint inside its pod; verify the NAS
-   still serves `auth.omv.mousses.xyz` on TCP 443. Browser DNS is unaffected.
+4. the Authentik OIDC discovery URL returns HTTP 200 through Traefik's
+   `10.43.204.62` ClusterIP, and `librechat-oidc` exists in the `librechat`
+   namespace. LibreChat maps the Authentik hostname to that Service IP inside
+   its pod; the public hostname remains the TLS identity and browser DNS is
+   unaffected. Verify the actual Service IP before applying the manifests.
 5. add your Authentik user to `librechat_users` and `librechat_admin`. Prepare
    a non-admin user in `librechat_users` and one outside that group for tests.
    The provider's ID token must contain the `groups` claim.
@@ -70,11 +71,14 @@ before applying the kustomization, confirm all of the following:
 
 ## deploy
 
-run from the repository root:
+run from the repository root. Stop if the Service IP check or discovery request
+fails; update the policy and pod mapping together before deploying:
 
 ```sh
-curl --resolve auth.omv.mousses.xyz:443:10.9.20.14 \
-  -fsS -o /dev/null -w 'authentik via NAS HTTPS: %{http_code}\n' \
+traefik_service_ip="$(kubectl -n kube-system get svc traefik -o jsonpath='{.spec.clusterIP}')"
+test "${traefik_service_ip}" = 10.43.204.62
+curl --resolve auth.omv.mousses.xyz:443:"${traefik_service_ip}" \
+  -fsS -o /dev/null -w 'authentik via traefik ClusterIP: %{http_code}\n' \
   https://auth.omv.mousses.xyz/application/o/librechat/.well-known/openid-configuration
 kubectl -n librechat get secret librechat-oidc -o name
 kubectl kustomize apps/librechat
@@ -141,8 +145,11 @@ kubectl -n librechat rollout restart statefulset/meilisearch
 
 ## network policy contract
 
-the kustomization includes the shared default-deny and shared DNS profiles.
-The app-local policy then permits only these flows:
+the kustomization includes the shared default-deny, DNS, and opt-in
+[Authentik OIDC egress](../_shared/network-policy/authentik-oidc-egress/allow-authentik-oidc-egress.yaml)
+profiles. Only the API pod carries `mousses.xyz/authentik-oidc-client: "true"`;
+MongoDB and Meilisearch do not gain this egress. The app-local policy and
+shared profile permit only these flows:
 
 | source | destination | port |
 | --- | --- | ---: |
@@ -150,7 +157,24 @@ The app-local policy then permits only these flows:
 | LibreChat API | MongoDB | TCP 27017 |
 | LibreChat API | Meilisearch | TCP 7700 |
 | LibreChat API | LiteLLM gateway in `litellm` | TCP 4000 |
-| LibreChat API | Authentik via NAS HTTPS at `10.9.20.14` | TCP 443 |
+| LibreChat API | Traefik `10.43.204.62` Service IP | TCP 443 |
+| LibreChat API | Traefik `kube-system` pods after Service translation | named `websecure` port |
+
+to give another deployment server-side Authentik OIDC access, add
+`../_shared/network-policy/authentik-oidc-egress` to its kustomization, label
+only the OIDC-calling pod template with
+`mousses.xyz/authentik-oidc-client: "true"`, and map
+`auth.omv.mousses.xyz` to `10.43.204.62` in that pod's `hostAliases`. Keep the
+public issuer URL in the app's OIDC settings for valid TLS/SNI. This is only
+network access; the app still needs its own Authentik provider, credentials,
+and user authorization. If Traefik's Service ClusterIP changes, update the
+shared policy and each adopter's `hostAliases` together. Kubernetes does not
+guarantee whether NetworkPolicy sees a Service IP before or after translation,
+so the shared policy explicitly permits both the Service VIP and the selected
+Traefik backend pods. Verify discovery from inside each newly deployed client
+pod; a host-side HTTP 200 does not prove that pod egress works.
+This L3/L4 policy cannot limit the HTTP hostname: an opted-in pod can also
+reach other virtual hosts served on Traefik's HTTPS port.
 
 adding an external model provider, web-search service, RAG API, MCP server, or
 other outbound integration requires a matching egress rule in

@@ -13,7 +13,8 @@ fi
 
 rg -q 'name: librechat-oidc' "${app_root}/deployment.yaml"
 rg -q 'key: LITELLM_API_KEY' "${app_root}/deployment.yaml"
-rg -q 'ip: 10\.9\.20\.14' "${app_root}/deployment.yaml"
+rg -q 'mousses\.xyz/authentik-oidc-client: "true"' "${app_root}/deployment.yaml"
+rg -q 'ip: 10\.43\.204\.62' "${app_root}/deployment.yaml"
 rg -q 'auth\.omv\.mousses\.xyz' "${app_root}/deployment.yaml"
 rg -q 'OPENID_ISSUER: https://auth\.omv\.mousses\.xyz/application/o/librechat/\.well-known/openid-configuration' "${app_root}/configmap.yaml"
 rg -q 'OPENID_REQUIRED_ROLE: librechat_users' "${app_root}/configmap.yaml"
@@ -30,6 +31,13 @@ fi
 
 rg -q 'kubernetes\.io/metadata\.name: litellm' "${app_root}/networkpolicy.yaml"
 rg -q 'kubernetes\.io/metadata\.name: librechat' "${app_root}/../litellm/networkpolicy.yaml"
-rg -q 'cidr: 10\.9\.20\.14/32' "${app_root}/networkpolicy.yaml"
+rg -q '_shared/network-policy/authentik-oidc-egress' "${app_root}/kustomization.yaml"
+rg -q 'name: allow-authentik-oidc-egress' <<<"${rendered}"
+rg -q 'cidr: 10\.43\.204\.62/32' <<<"${rendered}"
+rg -q 'port: websecure' <<<"${rendered}"
+if rg -q '10\.9\.20\.14' "${app_root}/deployment.yaml" "${app_root}/networkpolicy.yaml"; then
+  printf 'LibreChat must not send pod OIDC traffic to the NAS host IP\n' >&2
+  exit 1
+fi
 
 printf 'LibreChat staging contract passed\n'

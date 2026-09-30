@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-authentik-oidc-egress
+spec:
+  podSelector:
+    matchLabels:
+      mousses.xyz/authentik-oidc-client: "true"
+  policyTypes:
+    - Egress
+  egress:
+    # Cover policy evaluation before Service DNAT.
+    - to:
+        - ipBlock:
+            cidr: 10.43.204.62/32
+      ports:
+        - protocol: TCP
+          port: 443
+    # Cover policy evaluation after Service DNAT to a Traefik pod.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: websecure
