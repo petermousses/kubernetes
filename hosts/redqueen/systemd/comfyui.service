@@ -47,6 +47,7 @@ ProtectKernelTunables=true
 ProtectSystem=strict
 ReadOnlyPaths=/srv/ai/comfyui/source
 ReadOnlyPaths=/srv/ai/models/qwen-image-2.1
+ReadOnlyPaths=/srv/ai/models/qwen-image-2.1-uncensored
 ReadWritePaths=/srv/ai/comfyui/state
 ReadWritePaths=/srv/ai/cache
 RestrictRealtime=true

@@ -131,6 +131,35 @@ grep -Fq 'name: jevk5-redqueen' "${app_root}/redqueen-backends.yaml"
 grep -Fq 'port: 8191' "${app_root}/redqueen-backends.yaml"
 grep -Fq 'port: 8191' "${app_root}/networkpolicy.yaml"
 
+readonly -a configured_models=(
+  qwen3.8-27b
+  gemma-4-e4b-it
+  gemma-4-12b-it
+  gemma-4-26b-a4b-it
+  qwen3.6-35b-a3b
+  qwen-image-2.1
+  qwen-image-2.1-uncensored
+)
+for model in "${configured_models[@]}"; do
+  if ! grep -Fq "      - model_name: ${model}" "${app_root}/configmap.yaml"; then
+    printf 'LiteLLM config is missing static model alias: %s\n' "${model}" >&2
+    exit 1
+  fi
+done
+if grep -Fq 'model_name: deepseek-v4.1-flash-q2' "${app_root}/configmap.yaml"; then
+  printf 'DeepSeek must not be registered before its weights are available\n' >&2
+  exit 1
+fi
+grep -Fq '      store_model_in_db: false' "${app_root}/configmap.yaml"
+if [[ "$(grep -Fc 'api_base: http://qwen-redqueen:8081/v1' "${app_root}/configmap.yaml")" -ne 5 ]]; then
+  printf 'all five text model aliases must use the shared redqueen text endpoint\n' >&2
+  exit 1
+fi
+if [[ "$(grep -Fc 'api_base: http://qwen-image-redqueen:8190/v1' "${app_root}/configmap.yaml")" -ne 2 ]]; then
+  printf 'both Qwen Image aliases must use the shared authenticated image adapter\n' >&2
+  exit 1
+fi
+
 grep -Fxq 'kind: IngressRoute' "${app_root}/ingress.yaml"
 if grep -Fxq 'kind: Ingress' "${app_root}/ingress.yaml"; then
   printf 'the public API must use IngressRoute for HTTP method matching\n' >&2

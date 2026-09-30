@@ -25,6 +25,15 @@ EXPECTED_IMAGE_SIZE = (512, 512)
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 API_KEY_PATTERN = re.compile(r"sk-[A-Za-z0-9_-]{8,}")
 INVALID_API_KEY = "sk-invalid-litellm-validation-key"
+DEFAULT_IMAGE_MODEL = "qwen-image-2.1"
+SUPPORTED_IMAGE_MODELS = (DEFAULT_IMAGE_MODEL, "qwen-image-2.1-uncensored")
+SUPPORTED_TEXT_MODELS = (
+    "qwen3.8-27b",
+    "gemma-4-e4b-it",
+    "gemma-4-12b-it",
+    "gemma-4-26b-a4b-it",
+    "qwen3.6-35b-a3b",
+)
 
 
 class ValidationResult(NamedTuple):
@@ -32,6 +41,7 @@ class ValidationResult(NamedTuple):
     confidence: float
     generated: Path
     edited: Path
+    text_models: tuple[str, ...]
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -264,13 +274,30 @@ def _decode_image_response(response: dict) -> bytes:
     return image
 
 
-def _multipart_edit(image: bytes) -> tuple[bytes, str]:
+def _validate_text_response(response: dict, model: str) -> None:
+    choices = response.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1:
+        raise RuntimeError(f"text model {model} did not return exactly one choice")
+    choice = choices[0]
+    if not isinstance(choice, dict):
+        raise RuntimeError(f"text model {model} returned a malformed choice")
+    message = choice.get("message")
+    if not isinstance(message, dict):
+        raise RuntimeError(f"text model {model} returned no assistant message")
+    content = message.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError(f"text model {model} returned empty text content")
+
+
+def _multipart_edit(
+    image: bytes, image_model: str = DEFAULT_IMAGE_MODEL
+) -> tuple[bytes, str]:
     boundary = f"litellm-validation-{secrets.token_hex(16)}"
     parts: list[bytes] = []
     # LiteLLM treats this as a GPT Image-compatible request. Those models
     # always return base64 and do not accept the DALL-E-only response_format.
     fields = {
-        "model": "qwen-image-2.1",
+        "model": image_model,
         "prompt": "change the red cube to a blue cube; preserve composition",
         "size": "512x512",
         "quality": "low",
@@ -313,20 +340,36 @@ def validate(
     api_key: str,
     output_dir: Path,
     timeout: float,
+    image_model: str = DEFAULT_IMAGE_MODEL,
+    text_models: tuple[str, ...] = (),
     opener: urllib.request.OpenerDirector | None = None,
 ) -> ValidationResult:
     base_url = _validate_base_url(base_url)
     api_key = _validate_api_key(api_key)
+    if image_model not in SUPPORTED_IMAGE_MODELS:
+        raise ValueError(
+            f"unsupported image model; supported image model ids: "
+            f"{', '.join(SUPPORTED_IMAGE_MODELS)}"
+        )
+    if any(model not in SUPPORTED_TEXT_MODELS for model in text_models):
+        raise ValueError(
+            f"unsupported text model; supported text model ids: "
+            f"{', '.join(SUPPORTED_TEXT_MODELS)}"
+        )
+    if len(set(text_models)) != len(text_models):
+        raise ValueError("text model ids must not contain duplicates")
     if not math.isfinite(timeout) or timeout <= 0 or timeout > 1_800:
         raise ValueError("timeout must be greater than zero and at most 1800 seconds")
     output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    generated_path = output_dir / "qwen-image-generated.png"
-    edited_path = output_dir / "qwen-image-edited.png"
+    output_name = "qwen-image" if image_model == DEFAULT_IMAGE_MODEL else image_model
+    generated_path = output_dir / f"{output_name}-generated.png"
+    edited_path = output_dir / f"{output_name}-edited.png"
     if generated_path.exists() or edited_path.exists():
         raise FileExistsError("validation output files already exist")
 
     opener = opener or urllib.request.build_opener(NoRedirectHandler())
     jev_url = f"{base_url}/typesafe/v1/systemone"
+    chat_url = f"{base_url}/v1/chat/completions"
     generation_url = f"{base_url}/v1/images/generations"
     edit_url = f"{base_url}/v1/images/edits"
     jev_payload = {
@@ -350,7 +393,7 @@ def validate(
         },
     }
     generation_payload = {
-        "model": "qwen-image-2.1",
+        "model": image_model,
         "prompt": "a centered red cube on a plain white background, studio lighting",
         "size": "512x512",
         "quality": "low",
@@ -358,6 +401,14 @@ def validate(
         "n": 1,
     }
     jev_body = json.dumps(jev_payload, separators=(",", ":")).encode()
+    text_payload = {
+        "messages": [
+            {"role": "user", "content": "Reply with one short greeting."}
+        ],
+        "max_tokens": 32,
+        "temperature": 0,
+        "stream": False,
+    }
     image_body = json.dumps(generation_payload, separators=(",", ":")).encode()
 
     _expect_status(
@@ -391,6 +442,30 @@ def validate(
         timeout=timeout,
     )
 
+    if text_models:
+        _expect_status(
+            opener,
+            url=chat_url,
+            method="POST",
+            expected=401,
+            api_key=INVALID_API_KEY,
+            body=json.dumps(
+                {**text_payload, "model": text_models[0]}, separators=(",", ":")
+            ).encode(),
+            content_type="application/json",
+            timeout=timeout,
+        )
+
+    for text_model in text_models:
+        text_response = _post_json(
+            opener,
+            url=chat_url,
+            api_key=api_key,
+            payload={**text_payload, "model": text_model},
+            timeout=timeout,
+        )
+        _validate_text_response(text_response, text_model)
+
     jev_response = _post_json(
         opener,
         url=jev_url,
@@ -410,7 +485,7 @@ def validate(
     generated = _decode_image_response(generation_response)
     _write_new(generated_path, generated)
 
-    edit_body, edit_type = _multipart_edit(generated)
+    edit_body, edit_type = _multipart_edit(generated, image_model)
     status, response_body, response_type = _request(
         opener,
         url=edit_url,
@@ -437,16 +512,36 @@ def validate(
     edited = _decode_image_response(edit_response)
     _write_new(edited_path, edited)
 
-    return ValidationResult(choice, confidence, generated_path, edited_path)
+    return ValidationResult(
+        choice, confidence, generated_path, edited_path, tuple(text_models)
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Validate JevK5 and Qwen Image through the public LiteLLM gateway."
+        description=(
+            "Validate JevK5 and selected Qwen Image models through the public "
+            "LiteLLM gateway."
+        )
     )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--timeout", type=float, default=900)
+    parser.add_argument(
+        "--image-model",
+        choices=SUPPORTED_IMAGE_MODELS,
+        action="append",
+        help=(
+            "image model to test; repeat to test both (default: "
+            f"{DEFAULT_IMAGE_MODEL})"
+        ),
+    )
+    parser.add_argument(
+        "--text-model",
+        choices=SUPPORTED_TEXT_MODELS,
+        action="append",
+        help="text model to smoke-test; repeat to test model switching",
+    )
     args = parser.parse_args()
 
     api_key = os.environ.get("LITELLM_API_KEY")
@@ -455,17 +550,36 @@ def main() -> None:
     output_dir = args.output_dir
     if output_dir is None:
         output_dir = Path(tempfile.mkdtemp(prefix="litellm-validation-"))
-    result = validate(
-        base_url=args.base_url,
-        api_key=api_key,
-        output_dir=output_dir,
-        timeout=args.timeout,
-    )
-    print(
-        f"JevK5 OK: choice={result.choice}, confidence={result.confidence:.6f}\n"
-        f"Qwen Image generation OK: {result.generated}\n"
-        f"Qwen Image edit OK: {result.edited}"
-    )
+    image_models = args.image_model or [DEFAULT_IMAGE_MODEL]
+    if len(set(image_models)) != len(image_models):
+        parser.error("--image-model cannot be repeated with duplicate values")
+    text_models = tuple(args.text_model or ())
+    if len(set(text_models)) != len(text_models):
+        parser.error("--text-model cannot be repeated with duplicate values")
+    for index, image_model in enumerate(image_models):
+        model_output_dir = (
+            output_dir / image_model if len(image_models) > 1 else output_dir
+        )
+        result = validate(
+            base_url=args.base_url,
+            api_key=api_key,
+            output_dir=model_output_dir,
+            timeout=args.timeout,
+            image_model=image_model,
+            text_models=text_models if index == 0 else (),
+        )
+        text_lines = [f"Text model {model} OK" for model in result.text_models]
+        print(
+            "\n".join(
+                [
+                    *text_lines,
+                    f"JevK5 OK: choice={result.choice}, confidence={result.confidence:.6f}",
+                ]
+            )
+            + "\n"
+            f"Qwen Image ({image_model}) generation OK: {result.generated}\n"
+            f"Qwen Image ({image_model}) edit OK: {result.edited}"
+        )
 
 
 if __name__ == "__main__":

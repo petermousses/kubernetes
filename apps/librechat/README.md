@@ -8,7 +8,8 @@ the stack is deliberately limited to:
 - LibreChat API/UI, pinned to `v0.8.7`
 - MongoDB for users, sessions, conversations, and application state
 - Meilisearch for conversation search
-- Authentik OIDC and a restricted LiteLLM key for Qwen chat and image tools
+- Authentik OIDC and a restricted LiteLLM key for the static chat models and
+  the standard Qwen Image tool
 
 RAG/pgvector and the separate LibreChat admin-panel service are not deployed.
 file search is disabled in [`configmap.yaml`](configmap.yaml) until the RAG
@@ -52,10 +53,15 @@ before applying the kustomization, confirm all of the following:
 5. add your Authentik user to `librechat_users` and `librechat_admin`. Prepare
    a non-admin user in `librechat_users` and one outside that group for tests.
    The provider's ID token must contain the `groups` claim.
-6. create a LiteLLM virtual key limited to models `qwen3.8-27b` and
-   `qwen-image-2.1`, with `allowed_routes` limited to
+6. create a LiteLLM virtual key limited to chat models `qwen3.8-27b`,
+   `gemma-4-e4b-it`, `gemma-4-12b-it`, `gemma-4-26b-a4b-it`, and
+   `qwen3.6-35b-a3b`, plus the standard image model `qwen-image-2.1`, with
+   `allowed_routes` limited to
    `/v1/chat/completions`, `/v1/images/generations`, and `/v1/images/edits`.
-   Never use the master key. Use the
+   Do not add `qwen-image-2.1-uncensored` to the shared LibreChat key: LibreChat
+   has one global OpenAI image-tool model setting, which remains the standard
+   `qwen-image-2.1`. Use a separate explicitly scoped key for direct API tests
+   of the uncensored alias. Never use the master key. Use the
    [LiteLLM admin tunnel](../litellm/README.md) if needed. On the NAS, run
    this script and paste the virtual key at its hidden prompt:
 
@@ -68,6 +74,12 @@ before applying the kustomization, confirm all of the following:
    Secret securely. `MEILI_MASTER_KEY` must remain the same for LibreChat and
    Meilisearch. Verify the new key rejects an unlisted model and a management
    route before trusting its scope.
+
+   After deployment, if the LiteLLM key needs a different model scope, create a
+   replacement least-privilege virtual key in LiteLLM and run
+   `./apps/librechat/replace-litellm-key.sh`. It prompts without echo, patches
+   only `LITELLM_API_KEY`, preserves all persistent encryption keys, and restarts
+   LibreChat.
 
 ## deploy
 
@@ -124,9 +136,12 @@ admission is controlled by Authentik and LibreChat's required-role check.
 ## configuration changes
 
 the user-facing LibreChat configuration is the `librechat.yaml` key in
-[`configmap.yaml`](configmap.yaml). It exposes only the LiteLLM chat model.
-Qwen Image is an Agent tool, not a chat-model selector entry. JevK5 is a typed
-decision route, not a chat model.
+[`configmap.yaml`](configmap.yaml). Its chat picker lists the five static
+LiteLLM text aliases. Qwen Image remains an Agent tool, not a chat-model
+selector entry; its single global image-tool setting stays on
+`qwen-image-2.1`. The uncensored image alias is exposed through LiteLLM for
+direct API evaluation with a separately scoped virtual key, not through the
+shared LibreChat image tool. JevK5 is a typed decision route, not a chat model.
 
 the file is mounted with `subPath`, so restart the API after changing it:
 

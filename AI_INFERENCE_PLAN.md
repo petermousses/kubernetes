@@ -9,8 +9,9 @@ do **not** make k3s directly manage the AMD Halo GPU workloads in v1. run the in
 | api gateway | LiteLLM (MIT for the open-source core) |
 | chat ui | LibreChat (MIT) |
 | identity | Authentik OIDC (MIT for the community core) |
-| Qwen3.8 runtime | `llama.cpp` (MIT) with ROCm (component-specific licenses); Qwen3.8-27B weights (Apache-2.0) |
-| Qwen Image 2.1 runtime | ComfyUI (GPL-3.0) + thin OpenAI-compatible Images adapter (planned Apache-2.0); Qwen Image 2.1 weights (Qwen Research License) |
+| text-model router | `llama-swap` (MIT) dynamically starts/stops `llama.cpp` (MIT) model servers |
+| Qwen3.8, Gemma 4 E4B/12B/26B-A4B, Qwen3.6-35B-A3B weights | Apache-2.0 |
+| Qwen Image 2.1 runtime | ComfyUI (GPL-3.0) + ComfyUI-GGUF (Apache-2.0) + OpenAI-compatible Images adapter (repository Apache-2.0); standard and uncensored image weights (Qwen Research License) |
 | JevK5 runtime | separate `llama.cpp` server + `/v1/systemone` adapter; JevK5 code and weights (Apache-2.0) |
 | machine authentication | scoped LiteLLM virtual keys |
 | browser authentication | Authentik SSO |
@@ -21,8 +22,8 @@ AMD officially supports `llama.cpp` on supported Ryzen APUs, while vLLM/SGLang r
 browser ──> traefik ──> LibreChat ──> LiteLLM
                  └────> Authentik       │
 api clients ──> api.ai... ──────────────┤
-                                        ├─> llama.cpp: Qwen3.8-27B
-                                        ├─> image adapter ─> ComfyUI
+                                        ├─> llama-swap ─> one llama.cpp text model at a time
+                                        ├─> image adapter ─> ComfyUI (standard or uncensored Qwen Image)
                                         └─> JevK5 adapter ─> llama.cpp
 ```
 
@@ -35,13 +36,17 @@ raw Halo endpoints remain private and firewall-restricted to the cluster.
 | product or model | license | plan impact |
 |---|---|---|
 | [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/LICENSE) | Apache-2.0 | permissive model license; preserve required notices when redistributing weights or derivatives. |
-| [Qwen Image 2.1](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE) | Qwen Research License | non-commercial research/evaluation only unless a separate commercial license is obtained. |
+| [Gemma 4 E4B](https://huggingface.co/google/gemma-4-E4B-it), [12B](https://huggingface.co/google/gemma-4-12B-it), and [26B-A4B](https://huggingface.co/google/gemma-4-26B-A4B-it) weights | Apache-2.0 | permissive; preserve required notices when redistributing weights or derivatives. |
+| [Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) | Apache-2.0 | permissive; preserve required notices when redistributing weights or derivatives. |
+| [Qwen Image 2.1](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE), including [uncensored GGUF derivative](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF) | Qwen Research License | non-commercial research/evaluation only unless a separate commercial license is obtained. the uncensored derivative has no built-in safety checker or content filter; keep it behind authenticated LiteLLM keys and do not imply moderation. |
 | [JevK5 runtime and model](https://github.com/allebee/jevk5/blob/main/LICENSE) | Apache-2.0 | permissive; the selected [GGUF weights](https://huggingface.co/alibiserikbay/JevK5-GGUF) carry the same license. |
 | [`llama.cpp`](https://github.com/ggml-org/llama.cpp/blob/master/LICENSE) | MIT | permissive. |
+| [`llama-swap`](https://github.com/mostlygeek/llama-swap/blob/main/LICENSE.md) | MIT | local process/router only; LiteLLM remains the sole public gateway. |
 | [LiteLLM](https://github.com/BerriAI/litellm/blob/main/LICENSE) | MIT for the open-source core | anything under its `enterprise/` directory has separate terms and is excluded from this plan. |
 | [LibreChat](https://github.com/LibreChat-AI/LibreChat/blob/main/LICENSE) | MIT | permissive. |
 | [Authentik](https://github.com/goauthentik/authentik/blob/main/LICENSE) | MIT for the community core and client JavaScript | enterprise-directory code has separate terms; website content is CC BY-SA 4.0. this plan uses community features only. |
 | [ComfyUI](https://github.com/Comfy-Org/ComfyUI/blob/master/LICENSE) | GPL-3.0 | internal execution over the network does not itself distribute ComfyUI; distributing a modified build requires GPL compliance and corresponding source. |
+| [ComfyUI-GGUF](https://github.com/leejet/ComfyUI-GGUF/blob/main/LICENSE) | Apache-2.0 | pinned custom node used only to load the Qwen Image GGUF diffusion model. |
 | [ROCm](https://github.com/ROCm/rocm-systems#license) | component-specific; no single umbrella license | audit the exact installed driver, firmware, runtime and library packages during node validation. do not label the whole stack “MIT.” |
 | [Podman](https://github.com/podman-container-tools/podman/blob/main/LICENSE) | Apache-2.0 | permissive. |
 | [systemd](https://github.com/systemd/systemd/blob/main/LICENSES/README.md) | LGPL-2.1-or-later generally | udev programs include GPL-2.0-or-later code; normal service use creates no project-specific distribution requirement. |
@@ -57,7 +62,7 @@ raw Halo endpoints remain private and firewall-restricted to the cluster.
 | [vLLM](https://github.com/vllm-project/vllm/blob/main/LICENSE) | Apache-2.0 | evaluated but not selected for this hardware. |
 | [SGLang](https://github.com/sgl-project/sglang/blob/main/LICENSE) | Apache-2.0 | evaluated but not selected for this hardware. |
 | [Redis](https://redis.io/legal/licenses/) | version-specific: BSD-3-Clause through 7.2, RSALv2/SSPLv1 for 7.4–7.8, and RSALv2/SSPLv1/AGPL-3.0 choice for 8+ | mentioned only because Authentik no longer requires it; not deployed by this plan. |
-| planned image and JevK5 adapters | Apache-2.0, to be declared when created | first-party code does not exist yet; add an explicit license before distributing it. |
+| first-party image and JevK5 adapters and host configuration | Apache-2.0 | covered by the repository license; preserve the included third-party notices. |
 | OpenAI-compatible API shapes | interface compatibility, not bundled OpenAI software | no OpenAI model, SDK or service license is implied by implementing compatible request and response schemas. |
 
 the vendor OS, Linux kernel, AMD firmware and third-party container contents are aggregate works with component-level terms. capture their package manifests and license notices during validation instead of pretending they have one project-wide license.
@@ -211,7 +216,7 @@ browser http://127.0.0.1:18189 -> SSH local forward
 - run the image adapter as `ai`, bind it to redqueen's private address on port `8190`, require a separate upstream credential and permit the port through the host firewall only from the cluster node addresses;
 - make the adapter accept only the planned OpenAI-compatible `/v1/images/generations` and `/v1/images/edits` schemas and map them to immutable, versioned workflows. it must not expose arbitrary ComfyUI prompt graphs, filesystem paths, uploads outside the bounded request schema or ComfyUI administrative routes;
 - represent the host adapter in Kubernetes with a selectorless `Service` and manually managed `EndpointSlice`. Kubernetes explicitly supports selectorless Services for backends outside the cluster; the endpoint must use redqueen's reserved non-loopback address, not `127.0.0.1`. [Kubernetes Service documentation](https://kubernetes.io/docs/concepts/services-networking/service/#services-without-selectors)
-- register the adapter's cluster Service as the `qwen-image-2.1` backend in LiteLLM. LiteLLM supplies virtual-key authentication, model allowlisting, rate/queue controls and the public OpenAI-compatible image endpoints; the adapter supplies the ComfyUI-specific translation. [LiteLLM supported endpoints](https://docs.litellm.ai/docs/supported_endpoints)
+- register both `qwen-image-2.1` and `qwen-image-2.1-uncensored` against the same adapter Service. LiteLLM supplies virtual-key authentication, model allowlisting, rate/queue controls and the public OpenAI-compatible image endpoints; the adapter maps each whitelisted model alias to its fixed ComfyUI loader/workflow. [LiteLLM supported endpoints](https://docs.litellm.ai/docs/supported_endpoints)
 - from any authorized workstation, start the UI tunnel with:
 
 ```bash
@@ -324,6 +329,59 @@ the 2026-09-29 public validation passed with a virtual key: JevK5 chose `misdeli
 
 JevK5 is deliberately absent from `/v1/models`: that list contains LiteLLM `model_list` entries for OpenAI-compatible calls, while JevK5 is a typed decision API behind the native `/typesafe/v1/systemone` pass-through. a virtual key for JevK5 must be restricted by nonempty `allowed_routes` containing `/typesafe/v1/systemone`; its `models` allowlist does not govern this pass-through. do not add a fake chat model merely to make JevK5 appear in `/v1/models`. future decision models need an explicit typed route or a dedicated decision router with model-aware authorization; a shared unrestricted pass-through would make per-model key isolation impossible. verify the key's actual denials before relying on this boundary.
 
+#### static model expansion and redqueen cutover — 2026-09-30
+
+the baseline step-3 deployment remains live as previously verified; the following expansion is configured in this repository but **not yet installed or validated on redqueen or the NAS**. it adds these static LiteLLM IDs while keeping `store_model_in_db: false`:
+
+- chat: `qwen3.8-27b`, `gemma-4-e4b-it`, `gemma-4-12b-it`, `gemma-4-26b-a4b-it`, `qwen3.6-35b-a3b`;
+- image: `qwen-image-2.1`, `qwen-image-2.1-uncensored`;
+- DeepSeek remains absent until its weight manifest exists and all files verify. JevK5 remains a typed pass-through, not a model-list entry.
+
+all text models share the existing `qwen-redqueen:8081` Service/EndpointSlice and existing `QWEN_API_KEY`. `llama-swap` v260 starts one model lazily, swaps among five static IDs, and unloads an idle model after 300 seconds. the existing Qwen3.8 model keeps its current file, alias and 65,536-token context; new models use the downloaded GGUFs plus Q8_0 projectors, 32,768 context and q8_0 K/V cache. Qwen3.6's Q4_K_M file retains the full 35B parameter expert set; it is not expert-pruned. no new Kubernetes Service, host-firewall rule, network-policy port or credential is introduced. each directory remains under `/srv/ai/models/<model-id>/` with its verified `SHA256SUMS`, `LICENSE`, `MODEL_CARD.md` and `SOURCE_REVISION`.
+
+both image IDs share `qwen-image-redqueen:8190` and `QWEN_IMAGE_API_KEY`. the image adapter accepts only those two exact IDs and maps the uncensored alias to the pinned `UnetLoaderGGUF` node, fixed Q4_K_M diffusion filename and downloaded INT8 Qwen3-VL text encoder. arbitrary ComfyUI graphs remain inaccessible. ComfyUI stays loopback-only at `127.0.0.1:8189`; the current SSH tunnel command and UI address do not change. the uncensored derivative has no safety checker or content filter; it is opt-in and must be limited to an explicitly approved LiteLLM virtual key.
+
+LibreChat's static model picker is also expanded to the five chat aliases. its built-in OpenAI Image Tools use one global `IMAGE_GEN_OAI_MODEL`, so keep that default on the standard `qwen-image-2.1`; do not put the uncensored alias on the shared LibreChat key. the uncensored alias stays available through direct LiteLLM API calls with a separate, narrowly scoped virtual key unless a later UI supports deliberate per-request image-model selection. [LibreChat image-tool configuration](https://www.librechat.ai/docs/features/image_gen)
+
+owner-run cutover, after this branch is pushed and available in `/srv/ai/config`:
+
+```bash
+cd /srv/ai/config
+git pull --ff-only
+hosts/redqueen/model-router/create-env.sh
+hosts/redqueen/model-router/install.sh
+hosts/redqueen/comfyui/install-qwen-image-gguf.sh
+install -m 0640 hosts/redqueen/comfyui/extra-model-paths.yaml /srv/ai/comfyui/extra-model-paths.yaml
+install -m 0644 hosts/redqueen/systemd/comfyui.service ~/.config/systemd/user/comfyui.service
+systemctl --user daemon-reload
+hosts/redqueen/adapters/install.sh
+systemctl --user restart comfyui.service
+systemctl --user restart qwen-image-adapter.service
+systemctl --user disable --now qwen38.service
+systemctl --user enable --now llama-swap.service
+```
+
+these commands run as the non-sudo `ai` user; the scripts verify model checksums, pin llama-swap's release archive/checksum and ComfyUI-GGUF's Git revision, reuse the existing Qwen credential without printing or rotating it, validate the router config, and do not start services themselves. keep the raw listener firewall-restricted as before.
+
+after the host checks pass, deploy the static LiteLLM list on the NAS using the existing pattern: pull the repository and run `./apps/litellm/deploy.sh` from its clone. use a temporary virtual key explicitly allowing all seven listed IDs and only `/v1/chat/completions`, `/v1/images/generations`, `/v1/images/edits` and `/typesafe/v1/systemone`; delete it after validation. then run:
+
+```bash
+./apps/litellm/validate_inference.py \
+  --text-model qwen3.8-27b \
+  --text-model gemma-4-e4b-it \
+  --text-model gemma-4-12b-it \
+  --text-model gemma-4-26b-a4b-it \
+  --text-model qwen3.6-35b-a3b \
+  --image-model qwen-image-2.1 \
+  --image-model qwen-image-2.1-uncensored
+```
+
+that exercises text-model switching, public invalid-key rejection, JevK5, and 512px generation/edit for both image IDs. then inspect the ComfyUI UI through the existing SSH tunnel, verify the GGUF node/model appears without any browser-side download, inspect redqueen service logs and memory during mixed text/image requests, and repeat after reboot. do not call the expansion complete until all five text requests and both image generation/edit pairs pass without OOM, GPU reset, leaked listener or unapproved model visibility.
+
+to expose the five chat aliases in LibreChat, apply `kubectl apply -k apps/librechat` from the NAS clone and confirm the rollout. its existing `LITELLM_API_KEY` must allow the five chat aliases plus only the standard `qwen-image-2.1` for the built-in image tool, with `/v1/chat/completions`, `/v1/images/generations` and `/v1/images/edits` routes. create a replacement restricted key if the current LibreChat key lacks those model permissions, then run `./apps/librechat/replace-litellm-key.sh`; it patches only that Secret field and restarts LibreChat without changing its persistent encryption material. reserve the uncensored alias for a separate direct-API key with only model `qwen-image-2.1-uncensored` and routes `/v1/images/generations` and `/v1/images/edits`; explicitly verify that the LibreChat key is denied this alias.
+
+rollback if the router does not become healthy: `systemctl --user disable --now llama-swap.service` then `systemctl --user enable --now qwen38.service`; revert only the new LiteLLM model-list entries and redeploy if needed. keep the new image files and ComfyUI plugin installed during rollback; the existing standard image path remains independently available. the old `qwen38.service` unit and weights are intentionally retained until the new path passes reboot and mixed-load gates.
+
 ### 4. deploy identity and the user interface
 
 - deploy Authentik and its dedicated PostgreSQL database with pinned versions, persistent storage, initial bootstrap secrets and an MFA-protected local break-glass administrator.
@@ -410,6 +468,12 @@ use pinned Podman Quadlets or systemd services running under the dedicated, non-
   - enable streaming, vision inputs, tool calling and metrics.
   - Qwen3.8-27B is a native vision-language model under Apache-2.0. [official model card](https://huggingface.co/Qwen/Qwen3.8-27B)
 
+- **Text model switching and additional chat models**
+  - keep `llama-swap` on the existing authenticated `10.9.20.242:8081` listener; it launches one `llama.cpp` server at a time for `qwen3.8-27b`, three Gemma 4 variants and `qwen3.6-35b-a3b`. LiteLLM remains the only public aggregator and owns the static model allowlist.
+  - the existing Qwen3.8 process is replaced by the router only during an explicit cutover; its weights and 64k context remain unchanged. the new Gemma and Qwen3.6 entries use their already-downloaded Q4_0/Q4_K_M weights, Q8_0 multimodal projectors, 32k contexts and q8_0 K/V cache to bound cache growth. a five-minute idle TTL unloads inactive text weights; no model is preloaded at service startup.
+  - model storage stays under `/srv/ai/models/<model-id>/`; keep the downloaded `LICENSE`, `MODEL_CARD.md`, `SOURCE_REVISION` and `SHA256SUMS` beside each model. DeepSeek remains unregistered until its download is complete and verified.
+  - Gemma 4 E4B/12B/26B-A4B and Qwen3.6-35B-A3B weights are Apache-2.0. [Gemma 4 model cards](https://huggingface.co/google/gemma-4-12B-it), [Qwen3.6 model card](https://huggingface.co/Qwen/Qwen3.6-35B-A3B)
+
 - **JevK5**
   - use JevK5 v0.3 4B Q8_0, not the larger 9B model; the project reports the 4B model as both smaller and more accurate on its hard tier.
   - run a dedicated `llama-server` and adapter exposing exactly `/v1/systemone`.
@@ -421,15 +485,17 @@ use pinned Podman Quadlets or systemd services running under the dedicated, non-
   - support `b64_json`, prompt, size, seed, transparency and reference images.
   - explicitly regression-test 1024px editing because a current ComfyUI bug affects that path; use 992 or 1056 until the pinned version proves it fixed. [model](https://huggingface.co/Qwen/Qwen-Image-2.1), [ComfyUI issue](https://github.com/Comfy-Org/ComfyUI/issues/16435)
   - before deployment, confirm that all intended use is non-commercial research/evaluation under the **Qwen Research License**, or obtain Qwen’s separate commercial license.
+  - expose the already-downloaded uncensored Q4_K_M derivative as a second static alias, `qwen-image-2.1-uncensored`, through the same authenticated image adapter and `:8190` service. a pinned Apache-2.0 ComfyUI-GGUF node replaces only the fixed diffusion loader and selects its bundled INT8 text encoder; no arbitrary workflow or ComfyUI endpoint is exposed. this derivative has **no safety checker or content filter** and remains strictly opt-in via the model alias and scoped LiteLLM virtual key. [uncensored model card and ComfyUI instructions](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF), [ComfyUI-GGUF](https://github.com/leejet/ComfyUI-GGUF)
 
 ### 3. add the cluster control plane
 
 - deploy **LiteLLM** as one pinned replica with a dedicated PostgreSQL database.
 - expose:
 
-  - `qwen3.8-27b` through `/v1/chat/completions`
-  - `qwen-image-2.1` through `/v1/images/generations` and `/v1/images/edits`
+  - `qwen3.8-27b`, `gemma-4-e4b-it`, `gemma-4-12b-it`, `gemma-4-26b-a4b-it` and `qwen3.6-35b-a3b` through `/v1/chat/completions`
+  - `qwen-image-2.1` and `qwen-image-2.1-uncensored` through `/v1/images/generations` and `/v1/images/edits`
   - JevK5 through LiteLLM's native `/typesafe/v1/systemone` pass-through to redqueen's exact `/v1/systemone` adapter
+- keep `store_model_in_db: false`; make each listed public model a reviewed static `model_list` entry in `apps/litellm/configmap.yaml`. the five text aliases share the existing `qwen-redqueen:8081` endpoint and `QWEN_API_KEY`; both image aliases share `qwen-image-redqueen:8190` and `QWEN_IMAGE_API_KEY`. no new Kubernetes Service, firewall port or network-policy exception is required.
 
 - use LiteLLM virtual keys:
   - one restricted key for LibreChat;

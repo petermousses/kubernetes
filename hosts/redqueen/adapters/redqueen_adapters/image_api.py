@@ -25,6 +25,12 @@ from .common import auth_middleware, error_response, safe_errors
 
 
 MODEL = "qwen-image-2.1"
+UNCENSORED_MODEL = "qwen-image-2.1-uncensored"
+SUPPORTED_MODELS = (MODEL, UNCENSORED_MODEL)
+UNCENSORED_DIFFUSION_MODEL = "qwen-image-2.1-UC-Q4_K_M.gguf"
+UNCENSORED_TEXT_ENCODER = "qwen3vl_8b_int8_convrot.safetensors"
+STANDARD_DIFFUSION_MODEL = "qwen_image_2.1_bf16.safetensors"
+STANDARD_TEXT_ENCODER = "qwen3vl_8b_bf16.safetensors"
 GENERATION_SIZES = {"512x512", "1024x1024", "2048x2048"}
 EDIT_SIZES = {"512x512", "1024x1024"}
 QUALITIES = {"low": 4, "medium": 16, "high": 25, "auto": 25}
@@ -132,8 +138,8 @@ def normalize_request(payload: dict, *, edit: bool) -> dict:
     if unknown:
         raise ValueError(f"unsupported fields: {', '.join(unknown)}")
     model = payload.get("model", MODEL)
-    if model != MODEL:
-        raise ValueError(f"model must be {MODEL}")
+    if model not in SUPPORTED_MODELS:
+        raise ValueError(f"model must be one of {', '.join(SUPPORTED_MODELS)}")
     if _integer(payload.get("n", 1), "n") != 1:
         raise ValueError("only n=1 is supported")
     sizes = EDIT_SIZES if edit else GENERATION_SIZES
@@ -149,7 +155,7 @@ def normalize_request(payload: dict, *, edit: bool) -> dict:
     if payload.get("response_format", "b64_json") != "b64_json":
         raise ValueError("only response_format=b64_json is supported")
     normalized = {
-        "model": MODEL,
+        "model": model,
         "prompt": _text(payload.get("prompt"), "prompt"),
         "size": size,
         "quality": quality,
@@ -293,6 +299,46 @@ class ComfyBackend:
         path = self.settings.workflow_dir / name
         return json.loads(path.read_text(encoding="utf-8"))
 
+    @staticmethod
+    def _select_model(workflow: dict, model: str) -> None:
+        if model == MODEL:
+            return
+        if model != UNCENSORED_MODEL:
+            raise RuntimeError("image workflow received an unsupported model")
+
+        diffusion_nodes = [
+            node
+            for node in workflow.values()
+            if isinstance(node, dict) and node.get("class_type") == "UNETLoader"
+        ]
+        clip_nodes = [
+            node
+            for node in workflow.values()
+            if isinstance(node, dict) and node.get("class_type") == "CLIPLoader"
+        ]
+        if len(diffusion_nodes) != 1:
+            raise RuntimeError("expected exactly one fixed UNETLoader in the workflow")
+        if len(clip_nodes) != 1:
+            raise RuntimeError("expected exactly one fixed CLIPLoader in the workflow")
+
+        diffusion_inputs = diffusion_nodes[0].get("inputs")
+        clip_inputs = clip_nodes[0].get("inputs")
+        if (
+            not isinstance(diffusion_inputs, dict)
+            or diffusion_inputs.get("unet_name") != STANDARD_DIFFUSION_MODEL
+        ):
+            raise RuntimeError("workflow has an unexpected diffusion model loader")
+        if (
+            not isinstance(clip_inputs, dict)
+            or clip_inputs.get("clip_name") != STANDARD_TEXT_ENCODER
+            or clip_inputs.get("type") != "qwen_image"
+        ):
+            raise RuntimeError("workflow has an unexpected Qwen Image text encoder")
+
+        diffusion_nodes[0]["class_type"] = "UnetLoaderGGUF"
+        diffusion_nodes[0]["inputs"] = {"unet_name": UNCENSORED_DIFFUSION_MODEL}
+        clip_inputs["clip_name"] = UNCENSORED_TEXT_ENCODER
+
     async def close(self) -> None:
         if self._session is not None:
             await self._session.close()
@@ -320,6 +366,7 @@ class ComfyBackend:
             "transparent" if request["background"] == "transparent" else "generate"
         )
         workflow = copy.deepcopy(self._workflows[workflow_key])
+        self._select_model(workflow, request["model"])
         width, height = (int(value) for value in request["size"].split("x"))
         prompt = request["prompt"]
         negative = ""
@@ -337,7 +384,9 @@ class ComfyBackend:
         workflow["7"]["inputs"].update(
             seed=request["seed"], steps=QUALITIES[request["quality"]]
         )
-        workflow["9"]["inputs"]["filename_prefix"] = f"api/{request_id}/qwen-image-2.1"
+        workflow["9"]["inputs"]["filename_prefix"] = (
+            f"api/{request_id}/{request['model']}"
+        )
         return await self._run(workflow)
 
     async def edit(self, request: dict, images: list[tuple[str, bytes, str]]) -> bytes:
@@ -348,6 +397,7 @@ class ComfyBackend:
                 uploaded.append(await self._upload(request_id, *image))
             workflow_key = "edit" if len(uploaded) == 1 else "multiref"
             workflow = copy.deepcopy(self._workflows[workflow_key])
+            self._select_model(workflow, request["model"])
             if workflow_key == "edit":
                 encode_node, sampler_node, output_node = "5", "7", "9"
             else:
@@ -369,7 +419,7 @@ class ComfyBackend:
                 seed=request["seed"], steps=QUALITIES[request["quality"]]
             )
             workflow[output_node]["inputs"]["filename_prefix"] = (
-                f"api/{request_id}/qwen-image-2.1"
+                f"api/{request_id}/{request['model']}"
             )
             return await self._run(workflow)
         finally:
@@ -517,7 +567,7 @@ def create_image_app(
     )
 
     async def health(_: web.Request) -> web.Response:
-        return web.json_response({"ok": True, "model": MODEL})
+        return web.json_response({"ok": True, "models": list(SUPPORTED_MODELS)})
 
     async def ready(_: web.Request) -> web.Response:
         check = getattr(actual_backend, "ready", None)
@@ -527,7 +577,12 @@ def create_image_app(
 
     async def models(_: web.Request) -> web.Response:
         return web.json_response(
-            {"object": "list", "data": [{"id": MODEL, "object": "model"}]}
+            {
+                "object": "list",
+                "data": [
+                    {"id": model, "object": "model"} for model in SUPPORTED_MODELS
+                ],
+            }
         )
 
     async def run_job(

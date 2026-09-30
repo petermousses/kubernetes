@@ -139,9 +139,13 @@ run the combined JevK5 and Qwen Image contract check from a workstation:
 ```
 
 enter a disposable or restricted LiteLLM virtual key at the hidden prompt, not
-the master key. the key must permit `qwen-image-2.1` plus the exact image and
-TypeSafe routes exercised below. the validator checks missing-key and
-wrong-method rejection, requires JevK5 to classify a misdelivered parcel
-correctly, generates one 512×512 image, edits that generated image, validates
-both PNG structures and prints the private temporary directory containing both
-outputs for visual inspection.
+the master key. by default the key must permit `qwen-image-2.1` plus the exact
+image and TypeSafe routes exercised below. when using `--text-model`, it must
+also permit each selected chat alias and `/v1/chat/completions`; when repeating
+`--image-model`, it must permit each selected image alias. the validator checks
+missing-key and wrong-method rejection, requires JevK5 to classify a
+misdelivered parcel correctly, generates one 512×512 image, edits that generated
+image, validates both PNG structures and prints the private temporary directory
+containing both outputs for visual inspection. the expanded host cutover, model
+IDs and multi-model invocation are recorded in
+[`AI_INFERENCE_PLAN.md`](../../AI_INFERENCE_PLAN.md).

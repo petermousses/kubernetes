@@ -61,6 +61,10 @@ data:
           models:
             default:
               - qwen3.8-27b
+              - gemma-4-e4b-it
+              - gemma-4-12b-it
+              - gemma-4-26b-a4b-it
+              - qwen3.6-35b-a3b
             fetch: false
           titleConvo: true
           titleModel: qwen3.8-27b

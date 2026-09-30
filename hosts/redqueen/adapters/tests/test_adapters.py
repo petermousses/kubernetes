@@ -175,6 +175,18 @@ class AdapterTestCase(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(response.status, 400)
 
+    async def test_image_model_catalog_contains_both_fixed_backends(self) -> None:
+        client = await self.client(
+            create_image_app(ImageSettings(api_key=TOKEN), FakeImageBackend())
+        )
+        response = await client.get("/v1/models", headers=self.auth())
+        self.assertEqual(response.status, 200)
+        body = await response.json()
+        self.assertEqual(
+            [item["id"] for item in body["data"]],
+            ["qwen-image-2.1", "qwen-image-2.1-uncensored"],
+        )
+
     async def test_image_edit_accepts_two_bounded_references_and_rejects_mask(
         self,
     ) -> None:
@@ -381,6 +393,80 @@ class AdapterTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertRegex(workflow["1"]["inputs"]["image"], r"^api/[0-9a-f]{32}/0\.png$")
         self.assertRegex(workflow["2"]["inputs"]["image"], r"^api/[0-9a-f]{32}/0\.jpg$")
         self.assertEqual([item[0] for item in backend.removed], ["input", "input"])
+
+    async def test_uncensored_alias_uses_only_fixed_gguf_loader_mapping(self) -> None:
+        backend = RecordingComfyBackend()
+        request = {
+            "model": "qwen-image-2.1-uncensored",
+            "prompt": "a red cube",
+            "size": "512x512",
+            "quality": "low",
+            "background": "opaque",
+            "seed": 13,
+            "n": 1,
+            "response_format": "b64_json",
+        }
+
+        await backend.generate(request)
+        workflow = backend.workflows[-1]
+        diffusion_loaders = [
+            node for node in workflow.values()
+            if node.get("class_type") in {"UNETLoader", "UnetLoaderGGUF"}
+        ]
+        clip_loaders = [
+            node for node in workflow.values() if node.get("class_type") == "CLIPLoader"
+        ]
+        self.assertEqual(len(diffusion_loaders), 1)
+        self.assertEqual(diffusion_loaders[0]["class_type"], "UnetLoaderGGUF")
+        self.assertEqual(
+            diffusion_loaders[0]["inputs"],
+            {"unet_name": "qwen-image-2.1-UC-Q4_K_M.gguf"},
+        )
+        self.assertEqual(len(clip_loaders), 1)
+        self.assertEqual(
+            clip_loaders[0]["inputs"]["clip_name"],
+            "qwen3vl_8b_int8_convrot.safetensors",
+        )
+        self.assertIn(
+            "qwen-image-2.1-uncensored",
+            workflow["9"]["inputs"]["filename_prefix"],
+        )
+
+        edit = {**request, "background": "auto"}
+        await backend.edit(edit, [("reference.png", b"x", "image/png")])
+        edit_workflow = backend.workflows[-1]
+        edit_loader = next(
+            node for node in edit_workflow.values()
+            if node.get("class_type") == "UnetLoaderGGUF"
+        )
+        edit_clip_loaders = [
+            node for node in edit_workflow.values()
+            if node.get("class_type") == "CLIPLoader"
+        ]
+        self.assertEqual(
+            edit_loader["inputs"]["unet_name"], "qwen-image-2.1-UC-Q4_K_M.gguf"
+        )
+        self.assertEqual(len(edit_clip_loaders), 1)
+        self.assertEqual(
+            edit_clip_loaders[0]["inputs"]["clip_name"],
+            "qwen3vl_8b_int8_convrot.safetensors",
+        )
+
+    async def test_uncensored_workflow_fails_closed_on_unexpected_loader_graph(self) -> None:
+        backend = RecordingComfyBackend()
+        backend._workflows["generate"]["1"]["class_type"] = "UnexpectedLoader"
+        request = {
+            "model": "qwen-image-2.1-uncensored",
+            "prompt": "a red cube",
+            "size": "512x512",
+            "quality": "low",
+            "background": "opaque",
+            "seed": 13,
+            "n": 1,
+            "response_format": "b64_json",
+        }
+        with self.assertRaisesRegex(RuntimeError, "expected exactly one fixed UNETLoader"):
+            await backend.generate(request)
 
     async def test_comfy_cleanup_refuses_paths_outside_its_state_area(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
