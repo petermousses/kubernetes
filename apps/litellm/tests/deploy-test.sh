@@ -116,6 +116,10 @@ grep -Fq '  - service-monitor.yaml' "${app_root}/kustomization.yaml"
 grep -Fq 'name: allow-prometheus-metrics-ingress' "${app_root}/networkpolicy.yaml"
 grep -Fq 'name: allow-litellm-metrics-egress' \
   "${app_root}/../monitoring/networkpolicy.yaml"
+if ! grep -Fq '      store_model_in_db: true' "${app_root}/configmap.yaml"; then
+  printf 'LiteLLM runtime model registration must be persisted in PostgreSQL\n' >&2
+  exit 1
+fi
 
 for typesafe_contract in \
   'name: TYPESAFE_API_BASE' \

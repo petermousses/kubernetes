@@ -39,7 +39,7 @@ data:
       disable_error_logs: true
       master_key: os.environ/LITELLM_MASTER_KEY
       proxy_batch_write_at: 60
-      store_model_in_db: false
+      store_model_in_db: true
       store_prompts_in_spend_logs: false
       ui_access_mode: admin_only
       trusted_proxy_ranges:
