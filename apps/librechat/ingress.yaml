@@ -13,7 +13,7 @@ metadata:
     gethomepage.dev/group: AI
     gethomepage.dev/name: LibreChat
     gethomepage.dev/icon: mdi-robot-outline
-    gethomepage.dev/description: AI chat interface backed by local Ollama.
+    gethomepage.dev/description: AI chat through Authentik and LiteLLM.
 spec:
   ingressClassName: traefik
   tls:

@@ -28,6 +28,12 @@ spec:
         options:
           - name: ndots
             value: "1"
+      # Keep server-side OIDC discovery/token calls on the NAS HTTPS ingress
+      # without opening broad public egress. The browser still uses normal DNS.
+      hostAliases:
+        - ip: 10.9.20.14
+          hostnames:
+            - auth.omv.mousses.xyz
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -48,6 +54,14 @@ spec:
                 name: librechat-config
             - secretRef:
                 name: librechat-env
+            - secretRef:
+                name: librechat-oidc
+          env:
+            - name: IMAGE_GEN_OAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: librechat-env
+                  key: LITELLM_API_KEY
           startupProbe:
             httpGet:
               path: /health
