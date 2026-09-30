@@ -136,11 +136,10 @@ admission is controlled by Authentik and LibreChat's required-role check.
 ## configuration changes
 
 the user-facing LibreChat configuration is the `librechat.yaml` key in
-[`configmap.yaml`](configmap.yaml). the custom endpoint uses `models.fetch: true`
-to populate the chat picker from LiteLLM; `models.default` retains only
-`qwen3.8-27b` as the required fallback if discovery fails. its LiteLLM virtual
-key must allow `/v1/models` or discovery fails; the key's model scope, not
-the fallback, enforces inference access. qwen image remains an Agent tool, not a
+[`configmap.yaml`](configmap.yaml). the custom endpoint uses only
+`models.fetch: true`; it has no static `models.default` list. its LiteLLM
+virtual key must allow `/v1/models` or discovery fails and the chat picker has
+no models. the key's model scope enforces inference access. qwen image remains an Agent tool, not a
 chat-model selector entry; its single global image-tool setting stays on
 `qwen-image-2.1`. The uncensored image alias is exposed through LiteLLM for
 direct API evaluation with a separately scoped virtual key, not through the

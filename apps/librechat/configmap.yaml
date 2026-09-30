@@ -59,7 +59,6 @@ data:
           apiKey: '${LITELLM_API_KEY}'
           baseURL: http://litellm.litellm.svc.cluster.local:4000/v1
           models:
-            default: [qwen3.8-27b]
             fetch: true
           titleConvo: true
           titleModel: qwen3.8-27b
