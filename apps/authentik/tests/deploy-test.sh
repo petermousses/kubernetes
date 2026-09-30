@@ -9,6 +9,13 @@ rendered="$(kubectl kustomize "${app_root}")"
 [[ "${rendered}" == *'name: default-deny-all'* ]]
 [[ "${rendered}" != *'kind: IngressRoute'* ]]
 
+rg -q 'kind: IngressRoute' "${app_root}/ingress.yaml"
+rg -q 'gethomepage.dev/enabled: "true"' "${app_root}/ingress.yaml"
+rg -q 'gethomepage.dev/name: Authentik' "${app_root}/ingress.yaml"
+rg -q 'gethomepage.dev/group: Security' "${app_root}/ingress.yaml"
+rg -q 'gethomepage.dev/href: https://auth\.omv\.mousses\.xyz' "${app_root}/ingress.yaml"
+rg -q '^traefik: true$' "${app_root}/../homepage/config/kubernetes.yaml"
+
 rg -q 'version: 2026\.8\.3' "${app_root}/helmchart.yaml"
 rg -q 'postgresql:[[:space:]]*$' "${app_root}/helmchart.yaml"
 rg -q 'enabled: false' "${app_root}/helmchart.yaml"
