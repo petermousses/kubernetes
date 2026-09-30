@@ -56,7 +56,7 @@ before applying the kustomization, confirm all of the following:
 6. create a LiteLLM virtual key limited to chat models `qwen3.8-27b`,
    `gemma-4-e4b-it`, `gemma-4-12b-it`, `gemma-4-26b-a4b-it`, and
    `qwen3.6-35b-a3b`, plus the standard image model `qwen-image-2.1`, with
-   `allowed_routes` limited to
+   `allowed_routes` limited to `/v1/models` (used with `GET`),
    `/v1/chat/completions`, `/v1/images/generations`, and `/v1/images/edits`.
    Do not add `qwen-image-2.1-uncensored` to the shared LibreChat key: LibreChat
    has one global OpenAI image-tool model setting, which remains the standard
@@ -136,9 +136,12 @@ admission is controlled by Authentik and LibreChat's required-role check.
 ## configuration changes
 
 the user-facing LibreChat configuration is the `librechat.yaml` key in
-[`configmap.yaml`](configmap.yaml). Its chat picker lists the five static
-LiteLLM text aliases. Qwen Image remains an Agent tool, not a chat-model
-selector entry; its single global image-tool setting stays on
+[`configmap.yaml`](configmap.yaml). the custom endpoint uses `models.fetch: true`
+to populate the chat picker from LiteLLM; `models.default` retains only
+`qwen3.8-27b` as the required fallback if discovery fails. its LiteLLM virtual
+key must allow `/v1/models` or discovery fails; the key's model scope, not
+the fallback, enforces inference access. qwen image remains an Agent tool, not a
+chat-model selector entry; its single global image-tool setting stays on
 `qwen-image-2.1`. The uncensored image alias is exposed through LiteLLM for
 direct API evaluation with a separately scoped virtual key, not through the
 shared LibreChat image tool. JevK5 is a typed decision route, not a chat model.

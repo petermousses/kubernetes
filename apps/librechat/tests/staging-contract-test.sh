@@ -22,14 +22,12 @@ rg -q 'OPENID_ADMIN_ROLE: librechat_admin' "${app_root}/configmap.yaml"
 rg -q 'ALLOW_REGISTRATION: "false"' "${app_root}/configmap.yaml"
 rg -q 'apiKey: '\''\$\{LITELLM_API_KEY\}'\''' "${app_root}/configmap.yaml"
 rg -q 'baseURL: http://litellm\.litellm\.svc\.cluster\.local:4000/v1' "${app_root}/configmap.yaml"
-for model in \
-  qwen3.8-27b \
-  gemma-4-e4b-it \
-  gemma-4-12b-it \
-  gemma-4-26b-a4b-it \
-  qwen3.6-35b-a3b; do
-  rg -q -- "- ${model}" "${app_root}/configmap.yaml"
-done
+rg -q 'default: \[qwen3\.8-27b\]' "${app_root}/configmap.yaml"
+rg -q 'fetch: true' "${app_root}/configmap.yaml"
+if rg -q -- '- (gemma-4-e4b-it|gemma-4-12b-it|gemma-4-26b-a4b-it|qwen3\.6-35b-a3b)' "${app_root}/configmap.yaml"; then
+  printf 'LibreChat must discover chat models instead of hardcoding a picker allowlist\n' >&2
+  exit 1
+fi
 rg -q 'IMAGE_GEN_OAI_MODEL: qwen-image-2\.1' "${app_root}/configmap.yaml"
 if rg -q 'IMAGE_GEN_OAI_MODEL: qwen-image-2\.1-uncensored' "${app_root}/configmap.yaml"; then
   printf 'LibreChat must not default its global image tool to the uncensored model\n' >&2
