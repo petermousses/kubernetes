@@ -10,6 +10,8 @@ case "$*" in
     fi
     : > "${OIDC_TEST_NAMESPACE_READY:?}"
     ;;
+  'apply -f '*'/authentik/librechat-oidc-blueprint.yaml')
+    ;;
   'get namespace authentik')
     ;;
   'get namespace librechat')
@@ -20,6 +22,36 @@ case "$*" in
       exit 0
     fi
     exit 1
+    ;;
+  '-n librechat get deployment librechat --ignore-not-found -o name')
+    if [[ "${OIDC_TEST_LIBRECHAT_DEPLOYED:-false}" == true ]]; then
+      printf 'deployment.apps/librechat\n'
+    fi
+    ;;
+  '-n authentik create secret generic authentik-librechat-oidc --from-env-file=/dev/stdin --dry-run=client -o yaml')
+    umask 077
+    while IFS= read -r line; do printf '%s\n' "${line}" >> "${OIDC_TEST_AUTH_ENV:?}"; done
+    printf 'mock-authentik-secret\n'
+    ;;
+  '-n librechat create secret generic librechat-oidc --from-env-file=/dev/stdin --dry-run=client -o yaml')
+    umask 077
+    while IFS= read -r line; do printf '%s\n' "${line}" >> "${OIDC_TEST_LIBRECHAT_ENV:?}"; done
+    printf 'mock-librechat-secret\n'
+    ;;
+  '-n authentik apply --server-side --force-conflicts -f -'|'-n librechat apply --server-side --force-conflicts -f -')
+    while IFS= read -r _; do :; done
+    if [[ "$*" == '-n librechat apply --server-side --force-conflicts -f -' &&
+          "${OIDC_TEST_SECOND_APPLY_FAIL:-false}" == true ]]; then
+      exit 1
+    fi
+    ;;
+  '-n authentik rollout restart deployment/authentik-worker'|'-n authentik rollout status deployment/authentik-worker --timeout=5m')
+    ;;
+  '-n authentik exec deployment/authentik-worker -c worker -- ak apply_blueprint --dry-run /blueprints/mounted/cm-authentik-librechat-oidc-blueprint/librechat.yaml'|'-n authentik exec deployment/authentik-worker -c worker -- ak apply_blueprint /blueprints/mounted/cm-authentik-librechat-oidc-blueprint/librechat.yaml')
+    if [[ "${OIDC_TEST_BLUEPRINT_FAIL:-false}" == true ]]; then
+      printf 'FAKE_LEAKED_CLIENT_SECRET\n' >&2
+      exit 1
+    fi
     ;;
   '-n authentik create secret generic authentik-librechat-oidc --from-env-file=/dev/stdin'|'-n librechat create secret generic librechat-oidc --from-env-file=/dev/stdin')
     while IFS= read -r _; do :; done

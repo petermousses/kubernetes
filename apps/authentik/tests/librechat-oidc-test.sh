@@ -14,6 +14,7 @@ rg -q 'https://librechat\.omv\.mousses\.xyz/oauth/openid/callback' "${app_root}/
 rg -q 'matching_mode: strict' "${app_root}/librechat-oidc-blueprint.yaml"
 [[ "$(rg -c 'url: https://' "${app_root}/librechat-oidc-blueprint.yaml")" == 1 ]]
 rg -q 'grant_types: \[authorization_code\]' "${app_root}/librechat-oidc-blueprint.yaml"
+rg -q 'invalidation_flow: !Find \[authentik_flows.flow, \[slug, default-provider-invalidation-flow\]\]' "${app_root}/librechat-oidc-blueprint.yaml"
 rg -q 'include_claims_in_id_token: true' "${app_root}/librechat-oidc-blueprint.yaml"
 rg -q 'name: librechat_users' "${app_root}/librechat-oidc-blueprint.yaml"
 rg -q 'name: librechat_admin' "${app_root}/librechat-oidc-blueprint.yaml"
