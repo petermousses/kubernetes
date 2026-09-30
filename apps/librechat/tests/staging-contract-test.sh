@@ -22,13 +22,9 @@ rg -q 'OPENID_ADMIN_ROLE: librechat_admin' "${app_root}/configmap.yaml"
 rg -q 'ALLOW_REGISTRATION: "false"' "${app_root}/configmap.yaml"
 rg -q 'apiKey: '\''\$\{LITELLM_API_KEY\}'\''' "${app_root}/configmap.yaml"
 rg -q 'baseURL: http://litellm\.litellm\.svc\.cluster\.local:4000/v1' "${app_root}/configmap.yaml"
-rg -q -U 'models:\n[[:space:]]+fetch: true' "${app_root}/configmap.yaml"
-if rg -q 'default:' "${app_root}/configmap.yaml"; then
-  printf 'LibreChat must not keep a static model default list when discovery is enabled\n' >&2
-  exit 1
-fi
+rg -q -U 'models:\n[[:space:]]+default: \[qwen3\.8-27b\]\n[[:space:]]+fetch: true' "${app_root}/configmap.yaml"
 if rg -q -- '- (gemma-4-e4b-it|gemma-4-12b-it|gemma-4-26b-a4b-it|qwen3\.6-35b-a3b)' "${app_root}/configmap.yaml"; then
-  printf 'LibreChat must discover chat models instead of hardcoding a picker allowlist\n' >&2
+  printf 'LibreChat must fetch the model picker instead of maintaining a static list of all chat models\n' >&2
   exit 1
 fi
 rg -q 'IMAGE_GEN_OAI_MODEL: qwen-image-2\.1' "${app_root}/configmap.yaml"
