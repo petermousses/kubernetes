@@ -64,3 +64,8 @@ data:
           titleConvo: true
           titleModel: qwen3.8-27b
           modelDisplayLabel: Local AI
+    webSearch:
+      searchProvider: searxng
+      searxngInstanceUrl: http://searxng.searxng.svc.cluster.local:8080
+      allowedAddresses:
+        - searxng.searxng.svc.cluster.local:8080
