@@ -1,41 +1,48 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: authentik-librechat-oidc-blueprint
+  name: authentik-litellm-admin-oidc-blueprint
   namespace: authentik
 data:
-  librechat.yaml: |
+  litellm-admin.yaml: |
     version: 1
     metadata:
-      name: AI - LibreChat OIDC
+      name: AI - LiteLLM Admin OIDC
     entries:
       - model: authentik_core.group
-        id: librechat-users
+        id: litellm-admin-group
         identifiers:
-          name: librechat_users
+          name: litellm_admin
         attrs:
           is_superuser: false
-      - model: authentik_core.group
+      - model: authentik_providers_oauth2.scopemapping
+        id: litellm-role-scope
         identifiers:
-          name: librechat_admin
+          name: LiteLLM Admin Role Mapping
         attrs:
-          is_superuser: false
+          scope_name: litellm_role
+          description: LiteLLM proxy role for the Admin UI
+          expression: |
+            group_names = [group.name for group in request.user.groups.all()]
+            if "litellm_admin" in group_names:
+                return {"litellm_role": "proxy_admin"}
+            return {"litellm_role": "internal_user"}
       - model: authentik_providers_oauth2.oauth2provider
-        id: librechat-provider
+        id: litellm-admin-provider
         identifiers:
-          name: librechat-oidc
+          name: litellm-admin-oidc
         attrs:
           authentication_flow: !Find [authentik_flows.flow, [slug, default-authentication-flow]]
           authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
           invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
           client_type: confidential
           grant_types: [authorization_code]
-          client_id: !Env LIBRECHAT_OIDC_CLIENT_ID
-          client_secret: !Env LIBRECHAT_OIDC_CLIENT_SECRET
+          client_id: !Env LITELLM_ADMIN_OIDC_CLIENT_ID
+          client_secret: !Env LITELLM_ADMIN_OIDC_CLIENT_SECRET
           redirect_uris:
             - matching_mode: strict
               redirect_uri_type: authorization
-              url: https://chat.omv.mousses.xyz/oauth/openid/callback
+              url: https://admin.ai.omv.mousses.xyz/sso/callback
           issuer_mode: per_provider
           include_claims_in_id_token: true
           signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
@@ -43,17 +50,18 @@ data:
             - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
             - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
             - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !KeyOf litellm-role-scope
       - model: authentik_core.application
-        id: librechat-app
+        id: litellm-admin-app
         identifiers:
-          slug: librechat
+          slug: litellm-admin
         attrs:
-          name: LibreChat
-          provider: !KeyOf librechat-provider
-          meta_launch_url: https://chat.omv.mousses.xyz/
+          name: LiteLLM Admin
+          provider: !KeyOf litellm-admin-provider
+          meta_launch_url: https://admin.ai.omv.mousses.xyz/ui
       - model: authentik_policies.policybinding
         identifiers:
-          target: !KeyOf librechat-app
+          target: !KeyOf litellm-admin-app
           order: 10
         attrs:
-          group: !KeyOf librechat-users
+          group: !KeyOf litellm-admin-group

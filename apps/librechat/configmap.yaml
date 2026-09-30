@@ -11,8 +11,8 @@ data:
   HOST: 0.0.0.0
   PORT: "3080"
   NODE_ENV: production
-  DOMAIN_CLIENT: https://librechat.omv.mousses.xyz
-  DOMAIN_SERVER: https://librechat.omv.mousses.xyz
+  DOMAIN_CLIENT: https://chat.omv.mousses.xyz
+  DOMAIN_SERVER: https://chat.omv.mousses.xyz
   MONGO_URI: mongodb://mongodb:27017/LibreChat
   MEILI_HOST: http://meilisearch:7700
   MEILI_NO_ANALYTICS: "true"

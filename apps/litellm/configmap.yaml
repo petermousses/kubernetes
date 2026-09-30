@@ -41,6 +41,7 @@ data:
       proxy_batch_write_at: 60
       store_model_in_db: false
       store_prompts_in_spend_logs: false
+      ui_access_mode: admin_only
       trusted_proxy_ranges:
         - 10.42.0.0/16
         - 10.9.20.14/32

@@ -1,12 +1,12 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: open-webui
-  namespace: open-webui
+  name: litellm-admin
+  namespace: litellm
 spec:
-  secretName: open-webui-tls
+  secretName: litellm-admin-tls
   dnsNames:
-    - chat.omv.mousses.xyz
+    - admin.ai.omv.mousses.xyz
   issuerRef:
     name: letsencrypt-production-cloudflare
     kind: ClusterIssuer

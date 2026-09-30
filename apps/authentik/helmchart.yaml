@@ -50,6 +50,7 @@ spec:
     blueprints:
       configMaps:
         - authentik-librechat-oidc-blueprint
+        - authentik-litellm-admin-oidc-blueprint
     serviceAccount:
       create: false
     server:
@@ -103,6 +104,8 @@ spec:
       envFrom:
         - secretRef:
             name: authentik-librechat-oidc
+        - secretRef:
+            name: authentik-litellm-admin-oidc
       dnsConfig:
         options:
           - name: ndots

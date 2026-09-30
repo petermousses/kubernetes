@@ -1,9 +1,9 @@
 # librechat onboarding
 
 this directory deploys a single-replica LibreChat instance in the `librechat`
-namespace.
+namespace at `chat.omv.mousses.xyz`.
 
-the staging stack is deliberately limited to:
+the stack is deliberately limited to:
 
 - LibreChat API/UI, pinned to `v0.8.7`
 - MongoDB for users, sessions, conversations, and application state
@@ -41,7 +41,7 @@ before applying the kustomization, confirm all of the following:
    sudo install -d -o 1000 -g 1000 /filesystem/k3s/data/librechat/images
    ```
 
-3. `librechat.omv.mousses.xyz` resolves to the Traefik entrypoint. The
+3. `chat.omv.mousses.xyz` resolves to the Traefik entrypoint. The
    [`Certificate`](certificate.yaml) uses the existing
    `letsencrypt-production-cloudflare` ClusterIssuer.
 4. the Authentik OIDC discovery URL returns HTTP 200 through Traefik's
@@ -100,7 +100,7 @@ kubectl -n librechat get pods,svc,pvc,certificate,ingress
 kubectl -n librechat logs deployment/librechat --tail=100
 kubectl -n librechat logs statefulset/mongodb --tail=100
 kubectl -n librechat logs statefulset/meilisearch --tail=100
-curl -fsS https://librechat.omv.mousses.xyz/health
+curl -fsS https://chat.omv.mousses.xyz/health
 ```
 
 the API pod must be `Ready`, both statefulsets must be `Ready`, all five PVCs
@@ -181,11 +181,48 @@ other outbound integration requires a matching egress rule in
 [`networkpolicy.yaml`](networkpolicy.yaml). Do not open broad public egress by
 default.
 
-Open WebUI still owns `chat.omv.mousses.xyz`. Stage and test on
-`librechat.omv.mousses.xyz`; the later hostname cutover requires a second
-strict Authentik callback and an ingress/certificate change. Never apply
-both apps with competing routes for `chat.omv.mousses.xyz`. Keep the stopped
-Open WebUI data volume for 30 days after a tested cutover.
+Open WebUI currently owns `chat.omv.mousses.xyz` in the live cluster, while
+this repository now assigns that host to LibreChat. They must never have
+competing routes. The owner approved deleting Open WebUI completely, including
+its retained PV and local data, rather than keeping a rollback copy. Before
+applying this cutover, delete namespace `open-webui`, PV `open-webui-data`,
+StorageClass `open-webui-local`, and the exact node directory
+`/filesystem/k3s/data/open-webui`; then apply the LibreChat kustomization so
+cert-manager issues `chat.omv.mousses.xyz` for LibreChat. DNS already targets
+Traefik, so this is an ingress/certificate switch, not a DNS change. There is
+no redirect from the former `librechat.omv.mousses.xyz` hostname.
+
+run the destructive Open WebUI retirement from the repository root on the NAS.
+this permanently deletes its settings and history; verify the targets before
+running it:
+
+```sh
+set -euo pipefail
+
+kubectl -n open-webui get pods,pvc
+kubectl get pv open-webui-data -o wide
+kubectl delete namespace open-webui --wait=true --ignore-not-found
+test -z "$(kubectl get pvc --all-namespaces \
+  --field-selector spec.volumeName=open-webui-data -o name)"
+kubectl delete pv open-webui-data --ignore-not-found
+kubectl delete storageclass open-webui-local --ignore-not-found
+
+webui_data=/filesystem/k3s/data/open-webui
+if [ -d "${webui_data}" ]; then
+  resolved_data="$(realpath -e -- "${webui_data}")"
+  test "${resolved_data}" = "${webui_data}"
+  sudo rm -rf --one-file-system -- "${resolved_data}"
+fi
+
+kubectl apply -k apps/librechat
+kubectl -n librechat rollout status deployment/librechat --timeout=180s
+kubectl -n librechat get certificate,ingress
+```
+
+stop if the resolved directory differs from the path above or if deleting the
+namespace/PV reports another owner. do not run the LibreChat apply until the
+retained Open WebUI PV and directory are gone; their old ingress must not
+compete for the shared hostname.
 
 ## deferred RAG support
 

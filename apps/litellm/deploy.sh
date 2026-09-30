@@ -73,6 +73,11 @@ if ! kubectl -n "${namespace}" get secret litellm-env >/dev/null 2>&1; then
   printf 'run %s/bootstrap-secrets.sh first\n' "${app_root}" >&2
   exit 1
 fi
+if ! kubectl -n "${namespace}" get secret litellm-admin-oidc >/dev/null 2>&1; then
+  printf 'run %s/../authentik/bootstrap-litellm-admin-oidc-secrets.sh first\n' \
+    "${app_root}" >&2
+  exit 1
+fi
 
 kubectl apply \
   -f "${app_root}/storage-class.yaml" \

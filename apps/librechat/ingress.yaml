@@ -18,10 +18,10 @@ spec:
   ingressClassName: traefik
   tls:
     - hosts:
-        - librechat.omv.mousses.xyz
+        - chat.omv.mousses.xyz
       secretName: librechat-tls
   rules:
-    - host: librechat.omv.mousses.xyz
+    - host: chat.omv.mousses.xyz
       http:
         paths:
           - path: /

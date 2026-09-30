@@ -36,7 +36,6 @@ const INGRESS_SECURITY_APPS: &[&str] = &[
     "monitoring",
     "n8n",
     "open-speed-test",
-    "open-webui",
     "paperless-ngx",
     "qr-code-generator",
     "searxng",

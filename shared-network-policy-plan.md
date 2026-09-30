@@ -76,7 +76,7 @@ Ordered from the fewest to the most exceptions from default deny. This ranks pol
 | ---: | --- | --- | --- |
 | 1 | External Routes | baseline | none; default deny only |
 | 2 | IT-Tools, Kiwix, OpenSpeedTest, QR Code Generator, Text2Shop | baseline | Traefik ingress only |
-| 3 | Board Games, Cloudflare, Crafty, Homepage, Jellyfin, n8n, Open WebUI, Syncthing, Vaultwarden | baseline | custom ingress and/or egress, including app-local DNS where needed |
+| 3 | Board Games, Cloudflare, Crafty, Homepage, Jellyfin, n8n, Syncthing, Vaultwarden | baseline | custom ingress and/or egress, including app-local DNS where needed |
 | 4 | Immich, LibreChat, Paperless-ngx, SearXNG | baseline + DNS egress | custom ingress, egress, and component flows |
 | 5 | Monitoring | baseline + DNS egress | same-namespace stack traffic, Kubernetes API and kubelet metrics, Traefik → Grafana |
 | 6 | Rancher | none | no rendered NetworkPolicy; networking is delegated to Helm-generated resources |
@@ -85,7 +85,7 @@ No app currently has a custom rendered NetworkPolicy without the shared baseline
 
 ## baseline
 
-The shared baseline selects every pod and isolates both ingress and egress. Twenty of the 21 app entrypoints include it.
+The shared baseline selects every pod and isolates both ingress and egress. Nineteen of the 20 app entrypoints include it.
 
 `rancher` is the explicit exception. Its Kustomize entrypoint renders a `HelmChart` controller object in `kube-system`; the controller later creates workloads in `cattle-system`. Those generated workloads and required flows are absent from this repository's rendered output, so applying default deny there without a chart-level traffic audit would be unsafe.
 

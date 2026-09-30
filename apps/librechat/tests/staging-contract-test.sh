@@ -4,10 +4,10 @@ set -euo pipefail
 app_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 rendered="$(kubectl kustomize "${app_root}")"
 
-# The staging deployment must not steal Open WebUI's canonical host.
-rg -q 'host: librechat\.omv\.mousses\.xyz' <<<"${rendered}"
-if rg -q 'host: chat\.omv\.mousses\.xyz' <<<"${rendered}"; then
-  printf 'LibreChat staging must not claim chat.omv.mousses.xyz\n' >&2
+# LibreChat now owns the canonical chat hostname.
+rg -q 'host: chat\.omv\.mousses\.xyz' <<<"${rendered}"
+if rg -q 'host: librechat\.omv\.mousses\.xyz' <<<"${rendered}"; then
+  printf 'LibreChat must not retain its former hostname\n' >&2
   exit 1
 fi
 
@@ -25,7 +25,7 @@ rg -q 'baseURL: http://litellm\.litellm\.svc\.cluster\.local:4000/v1' "${app_roo
 rg -q 'qwen3\.8-27b' "${app_root}/configmap.yaml"
 rg -q 'IMAGE_GEN_OAI_MODEL: qwen-image-2\.1' "${app_root}/configmap.yaml"
 if rg -q 'tower\.mousses\.xyz|10\.9\.20\.7|11434|name: Ollama' "${app_root}/configmap.yaml" "${app_root}/networkpolicy.yaml"; then
-  printf 'staging still references the direct Ollama backend\n' >&2
+  printf 'LibreChat still references the direct Ollama backend\n' >&2
   exit 1
 fi
 
@@ -40,4 +40,4 @@ if rg -q '10\.9\.20\.14' "${app_root}/deployment.yaml" "${app_root}/networkpolic
   exit 1
 fi
 
-printf 'LibreChat staging contract passed\n'
+printf 'LibreChat deployment contract passed\n'

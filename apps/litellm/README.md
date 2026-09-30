@@ -32,7 +32,42 @@ Before the first deployment, create the uncommitted `litellm-env` Secret:
 The deploy script is intentionally idempotent. Rerunning the pinned migration
 is safer than guessing whether a manifest edit requires it.
 
-## private administration
+## Admin UI through Traefik and Authentik
+
+The Admin UI uses the separate host `admin.ai.omv.mousses.xyz`; the public
+inference host `api.ai.omv.mousses.xyz` remains limited to its exact inference
+routes. LiteLLM's native generic OIDC integration handles the login and role
+mapping; Traefik does not blindly forward-auth the Admin UI.
+
+Before first deployment, create matching OIDC client Secrets in `authentik`
+and `litellm`. Run this once from the repository root on the NAS; the generated
+values are not printed:
+
+```sh
+./apps/authentik/bootstrap-litellm-admin-oidc-secrets.sh
+```
+
+The Authentik blueprint creates the confidential OIDC provider, the
+`litellm_admin` group, and an application restricted to that group. Its custom
+`litellm_role` claim maps that group to LiteLLM's `proxy_admin`; the proxy uses
+`ui_access_mode: admin_only`. Add only authorized accounts to
+`litellm_admin` in Authentik. The pinned LiteLLM version supports Admin UI SSO
+for up to five users without an Enterprise license. See [LiteLLM's generic
+SSO configuration](https://docs.litellm.ai/docs/proxy/admin_ui_sso).
+
+After pulling the change, verify that `admin.ai.omv.mousses.xyz` resolves to
+Traefik, then run both app deploy scripts. They apply the blueprint, TLS
+Certificate, IngressRoute and OIDC egress policy. Confirm the certificate is
+ready and test SSO using a user in `litellm_admin`; also verify an account
+outside that group cannot open the Authentik application. The exact OIDC
+callback is `https://admin.ai.omv.mousses.xyz/sso/callback`.
+
+LiteLLM's master-key fallback login route `/fallback/login` is separately
+restricted by Traefik to `10.9.20.0/24`. From outside that LAN, use the SSH
+port-forward below for break-glass access. Do not broaden the fallback route
+or put the master key in an Authentik user session.
+
+## private break-glass administration
 
 the Admin UI is not exposed through the public API hostname. retrieve its
 master key on the NAS with:
@@ -68,8 +103,8 @@ ssh -t \
   'kubectl -n litellm port-forward --address 127.0.0.1 service/litellm 14000:4000'
 ```
 
-open <http://127.0.0.1:14000/ui>, sign in as `admin`, and supply the master
-key as the password. keep the SSH process in the foreground and press `Ctrl-C`
+open <http://127.0.0.1:14000/ui>, choose the master-key fallback login, and
+supply the master key when prompted. keep the SSH process in the foreground and press `Ctrl-C`
 to terminate both forwarding layers. neither listener accepts non-loopback
 connections. see the
 [LiteLLM Admin UI quickstart](https://docs.litellm.ai/docs/proxy/docker_quick_start)

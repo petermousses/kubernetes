@@ -24,12 +24,19 @@ spec:
         app.kubernetes.io/component: gateway
         app.kubernetes.io/part-of: litellm
         app.kubernetes.io/version: 1.103.0
+        mousses.xyz/authentik-oidc-client: "true"
     spec:
       automountServiceAccountToken: false
       dnsConfig:
         options:
           - name: ndots
             value: "1"
+      # Preserve the public issuer hostname and TLS SNI while routing server-side
+      # Authentik requests through the in-cluster Traefik Service.
+      hostAliases:
+        - ip: 10.43.204.62
+          hostnames:
+            - auth.omv.mousses.xyz
       securityContext:
         runAsNonRoot: true
         runAsUser: 101
@@ -111,7 +118,27 @@ spec:
           envFrom:
             - secretRef:
                 name: litellm-env
+            - secretRef:
+                name: litellm-admin-oidc
           env:
+            - name: GENERIC_AUTHORIZATION_ENDPOINT
+              value: https://auth.omv.mousses.xyz/application/o/authorize/
+            - name: GENERIC_TOKEN_ENDPOINT
+              value: https://auth.omv.mousses.xyz/application/o/token/
+            - name: GENERIC_USERINFO_ENDPOINT
+              value: https://auth.omv.mousses.xyz/application/o/userinfo/
+            - name: GENERIC_SCOPE
+              value: openid profile email litellm_role
+            - name: GENERIC_USER_ID_ATTRIBUTE
+              value: sub
+            - name: GENERIC_USER_EMAIL_ATTRIBUTE
+              value: email
+            - name: GENERIC_USER_DISPLAY_NAME_ATTRIBUTE
+              value: name
+            - name: GENERIC_USER_ROLE_ATTRIBUTE
+              value: litellm_role
+            - name: PROXY_BASE_URL
+              value: https://admin.ai.omv.mousses.xyz
             - name: DISABLE_SCHEMA_UPDATE
               value: "true"
             - name: LITELLM_LOG

@@ -16,8 +16,12 @@ resources:
   - service-monitor.yaml
   - request-limits.yaml
   - ingress.yaml
+  - admin-ingress.yaml
+  - admin-fallback-access.yaml
   - ../_shared/ingress-security
   - certificate.yaml
+  - admin-certificate.yaml
   - ../_shared/network-policy/baseline
   - ../_shared/network-policy/dns-egress
+  - ../_shared/network-policy/authentik-oidc-egress
   - networkpolicy.yaml

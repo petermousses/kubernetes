@@ -10,7 +10,7 @@ rg -q 'authentik-librechat-oidc-blueprint' "${app_root}/helmchart.yaml"
 rg -q 'authentik-librechat-oidc' "${app_root}/helmchart.yaml"
 rg -q 'client_secret: !Env LIBRECHAT_OIDC_CLIENT_SECRET' "${app_root}/librechat-oidc-blueprint.yaml"
 rg -q 'client_id: !Env LIBRECHAT_OIDC_CLIENT_ID' "${app_root}/librechat-oidc-blueprint.yaml"
-rg -q 'https://librechat\.omv\.mousses\.xyz/oauth/openid/callback' "${app_root}/librechat-oidc-blueprint.yaml"
+rg -q 'https://chat\.omv\.mousses\.xyz/oauth/openid/callback' "${app_root}/librechat-oidc-blueprint.yaml"
 rg -q 'matching_mode: strict' "${app_root}/librechat-oidc-blueprint.yaml"
 [[ "$(rg -c 'url: https://' "${app_root}/librechat-oidc-blueprint.yaml")" == 1 ]]
 rg -q 'grant_types: \[authorization_code\]' "${app_root}/librechat-oidc-blueprint.yaml"
