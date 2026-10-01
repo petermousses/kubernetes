@@ -5,6 +5,9 @@ umask 0027
 readonly model_root="${MODEL_ROOT:-/srv/ai/models}"
 readonly required_bytes=429332209744
 readonly reserve_bytes=100000000000
+# the xet resolver rejects open-ended ranges for very large artifacts.
+readonly ranged_download_threshold_bytes=2147483648
+readonly ranged_download_chunk_bytes=1073741824
 
 if [[ "$(id -u)" -eq 0 ]]; then
   printf 'refusing to download model files as root\n' >&2
@@ -79,6 +82,15 @@ if (( available_bytes < required_bytes + reserve_bytes )); then
   exit 1
 fi
 
+cleanup_range_partials() {
+  local partial="$1"
+  local range_path
+  for range_path in "${partial}".range.*; do
+    [[ -e "${range_path}" || -L "${range_path}" ]] || continue
+    rm -- "${range_path}"
+  done
+}
+
 download_artifact() {
   local model_id="$1"
   local repository="$2"
@@ -90,7 +102,9 @@ download_artifact() {
   local root="${model_root}/${model_id}"
   local destination="${root}/${destination_path}"
   local partial="${destination}.part"
-  local actual_size
+  local actual_size range_start range_end range_path range_bytes range_size
+  local range_attempt next_range_start remaining_range_bytes previous_range_size
+  local range_url
 
   mkdir -p -- "$(dirname -- "${destination}")"
   if [[ -f "${destination}" ]]; then
@@ -106,6 +120,11 @@ download_artifact() {
       return 1
     }
 
+    [[ ! -e "${partial}" || -f "${partial}" ]] || {
+      printf 'refusing to replace non-file partial: %s\n' "${partial}" >&2
+      return 1
+    }
+
     if [[ -f "${partial}" ]]; then
       actual_size="$(stat -c '%s' -- "${partial}")"
       if (( actual_size == expected_size )); then
@@ -114,6 +133,7 @@ download_artifact() {
             "${partial}" >&2
           return 1
         }
+        cleanup_range_partials "${partial}"
         mv -- "${partial}" "${destination}"
         chmod 0440 "${destination}"
         printf 'promoted verified partial %s\n' "${destination}"
@@ -126,16 +146,110 @@ download_artifact() {
     fi
 
     if [[ ! -f "${destination}" ]]; then
-      curl \
-        --fail \
-        --location \
-        --retry 10 \
-        --retry-all-errors \
-        --retry-delay 5 \
-        --connect-timeout 20 \
-        --continue-at - \
-        --output "${partial}" \
-        "https://huggingface.co/${repository}/resolve/${revision}/${source_path}?download=true"
+      range_url="https://huggingface.co/${repository}/resolve/${revision}/${source_path}?download=true"
+      if (( expected_size > ranged_download_threshold_bytes )); then
+        actual_size=0
+        if [[ -f "${partial}" ]]; then
+          actual_size="$(stat -c '%s' -- "${partial}")"
+        fi
+        while (( actual_size < expected_size )); do
+          range_start="${actual_size}"
+          range_end=$((range_start + ranged_download_chunk_bytes - 1))
+          if (( range_end >= expected_size )); then
+            range_end=$((expected_size - 1))
+          fi
+          range_path="${partial}.range.${range_start}"
+          range_size=0
+
+          if [[ -f "${range_path}" ]]; then
+            range_size="$(stat -c '%s' -- "${range_path}")"
+          elif [[ -e "${range_path}" ]]; then
+            printf 'refusing to replace non-file range destination: %s\n' \
+              "${range_path}" >&2
+            return 1
+          fi
+
+          range_bytes=$((range_end - range_start + 1))
+          if (( range_size > range_bytes )); then
+            printf 'range partial exceeds requested size; preserving it: %s\n' \
+              "${range_path}" >&2
+            return 1
+          fi
+
+          if (( range_size < range_bytes )); then
+            range_attempt=0
+            while (( range_size < range_bytes )); do
+              next_range_start=$((range_start + range_size))
+              remaining_range_bytes=$((range_end - next_range_start + 1))
+              previous_range_size="${range_size}"
+              printf 'downloading bytes %s-%s for %s\n' \
+                "${next_range_start}" "${range_end}" "${destination}"
+              if curl \
+                --fail \
+                --location \
+                --connect-timeout 20 \
+                --speed-limit 1024 \
+                --speed-time 60 \
+                --max-filesize "${remaining_range_bytes}" \
+                --range "${next_range_start}-${range_end}" \
+                --output - \
+                "${range_url}" >>"${range_path}"; then
+                range_size="$(stat -c '%s' -- "${range_path}")"
+                if (( range_size > range_bytes )); then
+                  printf 'range partial exceeds requested size; preserving it: %s\n' \
+                    "${range_path}" >&2
+                  return 1
+                fi
+                if (( range_size == previous_range_size )); then
+                  range_attempt=$((range_attempt + 1))
+                  if (( range_attempt >= 10 )); then
+                    printf 'range request made no progress after %s attempts; partial bytes are preserved in %s\n' \
+                      "${range_attempt}" "${range_path}" >&2
+                    return 1
+                  fi
+                  printf 'range request made no progress; retrying in 5 seconds (%s/10)\n' \
+                    "${range_attempt}" >&2
+                  sleep 5
+                else
+                  range_attempt=0
+                fi
+              else
+                range_size="$(stat -c '%s' -- "${range_path}")"
+                range_attempt=$((range_attempt + 1))
+                if (( range_attempt >= 10 )); then
+                  printf 'range download failed after %s attempts; partial bytes are preserved in %s\n' \
+                    "${range_attempt}" "${range_path}" >&2
+                  return 1
+                fi
+                printf 'range request failed; retrying in 5 seconds (%s/10)\n' \
+                  "${range_attempt}" >&2
+                sleep 5
+              fi
+            done
+          fi
+
+          if (( range_size != range_bytes )); then
+            printf 'wrong size for range %s-%s: expected %s, got %s; partial preserved\n' \
+              "${range_start}" "${range_end}" "${range_bytes}" "${range_size}" >&2
+            return 1
+          fi
+
+          cat -- "${range_path}" >>"${partial}"
+          rm -- "${range_path}"
+          actual_size="$(stat -c '%s' -- "${partial}")"
+        done
+      else
+        curl \
+          --fail \
+          --location \
+          --retry 10 \
+          --retry-all-errors \
+          --retry-delay 5 \
+          --connect-timeout 20 \
+          --continue-at - \
+          --output "${partial}" \
+          "${range_url}"
+      fi
 
       actual_size="$(stat -c '%s' -- "${partial}")"
       if [[ "${actual_size}" != "${expected_size}" ]]; then
@@ -147,6 +261,7 @@ download_artifact() {
         printf 'wrong SHA-256 for %s; partial preserved\n' "${destination}" >&2
         return 1
       }
+      cleanup_range_partials "${partial}"
       mv -- "${partial}" "${destination}"
       chmod 0440 "${destination}"
       printf 'downloaded and verified %s\n' "${destination}"
