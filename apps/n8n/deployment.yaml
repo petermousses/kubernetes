@@ -19,6 +19,7 @@ spec:
       labels:
         app.kubernetes.io/name: n8n
         app.kubernetes.io/part-of: n8n
+        mousses.xyz/litellm-client: "true"
     spec:
       automountServiceAccountToken: false
       dnsConfig:

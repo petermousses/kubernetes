@@ -13,4 +13,5 @@ resources:
   - ../_shared/ingress-security
   - certificate.yaml
   - ../_shared/network-policy/baseline
+  - ../_shared/network-policy/litellm-egress
   - networkpolicy.yaml
