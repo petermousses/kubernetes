@@ -38,7 +38,7 @@ spec:
         - name: AUTHENTIK_WEB__BASE_URL
           value: https://auth.omv.mousses.xyz
         - name: AUTHENTIK_OUTPOSTS__DISABLE_EMBEDDED_OUTPOST
-          value: "true"
+          value: "false"
         - name: AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS
           value: 10.42.0.0/16
     authentik:

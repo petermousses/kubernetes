@@ -9,11 +9,10 @@ spec:
   policyTypes:
     - Egress
   egress:
-    # Kube-router can evaluate Service traffic before DNAT. Keep this scoped
-    # to the cluster Service CIDR and LiteLLM's API port.
+    # Match the LiteLLM Service IP when kube-router evaluates before DNAT.
     - to:
         - ipBlock:
-            cidr: 10.43.0.0/16
+            cidr: 10.43.54.134/32
       ports:
         - protocol: TCP
           port: 4000
