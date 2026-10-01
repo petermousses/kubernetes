@@ -24,7 +24,7 @@ spec:
           port: http
     - kind: Rule
       match: Host(`n8n.omv.mousses.xyz`)
-      priority: 10
+      priority: 50
       middlewares:
         - name: authentik-forward-auth
         - name: security-headers

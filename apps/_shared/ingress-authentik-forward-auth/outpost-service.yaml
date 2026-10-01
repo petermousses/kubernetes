@@ -9,5 +9,5 @@ spec:
   externalName: authentik-server.authentik.svc.cluster.local
   ports:
     - name: http
-      port: 9000
+      port: 80
       protocol: TCP
