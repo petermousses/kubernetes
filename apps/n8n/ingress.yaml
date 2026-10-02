@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/part-of: n8n
   annotations:
     gethomepage.dev/enabled: "true"
+    gethomepage.dev/href: https://n8n.omv.mousses.xyz
     gethomepage.dev/group: Utilities
     gethomepage.dev/name: n8n
     gethomepage.dev/icon: n8n.svg
