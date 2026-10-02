@@ -17,6 +17,7 @@ data:
   MEILI_HOST: http://meilisearch:7700
   MEILI_NO_ANALYTICS: "true"
   SEARCH: "true"
+  SEARXNG_INSTANCE_URL: http://searxng.searxng.svc.cluster.local:8080
   CONFIG_PATH: /app/librechat.yaml
   LIBRECHAT_TEMP_CREDENTIALS_PATH: /app/data/.env.temp
   OPENID_ISSUER: https://auth.omv.mousses.xyz/application/o/librechat/.well-known/openid-configuration
@@ -64,3 +65,8 @@ data:
           titleConvo: true
           titleModel: qwen3.8-27b
           modelDisplayLabel: Local AI
+    webSearch:
+      searchProvider: searxng
+      searxngInstanceUrl: '${SEARXNG_INSTANCE_URL}'
+      allowedAddresses:
+        - searxng.searxng.svc.cluster.local:8080
