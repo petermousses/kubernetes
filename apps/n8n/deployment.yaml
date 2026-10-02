@@ -20,6 +20,7 @@ spec:
         app.kubernetes.io/name: n8n
         app.kubernetes.io/part-of: n8n
         mousses.xyz/litellm-client: "true"
+        mousses.xyz/traefik-http-backend: "true"
     spec:
       automountServiceAccountToken: false
       dnsConfig:

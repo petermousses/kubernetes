@@ -14,5 +14,6 @@ resources:
   - ../_shared/ingress-authentik-forward-auth
   - certificate.yaml
   - ../_shared/network-policy/baseline
+  - ../_shared/network-policy/traefik-http-ingress
   - ../_shared/network-policy/litellm-egress
   - networkpolicy.yaml
