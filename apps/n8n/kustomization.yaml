@@ -6,6 +6,8 @@ resources:
   - storage-class.yaml
   - persistent-volume.yaml
   - persistent-volume-claim.yaml
+  - persistent-volume-images.yaml
+  - persistent-volume-claim-images.yaml
   - configmap.yaml
   - deployment.yaml
   - service.yaml
