@@ -23,5 +23,6 @@ resources:
   - admin-certificate.yaml
   - ../_shared/network-policy/baseline
   - ../_shared/network-policy/dns-egress
+  - ../_shared/network-policy/public-web-egress
   - ../_shared/network-policy/authentik-oidc-egress
   - networkpolicy.yaml
