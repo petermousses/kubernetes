@@ -18,4 +18,5 @@ resources:
   - ../_shared/network-policy/baseline
   - ../_shared/network-policy/traefik-http-ingress
   - ../_shared/network-policy/litellm-egress
+  - ../_shared/network-policy/public-web-egress
   - networkpolicy.yaml
