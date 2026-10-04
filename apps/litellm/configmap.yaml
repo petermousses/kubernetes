@@ -16,6 +16,12 @@ data:
           api_base: http://qwen-redqueen:8081/v1
           api_key: os.environ/QWEN_API_KEY
           timeout: 900
+        model_info:
+          supports_reasoning: true
+          supported_reasoning_efforts:
+            - low
+            - medium
+            - xhigh
       - model_name: gemma-4-e4b-it
         litellm_params:
           model: openai/gemma-4-e4b-it
