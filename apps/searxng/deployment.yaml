@@ -19,6 +19,7 @@ spec:
       labels:
         app.kubernetes.io/name: searxng
         app.kubernetes.io/part-of: searxng
+        mousses.xyz/public-web-egress: "true"
     spec:
       automountServiceAccountToken: false
       nodeSelector:
