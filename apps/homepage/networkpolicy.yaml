@@ -194,3 +194,5 @@ spec:
           port: 8123
         - protocol: TCP
           port: 25565
+        - protocol: UDP
+          port: 25565

@@ -72,6 +72,29 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  name: allow-homepage-game-status-ingress
+  namespace: crafty
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: crafty
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: homepage
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: homepage
+      ports:
+        - protocol: UDP
+          port: 25565
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
   name: allow-game-client-ingress
   namespace: crafty
 spec:
