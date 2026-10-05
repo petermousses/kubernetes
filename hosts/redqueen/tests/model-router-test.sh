@@ -61,6 +61,7 @@ done
 
 grep -Fq 'Requires=comfyui-control.service' "${host_root}/systemd/llama-swap.service"
 grep -Fq 'ProtectHome=read-only' "${host_root}/systemd/comfyui-control.service"
+grep -Fq 'Type=notify' "${host_root}/systemd/comfyui-control.service"
 grep -Fq -- '--unix-socket' "${host_root}/model-router/glm-5.3-flash-abliterated-launcher.sh"
 
 printf 'static model-router and image-pipeline checks passed\n'

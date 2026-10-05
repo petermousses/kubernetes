@@ -145,6 +145,16 @@ def glm_launcher_is_ancestor(pid: int) -> bool:
     return False
 
 
+def notify_ready() -> None:
+    notify_socket = os.environ.get("NOTIFY_SOCKET")
+    if not notify_socket:
+        return
+    address = "\0" + notify_socket[1:] if notify_socket.startswith("@") else notify_socket
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as notifier:
+        notifier.connect(address)
+        notifier.sendall(b"READY=1\nSTATUS=ComfyUI control socket ready")
+
+
 def restore_comfyui() -> None:
     global paused_by_helper
     if not paused_by_helper:
@@ -295,4 +305,5 @@ else:
     os.unlink(SOCKET_PATH)
 
 server = LocalHTTPServer(SOCKET_PATH, Handler)
+notify_ready()
 server.serve_forever()

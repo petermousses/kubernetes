@@ -5,7 +5,9 @@ After=network.target
 ConditionPathExists=/srv/ai/model-router/run/comfyui-paused-by-glm
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=30
 Slice=ai-inference.slice
 ExecStart=/usr/bin/python3 /srv/ai/model-router/bin/comfyui-control.py
 ExecStopPost=/usr/bin/rm -f /srv/ai/model-router/run/comfyui-control.sock
