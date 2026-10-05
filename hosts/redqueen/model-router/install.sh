@@ -9,6 +9,7 @@ readonly target_root=/srv/ai/model-router
 readonly binary_root=/srv/ai/bin
 readonly binary_target="${binary_root}/llama-swap"
 readonly unit_target="${HOME}/.config/systemd/user/llama-swap.service"
+readonly control_unit_target="${HOME}/.config/systemd/user/comfyui-control.service"
 readonly release_url="https://github.com/mostlygeek/llama-swap/releases/download/v260/llama-swap_260_linux_amd64.tar.gz"
 readonly release_sha256=d856a908507560cbdc253300bcf49092c7ead3c85098687428b0c9d4832ff46d
 readonly release_version=v260
@@ -18,12 +19,17 @@ if [[ "$(id -u)" -eq 0 ]]; then
   exit 1
 fi
 "${source_root}/install-glm53-runtime.sh"
-for command in curl sha256sum tar cmp install systemctl; do
+for command in curl sha256sum tar cmp install systemctl python3; do
   if ! command -v "${command}" >/dev/null; then
     printf 'required command not found: %s\n' "${command}" >&2
     exit 1
   fi
 done
+
+if [[ ! -s /srv/ai/secrets/llama-swap.env ]]; then
+  printf 'router environment file is missing: %s\n' /srv/ai/secrets/llama-swap.env >&2
+  exit 1
+fi
 
 for model_id in \
   qwen3.8-27b \
@@ -75,6 +81,11 @@ if [[ -e "${unit_target}" ]] && \
   printf 'existing user unit differs from the repository copy; review the diff before replacing it\n' >&2
   exit 1
 fi
+if [[ -e "${control_unit_target}" ]] && \
+  ! cmp -s -- "${host_root}/systemd/comfyui-control.service" "${control_unit_target}"; then
+  printf 'existing user unit differs from the repository copy; review the diff before replacing it\n' >&2
+  exit 1
+fi
 if [[ -e "${target_root}/THIRD-PARTY-LICENSE.md" ]] && \
   ! cmp -s -- "${temporary_root}/LICENSE.md" "${target_root}/THIRD-PARTY-LICENSE.md"; then
   printf 'existing router license differs from pinned %s\n' "${release_version}" >&2
@@ -84,16 +95,25 @@ fi
 QWEN_API_KEY=validation-only "${binary_target}" \
   -config "${source_root}/config.yaml" -validate
 
-install -d -m 0750 -- "${target_root}" "${target_root}/bin" "${HOME}/.config/systemd/user"
+python3 "${source_root}/ensure-control-key.py"
+
+install -d -m 0750 -- "${target_root}" "${target_root}/bin" "${target_root}/run" \
+  "${HOME}/.config/systemd/user"
+if [[ ! -e "${target_root}/run/comfyui-paused-by-glm" ]]; then
+  install -m 0600 /dev/null "${target_root}/run/comfyui-paused-by-glm"
+fi
 install -m 0640 -- "${source_root}/config.yaml" "${target_root}/config.yaml"
 install -m 0750 -- "${source_root}/glm-5.3-flash-abliterated-launcher.sh" \
   "${target_root}/bin/glm-5.3-flash-abliterated-launcher.sh"
+install -m 0750 -- "${source_root}/comfyui-control.py" \
+  "${target_root}/bin/comfyui-control.py"
 install -m 0640 -- "${temporary_root}/LICENSE.md" \
   "${target_root}/THIRD-PARTY-LICENSE.md"
 install -m 0644 -- "${host_root}/systemd/llama-swap.service" "${unit_target}"
+install -m 0644 -- "${host_root}/systemd/comfyui-control.service" "${control_unit_target}"
 systemctl --user daemon-reload
 
 printf 'llama-swap %s installed and config validated; no service was enabled, started, stopped or restarted\n' \
   "${release_version}"
-printf 'next: create %s, then perform the documented service cutover\n' \
-  /srv/ai/secrets/llama-swap.env
+printf 'ComfyUI control token stored in %s; no service was enabled, started, stopped or restarted\n' \
+  /srv/ai/secrets/glm-comfy-control.env

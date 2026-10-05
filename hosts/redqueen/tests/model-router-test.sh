@@ -44,8 +44,25 @@ for file in \
   "${host_root}/model-router/install-glm53-runtime.sh" \
   "${host_root}/model-router/glm-5.3-flash-abliterated-launcher.sh" \
   "${host_root}/model-router/install.sh" \
+  "${host_root}/model-router/ensure-control-key.py" \
+  "${host_root}/model-router/comfyui-control.py" \
   "${host_root}/comfyui/install-qwen-image-gguf.sh"; do
-  bash -n "${file}"
+  if [[ "${file}" == *.py ]]; then
+    python3 - "${file}" <<'PY'
+import ast
+import pathlib
+import sys
+
+ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])
+PY
+  else
+    bash -n "${file}"
+  fi
 done
+
+grep -Fq 'Requires=comfyui-control.service' "${host_root}/systemd/llama-swap.service"
+grep -Fq 'ProtectHome=read-only' "${host_root}/systemd/comfyui-control.service"
+grep -Fq 'GLM_COMFY_CONTROL_KEY' "${host_root}/model-router/glm-5.3-flash-abliterated-launcher.sh"
+[[ "$(grep -Fc '/usr/bin/env -u GLM_COMFY_CONTROL_KEY /usr/bin/llama-server' "${router_config}")" -eq 5 ]]
 
 printf 'static model-router and image-pipeline checks passed\n'

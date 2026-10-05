@@ -2,33 +2,32 @@
 set -Eeuo pipefail
 
 readonly server=/srv/ai/runtimes/llama.cpp-v0.6.0-d812350/bin/llama-server
-readonly systemctl=/usr/bin/systemctl
-readonly comfyui=comfyui.service
+readonly curl=/usr/bin/curl
+readonly control_url=http://127.0.0.1:18981
 
 if [[ ! -x "${server}" ]]; then
   printf 'pinned GLM runtime is missing: %s\n' "${server}" >&2
   exit 1
 fi
-if [[ ! -x "${systemctl}" ]]; then
-  printf 'systemctl is missing: %s\n' "${systemctl}" >&2
+if [[ ! -x "${curl}" ]]; then
+  printf 'curl is missing: %s\n' "${curl}" >&2
   exit 1
 fi
+if [[ ! "${GLM_COMFY_CONTROL_KEY:-}" =~ ^[a-f0-9]{64}$ ]]; then
+  printf 'dedicated ComfyUI-control credential is missing or invalid\n' >&2
+  exit 1
+fi
+control_key="${GLM_COMFY_CONTROL_KEY}"
+unset GLM_COMFY_CONTROL_KEY
 
-comfyui_state="$("${systemctl}" --user show "${comfyui}" --property=ActiveState --value)"
-restore_comfyui=0
-case "${comfyui_state}" in
-  active)
-    restore_comfyui=1
-    ;;
-  inactive|failed)
-    ;;
-  *)
-    printf 'refusing to start GLM while ComfyUI is in state %s\n' \
-      "${comfyui_state}" >&2
-    exit 1
-    ;;
-esac
+control_request() {
+  printf 'header = "Authorization: Bearer %s"\n' "${control_key}" \
+    | "${curl}" --config - --silent --show-error --fail \
+      --connect-timeout 5 --max-time 75 --request POST \
+      "${control_url}/$1"
+}
 
+restore_comfyui=1
 server_pid=''
 signal_status=0
 cleanup() {
@@ -39,8 +38,8 @@ cleanup() {
     wait "${server_pid}" || true
   fi
   if ((restore_comfyui)); then
-    if ! "${systemctl}" --user start "${comfyui}"; then
-      printf 'failed to restore %s after GLM stopped\n' "${comfyui}" >&2
+    if ! control_request resume >/dev/null; then
+      printf 'failed to restore ComfyUI after GLM stopped\n' >&2
       status=1
     fi
   fi
@@ -62,14 +61,18 @@ trap 'forward_signal INT' INT
 trap 'forward_signal TERM' TERM
 trap 'forward_signal HUP' HUP
 
-if ((restore_comfyui)); then
-  "${systemctl}" --user stop "${comfyui}"
-  comfyui_state="$("${systemctl}" --user show "${comfyui}" --property=ActiveState --value)"
-  if [[ "${comfyui_state}" != inactive && "${comfyui_state}" != failed ]]; then
-    printf 'ComfyUI did not stop; refusing to load GLM alongside it\n' >&2
+pause_result="$(control_request pause)"
+case "${pause_result}" in
+  restore)
+    ;;
+  leave)
+    restore_comfyui=0
+    ;;
+  *)
+    printf 'ComfyUI-control helper returned an unexpected pause response\n' >&2
     exit 1
-  fi
-fi
+    ;;
+esac
 
 "${server}" "$@" &
 server_pid=$!
