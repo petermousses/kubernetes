@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 readonly server=/srv/ai/runtimes/llama.cpp-v0.6.0-d812350/bin/llama-server
 readonly curl=/usr/bin/curl
-readonly control_url=http://127.0.0.1:18981
+readonly control_socket=/srv/ai/model-router/run/comfyui-control.sock
 
 if [[ ! -x "${server}" ]]; then
   printf 'pinned GLM runtime is missing: %s\n' "${server}" >&2
@@ -13,18 +13,9 @@ if [[ ! -x "${curl}" ]]; then
   printf 'curl is missing: %s\n' "${curl}" >&2
   exit 1
 fi
-if [[ ! "${GLM_COMFY_CONTROL_KEY:-}" =~ ^[a-f0-9]{64}$ ]]; then
-  printf 'dedicated ComfyUI-control credential is missing or invalid\n' >&2
-  exit 1
-fi
-control_key="${GLM_COMFY_CONTROL_KEY}"
-unset GLM_COMFY_CONTROL_KEY
-
 control_request() {
-  printf 'header = "Authorization: Bearer %s"\n' "${control_key}" \
-    | "${curl}" --config - --silent --show-error --fail \
-      --connect-timeout 5 --max-time 75 --request POST \
-      "${control_url}/$1"
+  "${curl}" --unix-socket "${control_socket}" --silent --show-error --fail \
+    --connect-timeout 5 --max-time 75 --request POST "http://localhost/$1"
 }
 
 restore_comfyui=1

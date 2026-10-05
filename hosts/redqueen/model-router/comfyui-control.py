@@ -3,16 +3,16 @@
 
 from __future__ import annotations
 
-import hmac
 import http.server
 import os
+import socket
 import stat
+import struct
 import subprocess
 import sys
 import time
 
-HOST = "127.0.0.1"
-PORT = 18981
+SOCKET_PATH = "/srv/ai/model-router/run/comfyui-control.sock"
 UNIT = "comfyui.service"
 STARTUP_GRACE_SECONDS = 180
 SYSTEMCTL = "/usr/bin/systemctl"
@@ -21,7 +21,6 @@ GLM_MARKERS = (
     b"/srv/ai/model-router/bin/glm-5.3-flash-abliterated-launcher.sh",
     b"/srv/ai/models/huihui-glm-5.3-flash-abliterated-gguf/UD-IQ1_S/GLM-5.3-Flash-UD-IQ1_S-00001-of-00003.gguf",
 )
-TOKEN = os.environ.get("GLM_COMFY_CONTROL_KEY", "")
 paused_by_helper = False
 paused_at: float | None = None
 
@@ -122,6 +121,30 @@ def glm_process_running() -> bool:
     return False
 
 
+def glm_launcher_is_ancestor(pid: int) -> bool:
+    for _ in range(16):
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as source:
+                command = source.read(131072)
+            if GLM_MARKERS[0] in command:
+                return True
+            with open(f"/proc/{pid}/stat", "rb") as source:
+                process_stat = source.read(8192)
+        except OSError:
+            return False
+        delimiter = process_stat.rfind(b")")
+        if delimiter < 0:
+            return False
+        fields = process_stat[delimiter + 1 :].split()
+        if len(fields) < 2:
+            return False
+        parent = int(fields[1])
+        if parent <= 1 or parent == pid:
+            return False
+        pid = parent
+    return False
+
+
 def restore_comfyui() -> None:
     global paused_by_helper
     if not paused_by_helper:
@@ -144,10 +167,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
-    def _authorized(self) -> bool:
-        supplied = self.headers.get("Authorization", "")
-        expected = f"Bearer {TOKEN}"
-        return bool(TOKEN) and hmac.compare_digest(supplied, expected)
+    def _authorized_peer(self) -> bool:
+        try:
+            raw_credentials = self.connection.getsockopt(
+                socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")
+            )
+            peer_pid, peer_uid, _peer_gid = struct.unpack("3i", raw_credentials)
+        except (OSError, struct.error):
+            return False
+        return peer_uid == os.geteuid() and glm_launcher_is_ancestor(peer_pid)
 
     def _restore_after_failed_pause(self) -> None:
         try:
@@ -160,7 +188,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path not in {"/pause", "/resume"}:
             self._reply(404, "not found\n")
             return
-        if not self._authorized():
+        if not self._authorized_peer():
             self._reply(403, "forbidden\n")
             return
         if self.headers.get("Content-Length", "0") != "0":
@@ -212,16 +240,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._reply(503, "service control failed\n")
 
     def log_message(self, fmt: str, *args: object) -> None:
-        # Do not log request headers or credentials.
-        print(f"comfyui-control {self.client_address[0]} {fmt % args}", flush=True)
+        # Do not log request headers.
+        peer = self.client_address if isinstance(self.client_address, str) else self.client_address[0]
+        print(f"comfyui-control {peer!r} {fmt % args}", flush=True)
 
-
-if not TOKEN or len(TOKEN) != 64 or any(char not in "0123456789abcdef" for char in TOKEN):
-    raise SystemExit("GLM_COMFY_CONTROL_KEY must be a 64-character lowercase hex token")
 
 class LocalHTTPServer(http.server.HTTPServer):
+    address_family = socket.AF_UNIX
     request_queue_size = 8
     timeout = 2
+
+    def server_bind(self):
+        self.socket.bind(self.server_address)
+        os.chmod(self.server_address, 0o600)
+        self.server_name = "localhost"
+        self.server_port = 0
 
     def get_request(self):
         request, address = super().get_request()
@@ -252,5 +285,14 @@ try:
 except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
     raise SystemExit(f"could not recover previous ComfyUI pause state: {exc}") from exc
 
-server = LocalHTTPServer((HOST, PORT), Handler)
+try:
+    stale_socket = os.lstat(SOCKET_PATH)
+except FileNotFoundError:
+    pass
+else:
+    if not stat.S_ISSOCK(stale_socket.st_mode) or stale_socket.st_uid != os.geteuid():
+        raise SystemExit("refusing to replace a non-owned or non-socket control path")
+    os.unlink(SOCKET_PATH)
+
+server = LocalHTTPServer(SOCKET_PATH, Handler)
 server.serve_forever()

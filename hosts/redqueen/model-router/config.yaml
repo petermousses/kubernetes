@@ -8,7 +8,7 @@ apiKeys:
 models:
   qwen3.8-27b:
     cmd: >-
-      /usr/bin/env -u GLM_COMFY_CONTROL_KEY /usr/bin/llama-server
+      /usr/bin/llama-server
       --model /srv/ai/models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf
       --mmproj /srv/ai/models/qwen3.8-27b/mmproj-Qwen3.8-27B-Q8_0.gguf
       --alias qwen3.8-27b
@@ -31,7 +31,7 @@ models:
 
   gemma-4-e4b-it:
     cmd: >-
-      /usr/bin/env -u GLM_COMFY_CONTROL_KEY /usr/bin/llama-server
+      /usr/bin/llama-server
       --model /srv/ai/models/gemma-4-e4b-it/gemma-4-E4B-it-Q4_0.gguf
       --mmproj /srv/ai/models/gemma-4-e4b-it/mmproj-gemma-4-E4B-it-Q8_0.gguf
       --alias gemma-4-e4b-it
@@ -56,7 +56,7 @@ models:
 
   gemma-4-12b-it:
     cmd: >-
-      /usr/bin/env -u GLM_COMFY_CONTROL_KEY /usr/bin/llama-server
+      /usr/bin/llama-server
       --model /srv/ai/models/gemma-4-12b-it/gemma-4-12B-it-Q4_0.gguf
       --mmproj /srv/ai/models/gemma-4-12b-it/mmproj-gemma-4-12B-it-Q8_0.gguf
       --alias gemma-4-12b-it
@@ -81,7 +81,7 @@ models:
 
   gemma-4-26b-a4b-it:
     cmd: >-
-      /usr/bin/env -u GLM_COMFY_CONTROL_KEY /usr/bin/llama-server
+      /usr/bin/llama-server
       --model /srv/ai/models/gemma-4-26b-a4b-it/gemma-4-26B-A4B-it-Q4_0.gguf
       --mmproj /srv/ai/models/gemma-4-26b-a4b-it/mmproj-gemma-4-26B-A4B-it-Q8_0.gguf
       --alias gemma-4-26b-a4b-it
@@ -106,7 +106,7 @@ models:
 
   qwen3.6-35b-a3b:
     cmd: >-
-      /usr/bin/env -u GLM_COMFY_CONTROL_KEY /usr/bin/llama-server
+      /usr/bin/llama-server
       --model /srv/ai/models/qwen3.6-35b-a3b/Qwen3.6-35B-A3B-Q4_K_M.gguf
       --mmproj /srv/ai/models/qwen3.6-35b-a3b/mmproj-Qwen3.6-35B-A3B-Q8_0.gguf
       --alias qwen3.6-35b-a3b

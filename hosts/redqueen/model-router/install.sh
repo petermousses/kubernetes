@@ -10,8 +10,9 @@ readonly binary_root=/srv/ai/bin
 readonly binary_target="${binary_root}/llama-swap"
 readonly unit_target="${HOME}/.config/systemd/user/llama-swap.service"
 readonly control_unit_target="${HOME}/.config/systemd/user/comfyui-control.service"
-readonly previous_config_sha256=d40f7268899c93f213686d82bad97f25617010a950210ec69dae0fdfd6f79cca
-readonly previous_unit_sha256=42973ace13950f9f6a3627899a701422f55e67ac6cde67724ac0e83f9a30711e
+readonly previous_config_sha256=fa016344368fa08e57680a3245d3379a8055fb5c32dd44258253a5845ebf36e8
+readonly previous_unit_sha256=b5d631d10d33f04cc2e9ce29a0c4e3b7d88c7765b85f2bdf4d36e05e5c0fd2b4
+readonly previous_control_unit_sha256=760db928085fdac6604f455074fba1bba6a806b8721723803834f50eb08e237e
 readonly release_url="https://github.com/mostlygeek/llama-swap/releases/download/v260/llama-swap_260_linux_amd64.tar.gz"
 readonly release_sha256=d856a908507560cbdc253300bcf49092c7ead3c85098687428b0c9d4832ff46d
 readonly release_version=v260
@@ -91,8 +92,11 @@ if [[ -e "${unit_target}" ]] && \
 fi
 if [[ -e "${control_unit_target}" ]] && \
   ! cmp -s -- "${host_root}/systemd/comfyui-control.service" "${control_unit_target}"; then
-  printf 'existing user unit differs from the repository copy; review the diff before replacing it\n' >&2
-  exit 1
+  read -r installed_control_unit_sha256 _ < <(sha256sum -- "${control_unit_target}")
+  if [[ "${installed_control_unit_sha256}" != "${previous_control_unit_sha256}" ]]; then
+    printf 'existing ComfyUI-control unit differs from this and the recognized prior release; preserve it and review\n' >&2
+    exit 1
+  fi
 fi
 if [[ -e "${target_root}/THIRD-PARTY-LICENSE.md" ]] && \
   ! cmp -s -- "${temporary_root}/LICENSE.md" "${target_root}/THIRD-PARTY-LICENSE.md"; then
@@ -102,8 +106,6 @@ fi
 
 QWEN_API_KEY=validation-only "${binary_target}" \
   -config "${source_root}/config.yaml" -validate
-
-python3 "${source_root}/ensure-control-key.py"
 
 install -d -m 0750 -- "${target_root}" "${target_root}/bin" "${target_root}/run" \
   "${HOME}/.config/systemd/user"
@@ -123,5 +125,4 @@ systemctl --user daemon-reload
 
 printf 'llama-swap %s installed and config validated; no service was enabled, started, stopped or restarted\n' \
   "${release_version}"
-printf 'ComfyUI control token stored in %s; no service was enabled, started, stopped or restarted\n' \
-  /srv/ai/secrets/glm-comfy-control.env
+printf 'restricted ComfyUI-control helper installed; no service was enabled, started, stopped or restarted\n'

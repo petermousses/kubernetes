@@ -2,13 +2,13 @@
 Description=Restricted localhost control for pausing ComfyUI during GLM inference
 PartOf=llama-swap.service
 After=network.target
-ConditionPathExists=/srv/ai/secrets/glm-comfy-control.env
+ConditionPathExists=/srv/ai/model-router/run/comfyui-paused-by-glm
 
 [Service]
 Type=simple
 Slice=ai-inference.slice
-EnvironmentFile=/srv/ai/secrets/glm-comfy-control.env
 ExecStart=/usr/bin/python3 /srv/ai/model-router/bin/comfyui-control.py
+ExecStopPost=/usr/bin/rm -f /srv/ai/model-router/run/comfyui-control.sock
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=10
@@ -28,14 +28,11 @@ ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectSystem=strict
 ReadOnlyPaths=/srv/ai/model-router/bin/comfyui-control.py
-ReadOnlyPaths=/srv/ai/secrets/glm-comfy-control.env
 ReadWritePaths=/srv/ai/model-router/run
 InaccessiblePaths=/srv/ai/secrets/llama-swap.env
 InaccessiblePaths=/srv/ai/secrets/qwen38-api-keys
 RestrictRealtime=true
-RestrictAddressFamilies=AF_UNIX AF_INET
-IPAddressDeny=any
-IPAddressAllow=127.0.0.1/32
+RestrictAddressFamilies=AF_UNIX
 RestrictNamespaces=true
 RestrictSUIDSGID=true
 SystemCallArchitectures=native
