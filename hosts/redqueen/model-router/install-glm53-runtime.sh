@@ -18,11 +18,21 @@ if [[ -e "${target}" ]]; then
       "${revision}" >&2
     exit 1
   fi
-  "${target}/bin/llama-server" --version | grep -Fq "commit ${revision:0:7}"
-  if ldd "${target}/bin/llama-server" | grep -F 'not found'; then
+  runtime_version="$("${target}/bin/llama-server" --version)"
+  if [[ "${runtime_version}" != *"commit ${revision:0:7}"* ]]; then
+    printf 'installed llama-server does not report the pinned commit\n' >&2
     exit 1
   fi
-  "${target}/bin/llama-server" --list-devices | grep -Fq 'Radeon 8060S Graphics'
+  missing_libraries="$(ldd "${target}/bin/llama-server" | sed -n '/not found/p')"
+  if [[ -n "${missing_libraries}" ]]; then
+    printf '%s\n' "${missing_libraries}" >&2
+    exit 1
+  fi
+  available_devices="$("${target}/bin/llama-server" --list-devices)"
+  if [[ "${available_devices}" != *'Radeon 8060S Graphics'* ]]; then
+    printf 'pinned llama-server does not enumerate the expected Radeon device\n' >&2
+    exit 1
+  fi
   printf 'pinned llama.cpp v%s runtime already installed and verified\n' "${version}"
   exit 0
 fi
@@ -112,11 +122,21 @@ stage="$(mktemp -d /srv/ai/runtimes/.llama.cpp-v${version}-d812350.XXXXXXXX)"
 printf '%s\n' "${revision}" >"${stage}/SOURCE_REVISION"
 printf '%s\n' 'GGML_HIP=ON AMDGPU_TARGETS=gfx1151' >"${stage}/BUILD_OPTIONS"
 chmod 0644 "${stage}/SOURCE_REVISION" "${stage}/BUILD_OPTIONS"
-"${stage}/bin/llama-server" --version | grep -Fq "commit ${revision:0:7}"
-if ldd "${stage}/bin/llama-server" | grep -F 'not found'; then
+runtime_version="$("${stage}/bin/llama-server" --version)"
+if [[ "${runtime_version}" != *"commit ${revision:0:7}"* ]]; then
+  printf 'built llama-server does not report the pinned commit\n' >&2
   exit 1
 fi
-"${stage}/bin/llama-server" --list-devices | grep -Fq 'Radeon 8060S Graphics'
+missing_libraries="$(ldd "${stage}/bin/llama-server" | sed -n '/not found/p')"
+if [[ -n "${missing_libraries}" ]]; then
+  printf '%s\n' "${missing_libraries}" >&2
+  exit 1
+fi
+available_devices="$("${stage}/bin/llama-server" --list-devices)"
+if [[ "${available_devices}" != *'Radeon 8060S Graphics'* ]]; then
+  printf 'built llama-server does not enumerate the expected Radeon device\n' >&2
+  exit 1
+fi
 mv --no-target-directory --no-clobber -- "${stage}" "${target}"
 if [[ -e "${stage}" ]]; then
   printf 'runtime target appeared during installation; preserve both paths and review\n' >&2
