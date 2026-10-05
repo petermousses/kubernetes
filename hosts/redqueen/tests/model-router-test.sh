@@ -13,6 +13,7 @@ readonly -a text_models=(
   gemma-4-12b-it
   gemma-4-26b-a4b-it
   qwen3.6-35b-a3b
+  glm-5.3-flash-abliterated
 )
 readonly -a image_models=(qwen-image-2.1 qwen-image-2.1-uncensored)
 
@@ -40,6 +41,8 @@ fi
 
 for file in \
   "${host_root}/model-router/create-env.sh" \
+  "${host_root}/model-router/install-glm53-runtime.sh" \
+  "${host_root}/model-router/glm-5.3-flash-abliterated-launcher.sh" \
   "${host_root}/model-router/install.sh" \
   "${host_root}/comfyui/install-qwen-image-gguf.sh"; do
   bash -n "${file}"

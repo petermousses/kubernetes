@@ -17,6 +17,7 @@ if [[ "$(id -u)" -eq 0 ]]; then
   printf 'run this as ai, not root\n' >&2
   exit 1
 fi
+"${source_root}/install-glm53-runtime.sh"
 for command in curl sha256sum tar cmp install systemctl; do
   if ! command -v "${command}" >/dev/null; then
     printf 'required command not found: %s\n' "${command}" >&2
@@ -29,7 +30,8 @@ for model_id in \
   gemma-4-e4b-it \
   gemma-4-12b-it \
   gemma-4-26b-a4b-it \
-  qwen3.6-35b-a3b; do
+  qwen3.6-35b-a3b \
+  huihui-glm-5.3-flash-abliterated-gguf; do
   manifest="/srv/ai/models/${model_id}/SHA256SUMS"
   if [[ ! -s "${manifest}" ]]; then
     printf 'model checksum manifest is missing: %s\n' "${manifest}" >&2
@@ -82,8 +84,10 @@ fi
 QWEN_API_KEY=validation-only "${binary_target}" \
   -config "${source_root}/config.yaml" -validate
 
-install -d -m 0750 -- "${target_root}" "${HOME}/.config/systemd/user"
+install -d -m 0750 -- "${target_root}" "${target_root}/bin" "${HOME}/.config/systemd/user"
 install -m 0640 -- "${source_root}/config.yaml" "${target_root}/config.yaml"
+install -m 0750 -- "${source_root}/glm-5.3-flash-abliterated-launcher.sh" \
+  "${target_root}/bin/glm-5.3-flash-abliterated-launcher.sh"
 install -m 0640 -- "${temporary_root}/LICENSE.md" \
   "${target_root}/THIRD-PARTY-LICENSE.md"
 install -m 0644 -- "${host_root}/systemd/llama-swap.service" "${unit_target}"

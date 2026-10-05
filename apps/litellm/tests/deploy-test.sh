@@ -137,6 +137,7 @@ readonly -a configured_models=(
   gemma-4-12b-it
   gemma-4-26b-a4b-it
   qwen3.6-35b-a3b
+  glm-5.3-flash-abliterated
   qwen-image-2.1
   qwen-image-2.1-uncensored
 )
@@ -151,8 +152,8 @@ if grep -Fq 'model_name: deepseek-v4.1-flash-q2' "${app_root}/configmap.yaml"; t
   exit 1
 fi
 grep -Fq '      store_model_in_db: false' "${app_root}/configmap.yaml"
-if [[ "$(grep -Fc 'api_base: http://qwen-redqueen:8081/v1' "${app_root}/configmap.yaml")" -ne 5 ]]; then
-  printf 'all five text model aliases must use the shared redqueen text endpoint\n' >&2
+if [[ "$(grep -Fc 'api_base: http://qwen-redqueen:8081/v1' "${app_root}/configmap.yaml")" -ne 6 ]]; then
+  printf 'all six text model aliases must use the shared redqueen text endpoint\n' >&2
   exit 1
 fi
 if [[ "$(grep -Fc 'api_base: http://qwen-image-redqueen:8190/v1' "${app_root}/configmap.yaml")" -ne 2 ]]; then
