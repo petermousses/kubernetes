@@ -10,6 +10,8 @@ readonly binary_root=/srv/ai/bin
 readonly binary_target="${binary_root}/llama-swap"
 readonly unit_target="${HOME}/.config/systemd/user/llama-swap.service"
 readonly control_unit_target="${HOME}/.config/systemd/user/comfyui-control.service"
+readonly previous_config_sha256=d40f7268899c93f213686d82bad97f25617010a950210ec69dae0fdfd6f79cca
+readonly previous_unit_sha256=42973ace13950f9f6a3627899a701422f55e67ac6cde67724ac0e83f9a30711e
 readonly release_url="https://github.com/mostlygeek/llama-swap/releases/download/v260/llama-swap_260_linux_amd64.tar.gz"
 readonly release_sha256=d856a908507560cbdc253300bcf49092c7ead3c85098687428b0c9d4832ff46d
 readonly release_version=v260
@@ -73,13 +75,19 @@ fi
 
 if [[ -e "${target_root}/config.yaml" ]] && \
   ! cmp -s -- "${source_root}/config.yaml" "${target_root}/config.yaml"; then
-  printf 'existing router config differs from the repository copy; review the diff before replacing it\n' >&2
-  exit 1
+  read -r installed_config_sha256 _ < <(sha256sum -- "${target_root}/config.yaml")
+  if [[ "${installed_config_sha256}" != "${previous_config_sha256}" ]]; then
+    printf 'existing router config differs from this and the recognized prior release; preserve it and review\n' >&2
+    exit 1
+  fi
 fi
 if [[ -e "${unit_target}" ]] && \
   ! cmp -s -- "${host_root}/systemd/llama-swap.service" "${unit_target}"; then
-  printf 'existing user unit differs from the repository copy; review the diff before replacing it\n' >&2
-  exit 1
+  read -r installed_unit_sha256 _ < <(sha256sum -- "${unit_target}")
+  if [[ "${installed_unit_sha256}" != "${previous_unit_sha256}" ]]; then
+    printf 'existing llama-swap unit differs from this and the recognized prior release; preserve it and review\n' >&2
+    exit 1
+  fi
 fi
 if [[ -e "${control_unit_target}" ]] && \
   ! cmp -s -- "${host_root}/systemd/comfyui-control.service" "${control_unit_target}"; then
