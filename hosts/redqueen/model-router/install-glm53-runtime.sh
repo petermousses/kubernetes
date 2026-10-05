@@ -18,7 +18,7 @@ if [[ -e "${target}" ]]; then
       "${revision}" >&2
     exit 1
   fi
-  runtime_version="$("${target}/bin/llama-server" --version)"
+  runtime_version="$("${target}/bin/llama-server" --version 2>&1)"
   if [[ "${runtime_version}" != *"commit ${revision:0:7}"* ]]; then
     printf 'installed llama-server does not report the pinned commit\n' >&2
     exit 1
@@ -122,7 +122,7 @@ stage="$(mktemp -d /srv/ai/runtimes/.llama.cpp-v${version}-d812350.XXXXXXXX)"
 printf '%s\n' "${revision}" >"${stage}/SOURCE_REVISION"
 printf '%s\n' 'GGML_HIP=ON AMDGPU_TARGETS=gfx1151' >"${stage}/BUILD_OPTIONS"
 chmod 0644 "${stage}/SOURCE_REVISION" "${stage}/BUILD_OPTIONS"
-runtime_version="$("${stage}/bin/llama-server" --version)"
+runtime_version="$("${stage}/bin/llama-server" --version 2>&1)"
 if [[ "${runtime_version}" != *"commit ${revision:0:7}"* ]]; then
   printf 'built llama-server does not report the pinned commit\n' >&2
   exit 1
