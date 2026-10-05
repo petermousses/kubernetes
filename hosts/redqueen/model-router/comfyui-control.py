@@ -9,10 +9,12 @@ import os
 import stat
 import subprocess
 import sys
+import time
 
 HOST = "127.0.0.1"
 PORT = 18981
 UNIT = "comfyui.service"
+STARTUP_GRACE_SECONDS = 180
 SYSTEMCTL = "/usr/bin/systemctl"
 STATE_PATH = "/srv/ai/model-router/run/comfyui-paused-by-glm"
 GLM_MARKERS = (
@@ -21,6 +23,7 @@ GLM_MARKERS = (
 )
 TOKEN = os.environ.get("GLM_COMFY_CONTROL_KEY", "")
 paused_by_helper = False
+paused_at: float | None = None
 
 
 def active_state(unit: str) -> str:
@@ -69,7 +72,7 @@ def write_pause_state() -> None:
 
 
 def clear_pause_state() -> None:
-    global paused_by_helper
+    global paused_by_helper, paused_at
     fd = os.open(STATE_PATH, os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
@@ -84,6 +87,7 @@ def clear_pause_state() -> None:
     finally:
         os.close(fd)
     paused_by_helper = False
+    paused_at = None
 
 
 def read_pause_state() -> bool:
@@ -152,7 +156,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             print(f"ComfyUI recovery after failed pause failed: {exc}", file=sys.stderr, flush=True)
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        global paused_by_helper
+        global paused_by_helper, paused_at
         if self.path not in {"/pause", "/resume"}:
             self._reply(404, "not found\n")
             return
@@ -170,6 +174,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     try:
                         write_pause_state()
                         paused_by_helper = True
+                        paused_at = time.monotonic()
                         change_state("stop")
                         if active_state(UNIT) not in {"inactive", "failed"}:
                             raise RuntimeError("ComfyUI did not stop")
@@ -224,7 +229,12 @@ class LocalHTTPServer(http.server.HTTPServer):
         return request, address
 
     def service_actions(self):
-        if paused_by_helper and not glm_process_running():
+        if (
+            paused_by_helper
+            and paused_at is not None
+            and time.monotonic() - paused_at >= STARTUP_GRACE_SECONDS
+            and not glm_process_running()
+        ):
             try:
                 restore_comfyui()
             except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
@@ -237,6 +247,8 @@ try:
         active_state("llama-swap.service") != "active" or not glm_process_running()
     ):
         restore_comfyui()
+    elif paused_by_helper:
+        paused_at = time.monotonic()
 except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
     raise SystemExit(f"could not recover previous ComfyUI pause state: {exc}") from exc
 
