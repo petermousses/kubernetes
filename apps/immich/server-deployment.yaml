@@ -29,10 +29,6 @@ spec:
             value: "1"
       nodeSelector:
         kubernetes.io/hostname: openmediavault
-      securityContext:
-        runAsNonRoot: false
-        runAsUser: 0
-        runAsGroup: 0
       containers:
         - name: immich-server
           image: ghcr.io/immich-app/immich-server@sha256:0cc1f82953d9598eb9e9dd11cbde1f50fe54f9c46c4506b089e8ad7bfc9d1f0c
@@ -76,6 +72,9 @@ spec:
               cpu: "2"
               memory: 4Gi
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
             capabilities:
               drop:

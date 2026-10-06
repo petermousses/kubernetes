@@ -29,10 +29,6 @@ spec:
             value: "1"
       nodeSelector:
         kubernetes.io/hostname: openmediavault
-      securityContext:
-        runAsNonRoot: false
-        runAsUser: 0
-        runAsGroup: 0
       containers:
         - name: immich-machine-learning
           image: ghcr.io/immich-app/immich-machine-learning@sha256:33b17015c3d14f2565e9b8cd36b48a70027b14b5cd20da7fbfff21a370b0309c
@@ -77,6 +73,9 @@ spec:
               cpu: "4"
               memory: 6Gi
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
             capabilities:
               drop:
