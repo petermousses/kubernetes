@@ -129,6 +129,33 @@ models:
     ttl: 300
     concurrencyLimit: 1
 
+  glm-5.3-flash-abliterated:
+    cmd: >-
+      /srv/ai/model-router/bin/glm-5.3-flash-abliterated-launcher.sh
+      --model /srv/ai/models/huihui-glm-5.3-flash-abliterated-gguf/UD-IQ1_S/GLM-5.3-Flash-UD-IQ1_S-00001-of-00003.gguf
+      --alias glm-5.3-flash-abliterated
+      --ctx-size 220000
+      --cache-type-k q8_0
+      --cache-type-v q8_0
+      --gpu-layers 38
+      --parallel 1
+      --batch-size 128
+      --ubatch-size 32
+      --cont-batching
+      --flash-attn auto
+      --jinja
+      --chat-template-kwargs {"clear_thinking":true}
+      --metrics
+      --slots
+      --no-ui
+      --threads 24
+      --threads-http 8
+      --api-key-file /srv/ai/secrets/qwen38-api-keys
+      --host 127.0.0.1
+      --port ${PORT}
+    ttl: 60
+    concurrencyLimit: 1
+
 routing:
   router:
     use: group
@@ -143,3 +170,4 @@ routing:
             - gemma-4-12b-it
             - gemma-4-26b-a4b-it
             - qwen3.6-35b-a3b
+            - glm-5.3-flash-abliterated

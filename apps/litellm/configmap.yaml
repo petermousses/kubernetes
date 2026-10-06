@@ -46,6 +46,18 @@ data:
           api_base: http://qwen-redqueen:8081/v1
           api_key: os.environ/QWEN_API_KEY
           timeout: 900
+      - model_name: glm-5.3-flash-abliterated
+        litellm_params:
+          model: openai/glm-5.3-flash-abliterated
+          api_base: http://qwen-redqueen:8081/v1
+          api_key: os.environ/QWEN_API_KEY
+          timeout: 900
+        model_info:
+          supports_reasoning: true
+          supported_reasoning_efforts:
+            - low
+            - high
+            - max
       - model_name: qwen-image-2.1
         litellm_params:
           model: openai/qwen-image-2.1

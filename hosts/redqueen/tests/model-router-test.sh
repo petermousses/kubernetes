@@ -13,6 +13,7 @@ readonly -a text_models=(
   gemma-4-12b-it
   gemma-4-26b-a4b-it
   qwen3.6-35b-a3b
+  glm-5.3-flash-abliterated
 )
 readonly -a image_models=(qwen-image-2.1 qwen-image-2.1-uncensored)
 
@@ -29,6 +30,8 @@ done
 
 grep -Fq '  - "${env.QWEN_API_KEY}"' "${router_config}"
 grep -Fq 'globalTTL: 300' "${router_config}"
+grep -Fq -- '--ctx-size 220000' "${router_config}"
+grep -Fq -- '--chat-template-kwargs {"clear_thinking":true}' "${router_config}"
 grep -Fq '          swap: true' "${router_config}"
 grep -Fq '          exclusive: true' "${router_config}"
 grep -Fq '      store_model_in_db: false' "${litellm_config}"
@@ -40,9 +43,27 @@ fi
 
 for file in \
   "${host_root}/model-router/create-env.sh" \
+  "${host_root}/model-router/install-glm53-runtime.sh" \
+  "${host_root}/model-router/glm-5.3-flash-abliterated-launcher.sh" \
   "${host_root}/model-router/install.sh" \
+  "${host_root}/model-router/comfyui-control.py" \
   "${host_root}/comfyui/install-qwen-image-gguf.sh"; do
-  bash -n "${file}"
+  if [[ "${file}" == *.py ]]; then
+    python3 - "${file}" <<'PY'
+import ast
+import pathlib
+import sys
+
+ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])
+PY
+  else
+    bash -n "${file}"
+  fi
 done
+
+grep -Fq 'Requires=comfyui-control.service' "${host_root}/systemd/llama-swap.service"
+grep -Fq 'ProtectHome=read-only' "${host_root}/systemd/comfyui-control.service"
+grep -Fq 'Type=notify' "${host_root}/systemd/comfyui-control.service"
+grep -Fq -- '--unix-socket' "${host_root}/model-router/glm-5.3-flash-abliterated-launcher.sh"
 
 printf 'static model-router and image-pipeline checks passed\n'

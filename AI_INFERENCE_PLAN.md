@@ -11,6 +11,7 @@ do **not** make k3s directly manage the AMD Halo GPU workloads in v1. run the in
 | identity | Authentik OIDC (MIT for the community core) |
 | text-model router | `llama-swap` (MIT) dynamically starts/stops `llama.cpp` (MIT) model servers |
 | Qwen3.8, Gemma 4 E4B/12B/26B-A4B, Qwen3.6-35B-A3B weights | Apache-2.0 |
+| Huihui GLM-5.3-Flash abliterated GGUF | MIT; reduced safety filtering; dedicated restricted key only |
 | Qwen Image 2.1 runtime | ComfyUI (GPL-3.0) + ComfyUI-GGUF (Apache-2.0) + OpenAI-compatible Images adapter (repository Apache-2.0); standard and uncensored image weights (Qwen Research License) |
 | JevK5 runtime | separate `llama.cpp` server + `/v1/systemone` adapter; JevK5 code and weights (Apache-2.0) |
 | machine authentication | scoped LiteLLM virtual keys |
@@ -38,6 +39,7 @@ raw Halo endpoints remain private and firewall-restricted to the cluster.
 | [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/LICENSE) | Apache-2.0 | permissive model license; preserve required notices when redistributing weights or derivatives. |
 | [Gemma 4 E4B](https://huggingface.co/google/gemma-4-E4B-it), [12B](https://huggingface.co/google/gemma-4-12B-it), and [26B-A4B](https://huggingface.co/google/gemma-4-26B-A4B-it) weights | Apache-2.0 | permissive; preserve required notices when redistributing weights or derivatives. |
 | [Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) | Apache-2.0 | permissive; preserve required notices when redistributing weights or derivatives. |
+| [Huihui GLM-5.3-Flash abliterated GGUF](https://huggingface.co/huihui-ai/Huihui-GLM-5.3-Flash-abliterated-GGUF) | MIT | the model card calls this a crude, proof-of-concept abliteration, warns that safety filtering is significantly reduced, and recommends controlled research/testing; allow only through a dedicated restricted key. |
 | [Qwen Image 2.1](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE), including [uncensored GGUF derivative](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF) | Qwen Research License | non-commercial research/evaluation only unless a separate commercial license is obtained. the uncensored derivative has no built-in safety checker or content filter; keep it behind authenticated LiteLLM keys and do not imply moderation. |
 | [JevK5 runtime and model](https://github.com/allebee/jevk5/blob/main/LICENSE) | Apache-2.0 | permissive; the selected [GGUF weights](https://huggingface.co/alibiserikbay/JevK5-GGUF) carry the same license. |
 | [`llama.cpp`](https://github.com/ggml-org/llama.cpp/blob/master/LICENSE) | MIT | permissive. |
@@ -246,6 +248,7 @@ SSH authentication is the v1 security boundary for the operator UI. if browser-o
 - implement and test the JevK5 `/v1/systemone` adapter with typed request/response validation, option-count limits and calibrated model settings.
 - deploy LiteLLM and its dedicated PostgreSQL database with pinned images, non-committed Kubernetes Secrets, network policies, probes, resource limits and persistent storage.
 - register only `qwen3.8-27b`, `qwen-image-2.1` and LiteLLM's native authenticated `/typesafe/v1/systemone` pass-through, which forwards the exact `/v1/systemone` suffix to the redqueen adapter; prohibit wildcard pass-through and caller Authorization-header forwarding. [LiteLLM TypeSafe pass-through](https://docs.litellm.ai/docs/pass_through/typesafe)
+- for each chat model, set LiteLLM `model_info.supports_reasoning` and `supported_reasoning_efforts` from that model's official specification and serving template/API. declare only the levels the backend actually implements; verify that the selected level reaches the backend's required request field instead of assuming capability metadata performs a parameter translation. run short per-level smoke requests before exposing the model. GLM-5.3-Flash supports `low`, `high` and `max` (default `max`); reasoning cannot be disabled. With llama.cpp, pass the chosen effort as `chat_template_kwargs.reasoning_effort`, and default `clear_thinking=true` for chat. [GLM-5.3 API changes](https://z.ai/blog/glm-5.3), [LiteLLM reasoning metadata](https://docs.litellm.ai/docs/reasoning_content/), [llama.cpp server options](https://github.com/ggml-org/llama.cpp/blob/v0.6.0/tools/server/README.md)
 - create separate least-privilege virtual keys for LibreChat, administrators and each machine client; enable request, latency, error and queue metrics without logging prompts or image contents by default.
 - **exit criterion:** one API hostname serves all three capabilities, rejects missing or incorrectly scoped keys, and exposes no route that bypasses LiteLLM authentication.
 
@@ -331,39 +334,39 @@ JevK5 is deliberately absent from `/v1/models`: that list contains LiteLLM `mode
 
 #### static model expansion and redqueen cutover — 2026-09-30
 
-the baseline step-3 deployment remains live as previously verified; the following expansion is configured in this repository but **not yet installed or validated on redqueen or the NAS**. it adds these static LiteLLM IDs while keeping `store_model_in_db: false`:
+the baseline step-3 deployment remains live as previously verified. branch `feature/glm53-flash-runtime` contains a static expansion that adds these LiteLLM IDs while keeping `store_model_in_db: false`. redqueen's router is installed and active; the NAS LiteLLM ConfigMap has not been deployed, so the new GLM ID is not yet exposed through the live LiteLLM gateway:
 
-- chat: `qwen3.8-27b`, `gemma-4-e4b-it`, `gemma-4-12b-it`, `gemma-4-26b-a4b-it`, `qwen3.6-35b-a3b`;
+- chat: `qwen3.8-27b`, `gemma-4-e4b-it`, `gemma-4-12b-it`, `gemma-4-26b-a4b-it`, `qwen3.6-35b-a3b`, `glm-5.3-flash-abliterated`;
 - image: `qwen-image-2.1`, `qwen-image-2.1-uncensored`;
 - DeepSeek remains absent until its weight manifest exists and all files verify. JevK5 remains a typed pass-through, not a model-list entry.
 
-all text models share the existing `qwen-redqueen:8081` Service/EndpointSlice and existing `QWEN_API_KEY`. `llama-swap` v260 starts one model lazily, swaps among five static IDs, and unloads an idle model after 300 seconds. the existing Qwen3.8 model keeps its current file, alias and 65,536-token context; new models use the downloaded GGUFs plus Q8_0 projectors, 32,768 context and q8_0 K/V cache. Qwen3.6's Q4_K_M file retains the full 35B parameter expert set; it is not expert-pruned. no new Kubernetes Service, host-firewall rule, network-policy port or credential is introduced. each directory remains under `/srv/ai/models/<model-id>/` with its verified `SHA256SUMS`, `LICENSE`, `MODEL_CARD.md` and `SOURCE_REVISION`.
+all text models share the existing `qwen-redqueen:8081` Service/EndpointSlice and existing `QWEN_API_KEY`. `llama-swap` v260 starts one model lazily, swaps among six static IDs, and unloads idle models after their configured TTL. the existing Qwen3.8 model keeps its current file, alias and 65,536-token context; the Gemma and Qwen3.6 entries use their downloaded GGUFs plus Q8_0 projectors, 32,768 context and q8_0 K/V cache. Qwen3.6's Q4_K_M file retains the full 35B parameter expert set; it is not expert-pruned. the GLM alias uses the versioned llama.cpp v0.6.0 runtime, its verified three-shard UD-IQ1_S GGUF, a 220,000-token context cap, q8_0 K/V cache, 38 GPU layers and a 32-token microbatch. no new Kubernetes Service, host-firewall rule, network-policy port or credential is introduced. each directory remains under `/srv/ai/models/<model-id>/` with its verified `SHA256SUMS`, `LICENSE`, `MODEL_CARD.md` and `SOURCE_REVISION`.
 
 both image IDs share `qwen-image-redqueen:8190` and `QWEN_IMAGE_API_KEY`. the image adapter accepts only those two exact IDs and maps the uncensored alias to the pinned `UnetLoaderGGUF` node, fixed Q4_K_M diffusion filename and downloaded INT8 Qwen3-VL text encoder. arbitrary ComfyUI graphs remain inaccessible. ComfyUI stays loopback-only at `127.0.0.1:8189`; the current SSH tunnel command and UI address do not change. the uncensored derivative has no safety checker or content filter; it is opt-in and must be limited to an explicitly approved LiteLLM virtual key.
 
 LibreChat discovers chat models from LiteLLM with `models.fetch: true` and requires a `models.default` fallback array. keep only `qwen3.8-27b` in that fallback; successful discovery supplies the picker dynamically, while the fallback is used if fetching fails. the LiteLLM virtual key must allow `/v1/models`; the key's model scope remains the access boundary. the built-in OpenAI Image Tools use one global `IMAGE_GEN_OAI_MODEL`, so keep that default on the standard `qwen-image-2.1`; do not put the uncensored alias on the shared LibreChat key. the uncensored alias stays available through direct LiteLLM API calls with a separate, narrowly scoped virtual key unless a later UI supports deliberate per-request image-model selection. [LibreChat custom endpoint model configuration](https://www.librechat.ai/docs/configuration/librechat_yaml/object_structure/custom_endpoint), [LibreChat image-tool configuration](https://www.librechat.ai/docs/features/image_gen)
 
-owner-run cutover, after this branch is pushed and available in `/srv/ai/config`:
+#### GLM-5.3-Flash runtime update — 2026-10-05
 
-```bash
-cd /srv/ai/config
-git pull --ff-only
-hosts/redqueen/model-router/create-env.sh
-hosts/redqueen/model-router/install.sh
-hosts/redqueen/comfyui/install-qwen-image-gguf.sh
-install -m 0640 hosts/redqueen/comfyui/extra-model-paths.yaml /srv/ai/comfyui/extra-model-paths.yaml
-install -m 0644 hosts/redqueen/systemd/comfyui.service ~/.config/systemd/user/comfyui.service
-systemctl --user daemon-reload
-hosts/redqueen/adapters/install.sh
-systemctl --user restart comfyui.service
-systemctl --user restart qwen-image-adapter.service
-systemctl --user disable --now qwen38.service
-systemctl --user enable --now llama-swap.service
-```
+redqueen's packaged `/usr/bin/llama-server` was `9413 (Debian)` with `ggml` 0.13.1; its executable contained no GLM5-Next support. Debian's available `llama.cpp` package candidate was v0.2.0, not the upstream release that adds this architecture. upstream llama.cpp v0.6.0 (tag `v0.6.0`, commit `d81235049384534c167caea52b85a694f6103d14`, build b11429) adds GLM-5.3-Flash/GLM5-Next and updates ggml to 0.26.0. this is the relevant compatibility delta; v0.6.0 also changes batch/session APIs and other backends. [upstream v0.6.0 release notes](https://github.com/ggml-org/llama.cpp/releases/tag/v0.6.0)
 
-these commands run as the non-sudo `ai` user; the scripts verify model checksums, pin llama-swap's release archive/checksum and ComfyUI-GGUF's Git revision, reuse the existing Qwen credential without printing or rotating it, validate the router config, and do not start services themselves. keep the raw listener firewall-restricted as before.
+the pinned runtime was built on redqueen against its installed ROCm 7.14 stack for `gfx1151`, then installed beside the Debian binary at `/srv/ai/runtimes/llama.cpp-v0.6.0-d812350`. the system package and `/usr/bin/llama-server` remain unchanged. its HIP device enumeration and shared-library links passed. both Qwen3.8 and GLM returned HTTP 200 with their configured aliases and visible chat content through the active router; GLM also returned 146 reasoning characters in the 256-token smoke. this proves model loading and the chat API path, not output quality or long-running mixed-load behavior.
 
-after the host checks pass, deploy the static LiteLLM list on the NAS using the existing pattern: pull the repository and run `./apps/litellm/deploy.sh` from its clone. use a temporary virtual key explicitly allowing all seven listed IDs and only `/v1/chat/completions`, `/v1/images/generations`, `/v1/images/edits` and `/typesafe/v1/systemone`; delete it after validation. then run:
+the model's three GGUF shards total 93,087,245,408 bytes (about 86.7 GiB) before KV cache and runtime overhead. redqueen's `ai-inference.slice` caps aggregate inference memory at 112 GiB, so this model cannot safely share that budget with ComfyUI's observed ~33 GB working set. a restricted user service exposes only a mode-0600 unix socket at `/srv/ai/model-router/run/comfyui-control.sock`; it checks `SO_PEERCRED` and accepts pause/resume requests only from a process descended from the GLM launcher. systemd waits for the helper's ready notification before starting llama-swap. this keeps the router's `ProtectHome=true` sandbox and exposes no new network listener or credential. the launcher pauses ComfyUI while GLM is loaded and restores it after unload; image requests cannot complete during that interval. the final host smoke observed the pause and automatic resume after the 60-second GLM idle TTL, with zero cgroup OOM events. other text models retain a 300-second TTL. llama-swap's per-service cap is 104 GiB, below the aggregate slice cap.
+
+the repository's LiteLLM ConfigMap maps `glm-5.3-flash-abliterated` as text chat through the existing redqueen text Service; that ConfigMap is not live until the NAS deployment step below. the model has an MIT license, but its model card describes abliteration as crude and proof-of-concept, says safety filtering has been significantly reduced, recommends research/testing in controlled environments, and notes that only layers 15–35 were ablated while experts remain unablated. keep it off the shared LibreChat key; grant it only through a separate virtual key scoped to this model and `/v1/chat/completions`. this registration does not add the separate multimodal projector, so this API alias is text-only. [Huihui model card and warnings](https://huggingface.co/huihui-ai/Huihui-GLM-5.3-Flash-abliterated-GGUF)
+
+redqueen's host runtime/router cutover is complete and smoke-tested; no Kubernetes resources were changed. the only remaining GLM exposure step is manual deployment of this branch's LiteLLM ConfigMap on the NAS, plus creation of a separate virtual key scoped to `glm-5.3-flash-abliterated` and `/v1/chat/completions`. leave the shared LibreChat key unchanged. after deploying, verify that the new ID appears in `/v1/models` for the dedicated key and that the key can complete a chat request. keep the raw redqueen listener firewall-restricted as before.
+
+the first GLM smoke used `--ctx-size 8192`, the llama.cpp prompt-context limit, which explains the reported overflows. the prior 1,048,576 setting initialized a full KV slot and a 2,066-token authenticated request returned HTTP 200 in 61.7 seconds; a full-window prompt was never completed. the longest completed prompt remains 66,018 tokens at the prior 131,072 setting, which took 19m39.6s. the 1M setting required `--gpu-layers 38` and `--ubatch-size 32`: initial full-GPU/128-microbatch trials failed ROCm allocation at 384k (1.9 GiB compute workspace) and 512k (2.2 GiB KV buffer). at 1M, GTT use reached 96.7 of 101.1 GB and host available memory was about 15 GiB while GLM was loaded; the inference cgroup reported zero pressure/OOM events. the launcher paused ComfyUI during inference, and ComfyUI returned active after GLM unloaded. these observations verify 1M slot allocation and the chat API path, not full-window prefill, output quality, or mixed-load throughput. llama.cpp defines `--ctx-size` as prompt context size [server options](https://github.com/ggml-org/llama.cpp/blob/v0.6.0/tools/server/README.md); the official model config declares `max_position_embeddings: 1048576`, and its model card reports evaluations at 300k and one task at 1M with context management: [model config](https://huggingface.co/zai-org/GLM-5.3-Flash/blob/main/config.json), [model card](https://huggingface.co/zai-org/GLM-5.3-Flash).
+
+#### GLM context cap and reasoning effort — 2026-10-06
+
+the attempted exact 1,048,576-token request used 1,048,575 input tokens and one output token. the last reading before the owner's physical reboot was 220,425 input tokens processed (about 21%); no completion response was recovered, so this is not a full-context pass. the owner does not want another long-context run. the owner selected a `--ctx-size 220000` operational cap around that last reported progress point; it is not evidence that a 220k prompt completes. the new config passed redqueen's installed llama-swap v260 validator, and the service was restarted successfully with `/health` and `/v1/models` both returning HTTP 200. GLM is lazy-loaded, so no active model slot has yet reported `n_ctx=220000`; verify that on the next ordinary GLM load without sending a long prompt. llama.cpp's `--ctx-size` bounds prompt plus generated tokens.
+
+the repository's GLM LiteLLM entry declares `supports_reasoning: true` with `low`, `high` and `max`, matching the official model levels. the model defaults to `max` and does not support disabling reasoning. llama.cpp's GLM template accepts the selected level via `chat_template_kwargs.reasoning_effort`; OpenAI SDK callers through LiteLLM should send it in `extra_body`, for example `extra_body={"chat_template_kwargs":{"reasoning_effort":"low"}}`. the model server defaults `clear_thinking=true` for chat. LiteLLM reads its config from a file mounted with `subPath`, so deploying this ConfigMap change requires a LiteLLM rollout/restart; a backend-only context cap change requires restarting `llama-swap`, not LiteLLM. the ConfigMap/model metadata remains repository-only until the NAS deployment, so end-to-end effort forwarding through the live LiteLLM proxy is still unverified; the documented deployment path is `./apps/litellm/deploy.sh`.
+
+to deploy the full static expansion on the NAS, pull this branch and run `./apps/litellm/deploy.sh` from the repository clone. use a disposable validation key for the full matrix, then remove it. the validator defaults to Qwen Image and JevK5, so that key needs those routes/models in addition to the selected chat aliases. then run:
 
 ```bash
 ./apps/litellm/validate_inference.py \
@@ -372,11 +375,12 @@ after the host checks pass, deploy the static LiteLLM list on the NAS using the 
   --text-model gemma-4-12b-it \
   --text-model gemma-4-26b-a4b-it \
   --text-model qwen3.6-35b-a3b \
+  --text-model glm-5.3-flash-abliterated \
   --image-model qwen-image-2.1 \
   --image-model qwen-image-2.1-uncensored
 ```
 
-that exercises text-model switching, public invalid-key rejection, JevK5, and 512px generation/edit for both image IDs. then inspect the ComfyUI UI through the existing SSH tunnel, verify the GGUF node/model appears without any browser-side download, inspect redqueen service logs and memory during mixed text/image requests, and repeat after reboot. do not call the expansion complete until all five text requests and both image generation/edit pairs pass without OOM, GPU reset, leaked listener or unapproved model visibility.
+that exercises text-model switching, public invalid-key rejection, JevK5, and 512px generation/edit for both image IDs. then inspect the ComfyUI UI through the existing SSH tunnel, verify the GGUF node/model appears without any browser-side download, inspect redqueen service logs and memory during mixed text/image requests, and repeat after reboot. do not call the expansion complete until all six text requests and both image generation/edit pairs pass without OOM, GPU reset, leaked listener or unapproved model visibility.
 
 to let LibreChat discover the chat aliases, ensure its LiteLLM virtual key allows `/v1/models` (the endpoint is called with `GET`), then apply `kubectl apply -k apps/librechat` from the NAS clone and restart the deployment because `librechat.yaml` is mounted with `subPath`. confirm the rollout and verify discovery. that key must allow the five chat aliases plus only the standard `qwen-image-2.1` for the built-in image tool, with `/v1/models`, `/v1/chat/completions`, `/v1/images/generations` and `/v1/images/edits` routes. create a replacement restricted key if the current LibreChat key lacks those model or route permissions, then run `./apps/librechat/replace-litellm-key.sh`; it patches only that Secret field and restarts LibreChat without changing its persistent encryption material. reserve the uncensored alias for a separate direct-API key with only model `qwen-image-2.1-uncensored` and routes `/v1/images/generations` and `/v1/images/edits`; explicitly verify that the LibreChat key is denied this alias.
 
@@ -492,10 +496,10 @@ use pinned Podman Quadlets or systemd services running under the dedicated, non-
 - deploy **LiteLLM** as one pinned replica with a dedicated PostgreSQL database.
 - expose:
 
-  - `qwen3.8-27b`, `gemma-4-e4b-it`, `gemma-4-12b-it`, `gemma-4-26b-a4b-it` and `qwen3.6-35b-a3b` through `/v1/chat/completions`
+  - `qwen3.8-27b`, `gemma-4-e4b-it`, `gemma-4-12b-it`, `gemma-4-26b-a4b-it`, `qwen3.6-35b-a3b` and `glm-5.3-flash-abliterated` through `/v1/chat/completions`
   - `qwen-image-2.1` and `qwen-image-2.1-uncensored` through `/v1/images/generations` and `/v1/images/edits`
   - JevK5 through LiteLLM's native `/typesafe/v1/systemone` pass-through to redqueen's exact `/v1/systemone` adapter
-- keep `store_model_in_db: false`; make each listed public model a reviewed static `model_list` entry in `apps/litellm/configmap.yaml`. the five text aliases share the existing `qwen-redqueen:8081` endpoint and `QWEN_API_KEY`; both image aliases share `qwen-image-redqueen:8190` and `QWEN_IMAGE_API_KEY`. no new Kubernetes Service, firewall port or network-policy exception is required.
+- keep `store_model_in_db: false`; make each listed public model a reviewed static `model_list` entry in `apps/litellm/configmap.yaml`. the six text aliases share the existing `qwen-redqueen:8081` endpoint and `QWEN_API_KEY`; both image aliases share `qwen-image-redqueen:8190` and `QWEN_IMAGE_API_KEY`. no new Kubernetes Service, firewall port or network-policy exception is required.
 
 - use LiteLLM virtual keys:
   - one restricted key for LibreChat;

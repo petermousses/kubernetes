@@ -99,6 +99,7 @@ class FakeOpener:
                 "gemma-4-12b-it",
                 "gemma-4-26b-a4b-it",
                 "qwen3.6-35b-a3b",
+                "glm-5.3-flash-abliterated",
             }:
                 return FakeResponse(400, {"error": {"message": "wrong model"}})
             self.text_models.append(model)
@@ -238,7 +239,11 @@ class ValidationScriptTest(unittest.TestCase):
 
     def test_text_model_alias_is_forwarded_and_response_is_checked(self) -> None:
         opener = FakeOpener()
-        models = ("gemma-4-e4b-it", "qwen3.6-35b-a3b")
+        models = (
+            "gemma-4-e4b-it",
+            "qwen3.6-35b-a3b",
+            "glm-5.3-flash-abliterated",
+        )
         with tempfile.TemporaryDirectory() as temporary_directory:
             result = self.module.validate(
                 base_url="https://api.example.test",

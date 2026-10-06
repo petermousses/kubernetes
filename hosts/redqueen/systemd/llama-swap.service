@@ -2,6 +2,8 @@
 Description=OpenAI-compatible dynamic text model router for redqueen
 Wants=network-online.target
 After=network-online.target
+Requires=comfyui-control.service
+After=comfyui-control.service
 ConditionPathExists=/srv/ai/bin/llama-swap
 ConditionPathExists=/usr/bin/llama-server
 ConditionPathExists=/srv/ai/model-router/config.yaml
@@ -25,8 +27,8 @@ KillMode=mixed
 OOMPolicy=stop
 
 CPUQuota=2800%
-MemoryHigh=64G
-MemoryMax=80G
+MemoryHigh=96G
+MemoryMax=104G
 TasksMax=4096
 LimitNOFILE=1048576
 UMask=0077
@@ -45,6 +47,7 @@ ProtectKernelTunables=true
 ProtectSystem=strict
 ReadOnlyPaths=/srv/ai/bin/llama-swap
 ReadOnlyPaths=/usr/bin/llama-server
+ReadOnlyPaths=/srv/ai/runtimes/llama.cpp-v0.6.0-d812350
 ReadOnlyPaths=/srv/ai/model-router
 ReadOnlyPaths=/srv/ai/models
 ReadOnlyPaths=/srv/ai/secrets/llama-swap.env
