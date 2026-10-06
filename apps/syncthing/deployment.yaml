@@ -111,6 +111,9 @@ spec:
             runAsNonRoot: true
             runAsUser: 1000
             runAsGroup: 1000
+            capabilities:
+              add:
+                - SETGID
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:
