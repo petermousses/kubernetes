@@ -21,6 +21,8 @@ spec:
         app.kubernetes.io/part-of: text2shop
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 101
       containers:
         - name: text2shop
           # Published GHCR develop image from commit 713ee101de8ce60ecaac519a0f65b44b8250c415.
@@ -61,16 +63,26 @@ spec:
             limits:
               cpu: 250m
               memory: 128Mi
+          volumeMounts:
+            - name: nginx-run
+              mountPath: /run
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
             allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - ALL
               add:
-                - CHOWN
                 - NET_BIND_SERVICE
-                - SETGID
-                - SETUID
             seccompProfile:
               type: RuntimeDefault
+      volumes:
+        - name: nginx-run
+          emptyDir: {}
+        - name: nginx-cache
+          emptyDir: {}
       terminationGracePeriodSeconds: 10
