@@ -30,6 +30,8 @@ done
 
 grep -Fq '  - "${env.QWEN_API_KEY}"' "${router_config}"
 grep -Fq 'globalTTL: 300' "${router_config}"
+grep -Fq -- '--ctx-size 220000' "${router_config}"
+grep -Fq -- '--chat-template-kwargs {"clear_thinking":true}' "${router_config}"
 grep -Fq '          swap: true' "${router_config}"
 grep -Fq '          exclusive: true' "${router_config}"
 grep -Fq '      store_model_in_db: false' "${litellm_config}"

@@ -147,6 +147,23 @@ for model in "${configured_models[@]}"; do
     exit 1
   fi
 done
+glm_model_config="$(awk '
+  /^      - model_name: glm-5.3-flash-abliterated$/ { capture = 1 }
+  capture && /^      - model_name:/ && $0 !~ /glm-5[.]3-flash-abliterated/ { exit }
+  capture { print }
+' "${app_root}/configmap.yaml")"
+for reasoning_contract in \
+  '          supports_reasoning: true' \
+  '          supported_reasoning_efforts:' \
+  '            - low' \
+  '            - high' \
+  '            - max'; do
+  if ! grep -Fq -- "${reasoning_contract}" <<<"${glm_model_config}"; then
+    printf 'GLM LiteLLM metadata is missing reasoning contract: %s\n' \
+      "${reasoning_contract}" >&2
+    exit 1
+  fi
+done
 if grep -Fq 'model_name: deepseek-v4.1-flash-q2' "${app_root}/configmap.yaml"; then
   printf 'DeepSeek must not be registered before its weights are available\n' >&2
   exit 1
