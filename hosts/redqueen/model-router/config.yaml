@@ -144,7 +144,7 @@ models:
       --cont-batching
       --flash-attn auto
       --jinja
-      --chat-template-kwargs {"clear_thinking":true}
+      --chat-template-kwargs '{"clear_thinking":true}'
       --metrics
       --slots
       --no-ui
