@@ -36,6 +36,7 @@ spec:
         app.kubernetes.io/name: paperless-ngx
         app.kubernetes.io/component: ai
         app.kubernetes.io/part-of: paperless-ngx
+        mousses.xyz/litellm-client: "true"
     spec:
       automountServiceAccountToken: false
       dnsConfig:
@@ -54,6 +55,14 @@ spec:
               valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_INTERNAL_BASE_URL}}
             - name: PAPERLESS_AI_PORT
               valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_AI_PORT}}
+            - name: AI_PROVIDER
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: AI_PROVIDER}}
+            - name: CUSTOM_BASE_URL
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: CUSTOM_BASE_URL}}
+            - name: CUSTOM_MODEL
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: CUSTOM_MODEL}}
+            - name: CUSTOM_API_KEY
+              valueFrom: {secretKeyRef: {name: paperless-litellm-env, key: PAPERLESS_AI_LITELLM_API_KEY}}
           startupProbe:
             httpGet: {path: /health, port: http}
             failureThreshold: 60
@@ -120,6 +129,7 @@ spec:
         app.kubernetes.io/name: paperless-ngx
         app.kubernetes.io/component: gpt
         app.kubernetes.io/part-of: paperless-ngx
+        mousses.xyz/litellm-client: "true"
     spec:
       automountServiceAccountToken: false
       dnsConfig:
@@ -138,6 +148,10 @@ spec:
               valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_INTERNAL_BASE_URL}}
             - name: LLM_PROVIDER
               valueFrom: {configMapKeyRef: {name: paperless-config, key: LLM_PROVIDER}}
+            - name: OPENAI_BASE_URL
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: OPENAI_BASE_URL}}
+            - name: OPENAI_API_KEY
+              valueFrom: {secretKeyRef: {name: paperless-litellm-env, key: PAPERLESS_GPT_LITELLM_API_KEY}}
             - name: LLM_MODEL
               valueFrom: {configMapKeyRef: {name: paperless-config, key: LLM_MODEL}}
             - name: LLM_LANGUAGE

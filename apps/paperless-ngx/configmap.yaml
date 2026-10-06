@@ -16,8 +16,12 @@ data:
   PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
   PAPERLESS_API_URL: http://paperless:8000/api
   PAPERLESS_AI_PORT: "3000"
-  LLM_PROVIDER: ollama
-  LLM_MODEL: llama3.2:3b
+  LLM_PROVIDER: openai
+  LLM_MODEL: qwen3.8-27b
+  OPENAI_BASE_URL: http://litellm.litellm.svc.cluster.local:4000/v1
+  AI_PROVIDER: custom
+  CUSTOM_BASE_URL: http://litellm.litellm.svc.cluster.local:4000/v1
+  CUSTOM_MODEL: qwen3.8-27b
   LLM_LANGUAGE: English
   OCR_PROVIDER: llm
   AUTO_TAG: paperless-gpt-auto

@@ -1,55 +1,103 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-same-namespace-egress
+  name: allow-traefik-web-ingress
   namespace: paperless-ngx
 spec:
-  podSelector: {}
-  policyTypes: [Egress]
-  egress:
-    - to:
-        - namespaceSelector:
-            matchLabels: {kubernetes.io/metadata.name: paperless-ngx}
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-traefik-ingress
-  namespace: paperless-ngx
-spec:
-  podSelector:
-    matchExpressions:
-      - {key: app.kubernetes.io/component, operator: In, values: [web, ai, gpt]}
+  podSelector: {matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: web}}
   policyTypes: [Ingress]
   ingress:
     - from:
         - namespaceSelector:
             matchLabels: {kubernetes.io/metadata.name: kube-system}
           podSelector: {matchLabels: {app.kubernetes.io/name: traefik}}
-      ports:
-        - {protocol: TCP, port: 8000}
-        - {protocol: TCP, port: 3000}
-        - {protocol: TCP, port: 8080}
+      ports: [{protocol: TCP, port: 8000}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-paperless-dependencies
+  name: allow-traefik-ai-ingress
   namespace: paperless-ngx
 spec:
-  podSelector:
-    matchExpressions:
-      - {key: app.kubernetes.io/component, operator: In, values: [database, cache, converter, extractor]}
+  podSelector: {matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: ai}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector: {matchLabels: {app.kubernetes.io/name: traefik}}
+      ports: [{protocol: TCP, port: 3000}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-gpt-ingress
+  namespace: paperless-ngx
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: gpt}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector: {matchLabels: {app.kubernetes.io/name: traefik}}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-paperless-database-ingress
+  namespace: paperless-ngx
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: database}}
   policyTypes: [Ingress]
   ingress:
     - from:
         - podSelector:
             matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: web}
-      ports:
-        - {protocol: TCP, port: 5432}
-        - {protocol: TCP, port: 6379}
-        - {protocol: TCP, port: 3000}
-        - {protocol: TCP, port: 9998}
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-paperless-cache-ingress
+  namespace: paperless-ngx
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: cache}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: web}
+      ports: [{protocol: TCP, port: 6379}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-paperless-converter-ingress
+  namespace: paperless-ngx
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: converter}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: web}
+      ports: [{protocol: TCP, port: 3000}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-paperless-extractor-ingress
+  namespace: paperless-ngx
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: extractor}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: web}
+      ports: [{protocol: TCP, port: 9998}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -70,21 +118,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-ollama-egress
-  namespace: paperless-ngx
-spec:
-  podSelector:
-    matchExpressions:
-      - {key: app.kubernetes.io/component, operator: In, values: [ai, gpt]}
-  policyTypes: [Egress]
-  egress:
-    - to: [{ipBlock: {cidr: 10.9.20.7/32}}]
-      ports: [{protocol: TCP, port: 11434}]
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-public-https-egress
+  name: allow-integrations-to-paperless-egress
   namespace: paperless-ngx
 spec:
   podSelector:
@@ -93,7 +127,33 @@ spec:
   policyTypes: [Egress]
   egress:
     - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
-      ports: [{protocol: TCP, port: 443}]
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: web}
+      ports: [{protocol: TCP, port: 8000}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-paperless-web-dependencies-egress
+  namespace: paperless-ngx
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: web}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: database}
+      ports: [{protocol: TCP, port: 5432}]
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: cache}
+      ports: [{protocol: TCP, port: 6379}]
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: converter}
+      ports: [{protocol: TCP, port: 3000}]
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: paperless-ngx, app.kubernetes.io/component: extractor}
+      ports: [{protocol: TCP, port: 9998}]
