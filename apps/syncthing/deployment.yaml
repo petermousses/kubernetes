@@ -26,6 +26,29 @@ spec:
       securityContext:
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        - name: init-run-dir
+          image: lscr.io/linuxserver/syncthing@sha256:07da4c778027cb13d4a2b9bb8b8d7432ac3a0f0540bb7248b016be3a1cc69788
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - chmod 0755 /run && chown 1000:1000 /run
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false
+            runAsUser: 0
+            runAsGroup: 0
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: s6-run
+              mountPath: /run
       containers:
         - name: syncthing
           image: lscr.io/linuxserver/syncthing@sha256:07da4c778027cb13d4a2b9bb8b8d7432ac3a0f0540bb7248b016be3a1cc69788
@@ -95,6 +118,8 @@ spec:
               mountPath: /config
             - name: syncthing-music
               mountPath: /music
+            - name: s6-run
+              mountPath: /run
       volumes:
         - name: syncthing-config
           persistentVolumeClaim:
@@ -102,4 +127,7 @@ spec:
         - name: syncthing-music
           persistentVolumeClaim:
             claimName: syncthing-music
+        - name: s6-run
+          emptyDir:
+            medium: Memory
       terminationGracePeriodSeconds: 90
