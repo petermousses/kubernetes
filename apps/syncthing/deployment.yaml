@@ -85,6 +85,8 @@ spec:
               memory: 2Gi
           securityContext:
             allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:
