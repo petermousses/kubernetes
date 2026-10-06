@@ -57,14 +57,15 @@ spec:
               cpu: 1
               memory: 256Mi
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
             allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - ALL
               add:
-                - CHOWN
                 - SETGID
-                - SETUID
             seccompProfile:
               type: RuntimeDefault
       terminationGracePeriodSeconds: 10
