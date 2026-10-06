@@ -134,13 +134,13 @@ models:
       /srv/ai/model-router/bin/glm-5.3-flash-abliterated-launcher.sh
       --model /srv/ai/models/huihui-glm-5.3-flash-abliterated-gguf/UD-IQ1_S/GLM-5.3-Flash-UD-IQ1_S-00001-of-00003.gguf
       --alias glm-5.3-flash-abliterated
-      --ctx-size 32768
+      --ctx-size 1048576
       --cache-type-k q8_0
       --cache-type-v q8_0
-      --gpu-layers 999
+      --gpu-layers 38
       --parallel 1
       --batch-size 128
-      --ubatch-size 128
+      --ubatch-size 32
       --cont-batching
       --flash-attn auto
       --jinja
