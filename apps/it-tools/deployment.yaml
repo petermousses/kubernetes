@@ -29,7 +29,7 @@ spec:
           args:
             - nginx
             - -g
-            - daemon off; pid /tmp/nginx.pid;
+            - daemon off;
           ports:
             - name: http
               containerPort: 80
@@ -77,7 +77,11 @@ spec:
           volumeMounts:
             - name: nginx-cache
               mountPath: /var/cache/nginx
+            - name: nginx-pid
+              mountPath: /var/run
       volumes:
         - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-pid
           emptyDir: {}
       terminationGracePeriodSeconds: 10
