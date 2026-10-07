@@ -9,6 +9,7 @@ do **not** make k3s directly manage the AMD Halo GPU workloads in v1. run the in
 | api gateway | LiteLLM (MIT for the open-source core) |
 | chat ui | LibreChat (MIT) |
 | identity | Authentik OIDC (MIT for the community core) |
+| backup archive | Borg 1.4.5 over restricted SSH (BSD-3-Clause) |
 | text-model router | `llama-swap` (MIT) dynamically starts/stops `llama.cpp` (MIT) model servers |
 | embedding model | EmbeddingGemma 2 through the same private llama-swap and LiteLLM gateways |
 | Qwen3.8, Gemma 4 E4B/12B/26B-A4B, Qwen3.6-35B-A3B weights | Apache-2.0 |
@@ -56,6 +57,7 @@ raw Halo endpoints remain private and firewall-restricted to the cluster.
 | [Podman](https://github.com/podman-container-tools/podman/blob/main/LICENSE) | Apache-2.0 | permissive. |
 | [systemd](https://github.com/systemd/systemd/blob/main/LICENSES/README.md) | LGPL-2.1-or-later generally | udev programs include GPL-2.0-or-later code; normal service use creates no project-specific distribution requirement. |
 | [PostgreSQL](https://www.postgresql.org/about/licence/) | PostgreSQL License | permissive. |
+| [Borg](https://github.com/borgbackup/borg/blob/master/LICENSE) | BSD-3-Clause | client-side encrypted, deduplicated NAS archives; the AI-node binary is pinned and signature-verified. |
 | [k3s](https://github.com/k3s-io/k3s) | Apache-2.0 | permissive. |
 | [Kubernetes](https://github.com/kubernetes/kubernetes) | Apache-2.0 | permissive. |
 | [Traefik Proxy](https://github.com/traefik/traefik/blob/master/LICENSE.md) | MIT | the separate Traefik Helm chart is Apache-2.0. |
@@ -481,7 +483,7 @@ the first live OIDC check found the worker and both Secrets present but discover
 - test the new chat host's Authentik flow and restricted LiteLLM key immediately after cutover. the owner explicitly accepts loss of Open WebUI state, so rollback does not include restoring that data.
 - keep redqueen outside k3s until the mixed-load and reboot gates pass; then join and taint it. commit and push each independently reviewable implementation phase without staging unrelated changes.
 - **exit criterion:** the new path passes every acceptance test under normal and reboot conditions, monitoring is green, app recovery is documented, and the repository and remote branch are clean and synchronized. Open WebUI data is intentionally excluded from rollback.
-- [ ] **owner todo after every exit criterion passes:** choose the final NAS archive destination, manually copy `/srv/ai/models/` from redqueen to it, copy the adjacent licenses/source revisions/`SHA256SUMS`, and verify every destination hash against the source. record the NAS path in this plan after the copy. the NAS archive is a recovery copy; inference continues to load weights from redqueen’s local NVMe.
+- [ ] **owner todo after the remaining migration exit criteria pass:** run the first full encrypted Borg archive to the NAS, verify the archive and restore/hash-check representative model files, and securely escrow the Borg passphrase and exported key off both hosts. the destination is `/filesystem/k3s/backups/redqueen-ai/repo`; inference continues to load weights from redqueen’s local NVMe. once the baseline archive passes, enable the daily timer so later snapshots send only new/different chunks.
 
 ## implementation plan
 
@@ -601,9 +603,51 @@ do not install the AMD GPU Operator or move the inference services into pods in 
   - raw Halo ports unreachable from users;
   - Authentik and LiteLLM PostgreSQL restore tests.
 
-nightly database dumps must be copied off the OpenMediaVault host. a dump sitting beside the database on the same machine is not a backup.
+nightly database dumps must be copied off the OpenMediaVault host. a dump sitting beside the database on the same machine is not a backup. the redqueen archive below covers AI-host runtime state, not Authentik/LiteLLM database backups.
 
-the only intentionally unresolved input is the final off-host backup destination; it does not change the platform architecture.
+the off-host database-backup destination and restore automation remain unresolved; they are separate from the selected redqueen runtime archive destination.
+
+#### redqueen runtime archive — 2026-10-07
+
+the repository now contains an owner-run NAS receiver setup and an `ai`-user systemd timer using pinned, signature-verified Borg 1.4.5. Borg makes point-in-time archives with content-defined chunking and deduplication: the initial run transfers the baseline; unchanged model bytes are not retransmitted on each daily run. Borg still walks/stats the local source tree and reads changed/new files. The repository is client-side encrypted with `repokey-blake2`; the NAS never receives plaintext model content or the passphrase. See Borg’s [deduplication overview](https://borgbackup.readthedocs.io/en/stable/quickstart.html), [encryption/key requirements](https://borgbackup.readthedocs.io/en/stable/usage/init.html), and [SSH server restrictions](https://borgbackup.readthedocs.io/en/stable/usage/serve.html).
+
+- repository: `/filesystem/k3s/backups/redqueen-ai/repo` on the same NAS filesystem as `/filesystem/k3s/data`;
+- receiver: key-only `redqueen-archive` account with an unusable password hash; its sole SSH key is restricted to Borg, that exact repository, no forwarding/PTY, and append-only server mode. Debian `sshd` rejects a password-locked Linux account before public-key authentication, so the setup deliberately does not use `passwd --lock`. [Debian `sshd` account checks](https://manpages.debian.org/testing/openssh-server/sshd.8.en.html)
+- archive contents: `/srv/ai` (model weights, licenses/checksums, runtimes, model routers, ComfyUI source/config/workflows and outputs) and the `ai` user's systemd unit definitions;
+- exclusions: `/srv/ai/secrets`, disposable caches and archive state, model-router runtime sockets, and ComfyUI temporary state;
+- schedule: daily at 04:30 redqueen local time with up to 30 minutes randomized delay; the timer remains disabled until the first archive is explicitly verified after migration acceptance;
+- retention: no automated prune/compact or deletion is configured. this avoids silently expiring recovery points, but means NAS usage grows with new/changed data. Borg append-only mode is not immutable/WORM storage: a holder of the archive SSH key can still issue logical delete/prune operations, so protect that key and do not describe the NAS as tamper-proof.
+
+owner-run setup:
+
+```bash
+# on the NAS, from the pulled repository root
+sudo apt-get update
+sudo apt-get install --yes gnupg
+sudo ./hosts/openmediavault/setup-redqueen-ai-archive.sh
+sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+sudoedit /var/lib/redqueen-archive/.ssh/authorized_keys
+
+# on redqueen, run as ai; the installer prints the public key, not the passphrase
+cd /srv/ai/config
+hosts/redqueen/archive/install.sh
+ssh-keyscan -t ed25519 10.9.20.14 > ~/.ssh/redqueen-nas-archive.known_hosts
+chmod 0600 ~/.ssh/redqueen-nas-archive.known_hosts
+ssh-keygen -lf ~/.ssh/redqueen-nas-archive.known_hosts
+set -a
+. ~/.config/redqueen-archive.env
+set +a
+/srv/ai/bin/borg init --encryption=repokey-blake2 --append-only "$BORG_REPO"
+
+# on the Mac, compare the NAS/keyscan fingerprints before trusting the known_hosts entry.
+# store each clipboard value directly in the password manager; never paste it into chat.
+ssh -i ~/.ssh/redqueen ai@redqueen.mousses.xyz \
+  'set -a; . ~/.config/redqueen-archive.env; set +a; /srv/ai/bin/borg key export "$BORG_REPO"' | pbcopy
+ssh -i ~/.ssh/redqueen ai@redqueen.mousses.xyz \
+  'cat /srv/ai/secrets/redqueen-archive-passphrase' | tr -d '\r\n' | pbcopy
+```
+
+In `authorized_keys`, put the exact `command="/usr/local/bin/borg serve --append-only --restrict-to-repository /filesystem/k3s/backups/redqueen-ai/repo",restrict` prefix printed by the NAS script immediately before the full `ssh-ed25519 ...` public-key line printed by the redqueen installer. Then, as `ai`, confirm `borg list "$BORG_REPO"`; run the first `systemctl --user start redqueen-archive.service` only after the remaining migration gates pass. Verify `borg list`/`borg info` and restore/hash-check model files before `systemctl --user enable --now redqueen-archive.timer`. The timer is installed but not enabled before that owner verification. Do not commit the key or passphrase.
 
 #### first embedding model: EmbeddingGemma 2 — 2026-10-06
 
