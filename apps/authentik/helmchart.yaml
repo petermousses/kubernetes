@@ -75,6 +75,7 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 999
+            runAsGroup: 999
             allowPrivilegeEscalation: false
             capabilities:
               drop: [ALL]
@@ -88,7 +89,18 @@ spec:
         limits:
           cpu: "2"
           memory: 3Gi
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containerSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
         allowPrivilegeEscalation: false
         capabilities:
           drop: [ALL]
@@ -126,6 +138,7 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 999
+            runAsGroup: 999
             allowPrivilegeEscalation: false
             capabilities:
               drop: [ALL]
@@ -139,7 +152,18 @@ spec:
         limits:
           cpu: "2"
           memory: 3Gi
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containerSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
         allowPrivilegeEscalation: false
         capabilities:
           drop: [ALL]

@@ -38,7 +38,12 @@ spec:
         app.kubernetes.io/part-of: paperless-ngx
     spec:
       automountServiceAccountToken: false
-      securityContext: {runAsUser: 0, runAsGroup: 0}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: redis
           image: redis@sha256:c22af04bb576503bf16b3e34a1fd2fd82de0f765afd866d2e380145e0af30d78
@@ -58,6 +63,10 @@ spec:
           resources:
             requests: {cpu: 50m, memory: 128Mi}
             limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
           volumeMounts: [{name: redis-data, mountPath: /data}]
       volumes:
         - name: redis-data

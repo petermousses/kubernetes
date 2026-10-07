@@ -39,6 +39,9 @@ spec:
     spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       dnsConfig:
         options: [{name: ndots, value: "1"}]
       containers:
@@ -78,6 +81,13 @@ spec:
           resources:
             requests: {cpu: 500m, memory: 512Mi}
             limits: {cpu: "2", memory: 2Gi}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
           volumeMounts:
             - {name: paperless-data, mountPath: /usr/src/paperless/data, subPath: data}
             - {name: paperless-data, mountPath: /usr/src/paperless/media, subPath: media}
