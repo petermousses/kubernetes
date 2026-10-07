@@ -35,6 +35,8 @@ data:
           # DeepInfra hosted Gemma 4 E4B list rate; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.00000002
           output_cost_per_token: 0.0000001
+          supports_reasoning: true
+          # Gemma exposes thinking mode, not discrete reasoning-effort levels.
       - model_name: gemma-4-12b-it
         litellm_params:
           model: openai/gemma-4-12b-it
@@ -45,6 +47,8 @@ data:
           # SiliconFlow hosted Gemma 4 12B list rate; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.0000001
           output_cost_per_token: 0.0000003
+          supports_reasoning: true
+          # Gemma exposes thinking mode, not discrete reasoning-effort levels.
       - model_name: gemma-4-26b-a4b-it
         litellm_params:
           model: openai/gemma-4-26b-a4b-it
@@ -55,6 +59,8 @@ data:
           # SiliconFlow hosted Gemma 4 26B-A4B list rate; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.00000014
           output_cost_per_token: 0.0000004
+          supports_reasoning: true
+          # Gemma exposes thinking mode, not discrete reasoning-effort levels.
       - model_name: qwen3.6-35b-a3b
         litellm_params:
           model: openai/qwen3.6-35b-a3b
@@ -65,6 +71,8 @@ data:
           # SiliconFlow hosted Qwen3.6 35B-A3B list rate; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.00000024
           output_cost_per_token: 0.0000018
+          supports_reasoning: true
+          # Qwen3.6 exposes thinking mode, not discrete reasoning-effort levels.
       - model_name: glm-5.3-flash-abliterated
         litellm_params:
           model: openai/glm-5.3-flash-abliterated
