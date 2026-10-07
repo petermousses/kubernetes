@@ -148,5 +148,48 @@ download_jevk5() {
   (cd -- "${model_root}" && sha256sum --check SHA256SUMS)
 }
 
+download_embeddinggemma() {
+  local model_root="${EMBEDDINGGEMMA_MODEL_ROOT:-/srv/ai/models/embeddinggemma-2}"
+  local gguf_revision="ba3888272494be64ed88c9eb536ddc61a1be73d5"
+  local source_revision="914f7f89142e33e77833254d9c9b90c3cef7303b"
+  local gguf_base="https://huggingface.co/unsloth/embeddinggemma-2-GGUF/resolve/${gguf_revision}"
+
+  mkdir -p -- "${model_root}"
+  exec 6>"${model_root}/.download.lock"
+  flock -n 6 || {
+    printf 'another EmbeddingGemma 2 download is already running\n' >&2
+    return 1
+  }
+
+  download "${model_root}" "${gguf_base}/embeddinggemma-2-Q8_0.gguf" \
+    embeddinggemma-2-Q8_0.gguf \
+    6f1bd4ac6c5df7444f9cca7ca36cafe6cfa34cd6f49fefb1e0b4be8143aed8bc
+  download "${model_root}" "${gguf_base}/README.md" \
+    MODEL_CARD.md \
+    e153a1a36202b8fb1f591a2aa593673fb0cff9bd2d81b582974d79a7a988b199
+  if ! printf '%s  %s\n' \
+    cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30 \
+    /usr/share/common-licenses/Apache-2.0 | sha256sum --check --status; then
+    printf 'the host Apache-2.0 license text is missing or changed\n' >&2
+    return 1
+  fi
+  install -m 0440 /usr/share/common-licenses/Apache-2.0 "${model_root}/LICENSE"
+
+  install -m 0440 "${script_dir}/embeddinggemma-2.sha256" "${model_root}/SHA256SUMS"
+  local source_revision_partial
+  source_revision_partial="$(mktemp "${model_root}/.SOURCE_REVISION.XXXXXX")"
+  printf '%s\n' \
+    'gguf_repository=unsloth/embeddinggemma-2-GGUF' \
+    "gguf_revision=${gguf_revision}" \
+    'source_repository=google/embeddinggemma-2' \
+    "source_revision=${source_revision}" \
+    'quantization=Q8_0' \
+    >"${source_revision_partial}"
+  chmod 0440 "${source_revision_partial}"
+  mv -- "${source_revision_partial}" "${model_root}/SOURCE_REVISION"
+  (cd -- "${model_root}" && sha256sum --check SHA256SUMS)
+}
+
 download_qwen
 download_jevk5
+download_embeddinggemma

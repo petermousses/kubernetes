@@ -156,6 +156,28 @@ models:
     ttl: 60
     concurrencyLimit: 1
 
+  embeddinggemma-2:
+    cmd: >-
+      /srv/ai/runtimes/llama.cpp-v0.6.0-d812350/bin/llama-server
+      --model /srv/ai/models/embeddinggemma-2/embeddinggemma-2-Q8_0.gguf
+      --alias embeddinggemma-2
+      --ctx-size 8192
+      --pooling mean
+      --embedding
+      --gpu-layers 999
+      --parallel 1
+      --cont-batching
+      --metrics
+      --slots
+      --no-ui
+      --threads 16
+      --threads-http 8
+      --api-key-file /srv/ai/secrets/qwen38-api-keys
+      --host 127.0.0.1
+      --port ${PORT}
+    ttl: 300
+    concurrencyLimit: 1
+
 routing:
   router:
     use: group
@@ -171,3 +193,4 @@ routing:
             - gemma-4-26b-a4b-it
             - qwen3.6-35b-a3b
             - glm-5.3-flash-abliterated
+            - embeddinggemma-2

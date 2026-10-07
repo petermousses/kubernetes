@@ -10,7 +10,7 @@ readonly binary_root=/srv/ai/bin
 readonly binary_target="${binary_root}/llama-swap"
 readonly unit_target="${HOME}/.config/systemd/user/llama-swap.service"
 readonly control_unit_target="${HOME}/.config/systemd/user/comfyui-control.service"
-readonly previous_config_sha256=5d16340290737f791585715599e1e3728339259987512e8b0a474bca3346c454
+readonly previous_config_sha256=c4a544df1f54f40d2bec412545992d293133815326a20c85849ebb83ce143731
 readonly previous_unit_sha256=4d74f70b0adffc7ed9705857f0733f96ddcb2385bf90904fcf27142fd991904f
 readonly previous_control_unit_sha256=e6c186ace1b81439b9da397a11065da2ec323c5603a5baebc9e08edb054b9866
 readonly release_url="https://github.com/mostlygeek/llama-swap/releases/download/v260/llama-swap_260_linux_amd64.tar.gz"
@@ -40,7 +40,8 @@ for model_id in \
   gemma-4-12b-it \
   gemma-4-26b-a4b-it \
   qwen3.6-35b-a3b \
-  huihui-glm-5.3-flash-abliterated-gguf; do
+  huihui-glm-5.3-flash-abliterated-gguf \
+  embeddinggemma-2; do
   manifest="/srv/ai/models/${model_id}/SHA256SUMS"
   if [[ ! -s "${manifest}" ]]; then
     printf 'model checksum manifest is missing: %s\n' "${manifest}" >&2

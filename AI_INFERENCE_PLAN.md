@@ -10,6 +10,7 @@ do **not** make k3s directly manage the AMD Halo GPU workloads in v1. run the in
 | chat ui | LibreChat (MIT) |
 | identity | Authentik OIDC (MIT for the community core) |
 | text-model router | `llama-swap` (MIT) dynamically starts/stops `llama.cpp` (MIT) model servers |
+| embedding model | EmbeddingGemma 2 through the same private llama-swap and LiteLLM gateways |
 | Qwen3.8, Gemma 4 E4B/12B/26B-A4B, Qwen3.6-35B-A3B weights | Apache-2.0 |
 | Huihui GLM-5.3-Flash abliterated GGUF | MIT; reduced safety filtering; dedicated restricted key only |
 | Qwen Image 2.1 runtime | ComfyUI (GPL-3.0) + ComfyUI-GGUF (Apache-2.0) + OpenAI-compatible Images adapter (repository Apache-2.0); standard and uncensored image weights (Qwen Research License) |
@@ -39,6 +40,7 @@ raw Halo endpoints remain private and firewall-restricted to the cluster.
 | [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/LICENSE) | Apache-2.0 | permissive model license; preserve required notices when redistributing weights or derivatives. |
 | [Gemma 4 E4B](https://huggingface.co/google/gemma-4-E4B-it), [12B](https://huggingface.co/google/gemma-4-12B-it), and [26B-A4B](https://huggingface.co/google/gemma-4-26B-A4B-it) weights | Apache-2.0 | permissive; preserve required notices when redistributing weights or derivatives. |
 | [Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) | Apache-2.0 | permissive; preserve required notices when redistributing weights or derivatives. |
+| [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2), GGUF from [Unsloth](https://huggingface.co/unsloth/embeddinggemma-2-GGUF) | Apache-2.0 | preserve the Apache license and model card; use task prefixes for query/document retrieval inputs. |
 | [Huihui GLM-5.3-Flash abliterated GGUF](https://huggingface.co/huihui-ai/Huihui-GLM-5.3-Flash-abliterated-GGUF) | MIT | the model card calls this a crude, proof-of-concept abliteration, warns that safety filtering is significantly reduced, and recommends controlled research/testing; allow only through a dedicated restricted key. |
 | [Qwen Image 2.1](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE), including [uncensored GGUF derivative](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF) | Qwen Research License | non-commercial research/evaluation only unless a separate commercial license is obtained. the uncensored derivative has no built-in safety checker or content filter; keep it behind authenticated LiteLLM keys and do not imply moderation. |
 | [JevK5 runtime and model](https://github.com/allebee/jevk5/blob/main/LICENSE) | Apache-2.0 | permissive; the selected [GGUF weights](https://huggingface.co/alibiserikbay/JevK5-GGUF) carry the same license. |
@@ -135,6 +137,7 @@ step 1 is **complete**. the one-hour mixed GPU/memory stress gate, reboot recove
 - use this storage layout:
   - `/srv/ai/models/qwen3.8-27b/` — Qwen3.8 weights, multimodal projection, license, source revision and `SHA256SUMS`;
   - `/srv/ai/models/jevk5-4b-v0.3/` — JevK5 GGUF, calibration metadata, license, source revision and `SHA256SUMS`;
+  - `/srv/ai/models/embeddinggemma-2/` — EmbeddingGemma 2 Q8_0 GGUF, license, model card, source revision and `SHA256SUMS`;
   - `/srv/ai/models/qwen-image-2.1/` — Qwen Image model components, license, source revision and `SHA256SUMS`;
   - `/srv/ai/cache/` — disposable download, conversion and runtime caches; never the authoritative copy of a model;
   - `/srv/ai/comfyui/` — pinned ComfyUI checkout, immutable workflows and custom-node lock data.
@@ -162,6 +165,7 @@ authoritative model artifacts are complete on the local NVMe, read-only to the s
 | backend | pinned source and selected artifacts | bytes |
 |---|---|---:|
 | Qwen3.8-27B | `ggml-org/Qwen3.8-27B-GGUF@71bc7b627595dc8a91039addd9c791ae548d6747`: `Qwen3.8-27B-Q4_K_M.gguf` plus `mmproj-Qwen3.8-27B-Q8_0.gguf`; license/model card from `Qwen/Qwen3.8-27B@1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0` | 19,603,117,536 |
+| EmbeddingGemma 2 | `unsloth/embeddinggemma-2-GGUF@ba3888272494be64ed88c9eb536ddc61a1be73d5`: `embeddinggemma-2-Q8_0.gguf`; source model `google/embeddinggemma-2@914f7f89142e33e77833254d9c9b90c3cef7303b` | 309,855,520 |
 | JevK5 4B v0.3 | `alibiserikbay/JevK5-GGUF@ec67b0bfce5119a8b11a2cdb430bb43e3fa3e82a`: `jevk5-4b-v0.3-Q8_0.gguf`; license from `allebee/jevk5@f944fe37ff1d5ed3830aa4c8d88b7189c8c1268a` | 4,482,402,720 |
 | Qwen Image 2.1 | `Comfy-Org/Qwen-Image-2.1@9a44dbdb47cefd046be9c0a13476192f34c8db8e`: BF16 diffusion model, BF16 Qwen3-VL encoder, INT8 T2I/I2I prompt enhancers and BF16 VAE; license/model card from `Qwen/Qwen-Image-2.1@790c92633540aa0cb11d9abf19eb46d861714758` | 51,382,269,424 |
 
@@ -247,7 +251,7 @@ SSH authentication is the v1 security boundary for the operator UI. if browser-o
 - implement and test the image adapter for `/v1/images/generations` and `/v1/images/edits`, including validation, timeouts, cancellation, queue limits and deterministic ComfyUI workflow mapping.
 - implement and test the JevK5 `/v1/systemone` adapter with typed request/response validation, option-count limits and calibrated model settings.
 - deploy LiteLLM and its dedicated PostgreSQL database with pinned images, non-committed Kubernetes Secrets, network policies, probes, resource limits and persistent storage.
-- register only `qwen3.8-27b`, `qwen-image-2.1` and LiteLLM's native authenticated `/typesafe/v1/systemone` pass-through, which forwards the exact `/v1/systemone` suffix to the redqueen adapter; prohibit wildcard pass-through and caller Authorization-header forwarding. [LiteLLM TypeSafe pass-through](https://docs.litellm.ai/docs/pass_through/typesafe)
+- register the approved chat/image IDs, `embeddinggemma-2` for LiteLLM's OpenAI-compatible `/v1/embeddings`, and LiteLLM's native authenticated `/typesafe/v1/systemone` pass-through, which forwards the exact `/v1/systemone` suffix to the redqueen adapter; prohibit wildcard pass-through and caller Authorization-header forwarding. [LiteLLM embeddings](https://docs.litellm.ai/docs/embedding), [LiteLLM TypeSafe pass-through](https://docs.litellm.ai/docs/pass_through/typesafe)
 - for each chat model, set LiteLLM `model_info.supports_reasoning` and `supported_reasoning_efforts` from that model's official specification and serving template/API. declare only the levels the backend actually implements; verify that the selected level reaches the backend's required request field instead of assuming capability metadata performs a parameter translation. run short per-level smoke requests before exposing the model. GLM-5.3-Flash supports `low`, `high` and `max` (default `max`); reasoning cannot be disabled. With llama.cpp, pass the chosen effort as `chat_template_kwargs.reasoning_effort`, and default `clear_thinking=true` for chat. [GLM-5.3 API changes](https://z.ai/blog/glm-5.3), [LiteLLM reasoning metadata](https://docs.litellm.ai/docs/reasoning_content/), [llama.cpp server options](https://github.com/ggml-org/llama.cpp/blob/v0.6.0/tools/server/README.md)
 - for every local chat model, set `model_info.input_cost_per_token` and `output_cost_per_token` in the versioned LiteLLM config using the closest relevant paid hosted API list rate, converted from USD per million tokens to USD per token. record the provider, source model, rate snapshot date and any currency conversion here. use an exact hosted counterpart when available; for a derivative with no hosted API, use the unmodified base model's rate and label it as a proxy. these values create API-equivalent spend in LiteLLM's logs/UI and are also used by LiteLLM budgets; they are not redqueen electricity, hardware depreciation or actual local operating cost. keep those local costs as a separate estimate. do not make a UI-only pricing change: `store_model_in_db: false` leaves this repository config authoritative. add cache/tier-specific cost fields only when the request usage exposes those token categories reliably. [LiteLLM custom pricing](https://docs.litellm.ai/docs/proxy/custom_pricing/), [LiteLLM spend tracking](https://docs.litellm.ai/docs/proxy/cost_tracking)
 
@@ -289,7 +293,7 @@ the implementation is versioned under `apps/litellm/` and `hosts/redqueen/` with
 - the redqueen image adapter exposes only bounded `/v1/images/generations` and `/v1/images/edits` contracts, maps requests into fixed workflows, limits execution to one active/four waiting jobs, cleans request-scoped inputs/outputs, verifies returned PNG dimensions and the requested alpha contract, and composites RGBA output onto a white matte for `background=opaque` so the response is truly opaque RGB;
 - the JevK5 adapter exposes only `/v1/systemone`, enforces TypeSafe-style typed inputs/outputs and uses the selected Q8_0 file's documented `temperature=1.22` and `knockout_temperature=0.93` calibration. its vendored prompt/readout is attributed to JevK5 v0.3.0 and SemIf;
 - Qwen binds to `10.9.20.242:8081`; the image and Jev adapters bind to `10.9.20.242:8190` and `:8191`. separate 256-bit upstream credentials protect every inference operation, and the host firewall admits only the NAS, redqueen itself and the k3s pod CIDR to those ports. llama.cpp leaves `/v1/models` metadata unauthenticated even with `--api-key-file`; this is accepted only behind that source-IP firewall, while the public `/v1/models` route remains behind LiteLLM authentication;
-- the public Traefik IngressRoute uses method-scoped allowlists: `GET`/`POST` only for the exact `/v1/responses` path and its slash-delimited subpaths, `GET` only for `/v1/models` and its slash-delimited subpaths, and `POST` only for the approved exact chat, image and `/typesafe/v1/systemone` paths. health, metrics and administrative routes remain cluster-only. the redqueen Jev adapter's internal route remains `/v1/systemone`.
+- the public Traefik IngressRoute uses method-scoped allowlists: `GET`/`POST` only for the exact `/v1/responses` path and its slash-delimited subpaths, `GET` only for `/v1/models` and its slash-delimited subpaths, and `POST` only for the approved exact chat, embedding, image and `/typesafe/v1/systemone` paths. health, metrics and administrative routes remain cluster-only. the redqueen Jev adapter's internal route remains `/v1/systemone`.
 
 the execution order is deliberately split at the privilege boundary:
 
@@ -583,3 +587,9 @@ do not install the AMD GPU Operator or move the inference services into pods in 
 nightly database dumps must be copied off the OpenMediaVault host. a dump sitting beside the database on the same machine is not a backup.
 
 the only intentionally unresolved input is the final off-host backup destination; it does not change the platform architecture.
+
+#### first embedding model: EmbeddingGemma 2 — 2026-10-06
+
+the pinned `unsloth/embeddinggemma-2-GGUF@ba3888272494be64ed88c9eb536ddc61a1be73d5` Q8_0 artifact is 309,855,520 bytes and SHA-256 verified. its original model is Apache-2.0. redqueen serves the 768-dimensional text embedding path from the existing private `10.9.20.242:8081` llama-swap listener using the pinned llama.cpp v0.6.0 runtime, native mean pooling and embedding-only mode. it does not use the reranking flag and does not install a multimodal projector, so this registration is text-only.
+
+LiteLLM exposes the alias `embeddinggemma-2` on authenticated `POST /v1/embeddings`, through the existing `qwen-redqueen` Service, EndpointSlice, port, firewall allowlist, upstream credential and egress policy. no other public API route is added. model inputs are passed through as supplied; clients doing retrieval should prefix queries with `task: search result | query: ...` and corpus entries with `title: ... | text: ...`, following the [model card](https://huggingface.co/unsloth/embeddinggemma-2-GGUF).
