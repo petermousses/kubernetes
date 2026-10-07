@@ -76,31 +76,7 @@ spec:
         - name: litellm
           port: http
     - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/typesafe/clef-flash-bf16/v1/systemone`)
-      middlewares:
-        - name: security-headers
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/typesafe/clef-flash-q8/v1/systemone`)
-      middlewares:
-        - name: security-headers
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/typesafe/clef-flash-q4/v1/systemone`)
-      middlewares:
-        - name: security-headers
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/typesafe/clef-q4/v1/systemone`)
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`GET`) && Path(`/typesafe/v1/models`)
       middlewares:
         - name: security-headers
         - name: request-limits

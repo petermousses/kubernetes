@@ -112,44 +112,32 @@ for the upstream login behavior.
 
 ## public inference validation
 
-System One models use LiteLLM's built-in TypeSafe pass-through. LiteLLM accepts
-the client's virtual key, removes it, and authenticates the forwarded request
-with `TYPESAFE_API_KEY`. JevK5 remains at `/typesafe/v1/systemone`. Each Clef
-model has a model-pinned path so a key can be scoped to one local precision:
+System One models share one public route: `POST /typesafe/v1/systemone`. Set
+`model` in the JSON body to select JevK5 or a local Clef variant. LiteLLM
+forwards this TypeSafe pass-through to the redqueen adapter and substitutes
+`TYPESAFE_API_KEY` for the client's virtual key. This follows LiteLLM's
+[native TypeSafe pass-through contract](https://docs.litellm.ai/docs/pass_through/typesafe).
 
-| model | public path |
+| request `model` | selected model |
 | --- | --- |
-| `jevk5-4b-v0.3` | `/typesafe/v1/systemone` |
-| `clef-flash-bf16` | `/typesafe/clef-flash-bf16/v1/systemone` |
-| `clef-flash-q8` | `/typesafe/clef-flash-q8/v1/systemone` |
-| `clef-flash-q4` | `/typesafe/clef-flash-q4/v1/systemone` |
-| `clef-q4` | `/typesafe/clef-q4/v1/systemone` |
+| `jev-latest`, `jevk5`, or `jevk5-4b-v0.3` | `jevk5-4b-v0.3` |
+| `clef-flash` | `clef-flash-bf16` (default precision) |
+| `clef-flash-bf16` | `clef-flash-bf16` |
+| `clef-flash-q8` | `clef-flash-q8` |
+| `clef-flash-q4` | `clef-flash-q4` |
+| `clef` or `clef-q4` | `clef-q4` |
 
-These exact routes are in the public IngressRoute; no wildcard TypeSafe path is
-exposed. LiteLLM substitutes `TYPESAFE_API_KEY` for the client's virtual key.
-This follows LiteLLM's [native TypeSafe pass-through contract](https://docs.litellm.ai/docs/pass_through/typesafe).
+An omitted `model` defaults to `jevk5-4b-v0.3`. The authenticated
+`GET /typesafe/v1/models` route lists accepted model aliases. This TypeSafe
+inventory is separate from LiteLLM's `/v1/models`, which lists the configured
+chat and image `model_list` entries.
 
-JevK5 does not appear in `/v1/models`: that inventory lists `model_list`
-entries, and the typed TypeSafe route is not a chat or image model. create a
-JevK5-only virtual key through the private `/key/generate` API using the master
-key and a nonempty route allowlist, for example:
-
-```json
-{"key_alias":"jevk5-eval","duration":"7d","allowed_routes":["/typesafe/v1/systemone"]}
-```
-
-the `models` allowlist does not restrict this pass-through. an absent or empty
-`allowed_routes` list is not a deny-all; verify that the resulting key can call
-JevK5 but gets denied on Qwen chat and image routes. never send the master or
-virtual key to the public API hostname's management paths; they are not exposed.
-
-Create a separate key for each Clef route by replacing the allowlist with that
-model's single exact path from the table. Do not add the Clef paths to a JevK5
-key unless that broader access is intended. Request bodies use `model` set to
-the public model alias, `state`, `questions`, and optionally up to four embedded
-PNG/JPEG/WebP `data:` URLs in `images`; remote image URLs are rejected. The
-adapter limits each decoded image to 4 MiB and 16 megapixels, and the total
-decoded image bytes to 8 MiB.
+Request bodies use `model`, `state`, and `questions`; Clef requests may also
+include up to four embedded PNG/JPEG/WebP `data:` URLs in `images`. Remote image
+URLs are rejected. The adapter limits each decoded image to 4 MiB and 16
+megapixels, and the total decoded image bytes to 8 MiB. LiteLLM's TypeSafe cost
+registry retains per-model pricing using the canonical model returned by the
+adapter.
 
 run the combined JevK5 and Qwen Image contract check from a workstation:
 

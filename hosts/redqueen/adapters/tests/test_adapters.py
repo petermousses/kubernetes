@@ -589,7 +589,7 @@ class AdapterTestCase(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(response.status, 400)
 
-    async def test_clef_route_pins_model_and_accepts_bounded_embedded_images(self) -> None:
+    async def test_shared_systemone_dispatches_clef_family_and_images(self) -> None:
         backend = FakeClefBackend()
         client = await self.client(
             create_jev_app(
@@ -610,16 +610,16 @@ class AdapterTestCase(unittest.IsolatedAsyncioTestCase):
             },
             "images": [image_url],
         }
-        path = "/clef-flash-q4/v1/systemone"
+        path = "/v1/systemone"
         self.assertEqual((await client.post(path, json=payload)).status, 401)
 
         response = await client.post(path, headers=self.auth(), json=payload)
         self.assertEqual(response.status, 200)
         body = await response.json()
-        self.assertEqual(body["model"], "clef-flash-q4")
+        self.assertEqual(body["model"], "clef-flash-bf16")
         self.assertEqual(body["usage"]["input_tokens"], 17)
-        self.assertEqual(backend.calls[0][0], "clef-flash-q4")
-        self.assertEqual(backend.calls[0][1]["model"], "clef-flash-q4")
+        self.assertEqual(backend.calls[0][0], "clef-flash-bf16")
+        self.assertEqual(backend.calls[0][1]["model"], "clef-flash-bf16")
         self.assertEqual(backend.calls[0][1]["images"], [image_url])
 
         invalid = await client.post(
@@ -630,7 +630,7 @@ class AdapterTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(invalid.status, 400)
 
         mismatched_model = await client.post(
-            path, headers=self.auth(), json={**payload, "model": "clef"}
+            path, headers=self.auth(), json={**payload, "model": "clef-not-real"}
         )
         self.assertEqual(mismatched_model.status, 400)
 

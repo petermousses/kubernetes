@@ -205,10 +205,7 @@ readonly -a public_api_rules=(
   "${public_host} && Method(\`POST\`) && Path(\`/v1/images/generations\`)"
   "${public_host} && Method(\`POST\`) && Path(\`/v1/images/edits\`)"
   "${public_host} && Method(\`POST\`) && Path(\`/typesafe/v1/systemone\`)"
-  "${public_host} && Method(\`POST\`) && Path(\`/typesafe/clef-flash-bf16/v1/systemone\`)"
-  "${public_host} && Method(\`POST\`) && Path(\`/typesafe/clef-flash-q8/v1/systemone\`)"
-  "${public_host} && Method(\`POST\`) && Path(\`/typesafe/clef-flash-q4/v1/systemone\`)"
-  "${public_host} && Method(\`POST\`) && Path(\`/typesafe/clef-q4/v1/systemone\`)"
+  "${public_host} && Method(\`GET\`) && Path(\`/typesafe/v1/models\`)"
 )
 for public_api_rule in "${public_api_rules[@]}"; do
   if ! grep -Fq -- "match: ${public_api_rule}" "${app_root}/ingress.yaml"; then

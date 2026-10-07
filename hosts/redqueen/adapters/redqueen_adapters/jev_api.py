@@ -22,7 +22,7 @@ from .jevk5_gguf import JevK5GGUF
 
 
 MODEL = "jevk5-4b-v0.3"
-MODEL_ALIASES = {MODEL, "jev-latest"}
+MODEL_ALIASES = {MODEL, "jev-latest", "jevk5"}
 MAX_QUESTIONS = 32
 MAX_CLEF_QUESTIONS = 64
 MAX_OPTIONS = 256
@@ -36,6 +36,15 @@ CLEF_MODEL_FAMILIES = {
     "clef-flash-q4": "clef-flash",
     "clef-q4": "clef",
 }
+CLEF_FAMILY_DEFAULTS = {
+    "clef-flash": "clef-flash-bf16",
+    "clef": "clef-q4",
+}
+SYSTEMONE_MODEL_ALIASES = (
+    MODEL_ALIASES
+    | set(CLEF_MODEL_FAMILIES)
+    | set(CLEF_FAMILY_DEFAULTS)
+)
 IMAGE_DATA_URL = re.compile(
     r"^data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$"
 )
@@ -408,13 +417,25 @@ def create_jev_app(
             return web.json_response({"ok": False}, status=503)
         return web.json_response({"ok": True})
 
+    async def evaluate_clef(payload: object, model: str) -> web.Response:
+        normalized = normalize_clef_request(payload, model)
+        if actual_clef_backend is None:
+            return error_response(503, "Clef router is not configured", "server_error")
+        try:
+            response = await actual_clef_backend.evaluate(model, normalized)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return error_response(502, "Clef backend failed", "upstream_error")
+        return web.json_response(response, headers={"Cache-Control": "no-store"})
+
     async def models(_: web.Request) -> web.Response:
         return web.json_response(
             {
                 "object": "list",
                 "data": [
                     {"id": model, "object": "model"}
-                    for model in (MODEL, *CLEF_MODEL_FAMILIES)
+                    for model in sorted(SYSTEMONE_MODEL_ALIASES)
                 ],
             }
         )
@@ -424,6 +445,21 @@ def create_jev_app(
             payload = await request.json()
         except (json.JSONDecodeError, aiohttp.ContentTypeError):
             raise ValueError("request body must be valid JSON")
+        if not isinstance(payload, dict):
+            raise ValueError("request body must be a JSON object")
+        requested_model = payload.get("model", MODEL)
+        if (
+            not isinstance(requested_model, str)
+            or requested_model not in SYSTEMONE_MODEL_ALIASES
+        ):
+            raise ValueError(
+                "model must be one of "
+                + ", ".join(sorted(SYSTEMONE_MODEL_ALIASES))
+            )
+        if requested_model not in MODEL_ALIASES:
+            model = CLEF_FAMILY_DEFAULTS.get(requested_model, requested_model)
+            return await evaluate_clef(payload, model)
+
         state, questions = normalize_request(payload)
         started = time.perf_counter()
         try:
@@ -461,18 +497,7 @@ def create_jev_app(
                 payload = await request.json()
             except (json.JSONDecodeError, aiohttp.ContentTypeError):
                 raise ValueError("request body must be valid JSON")
-            normalized = normalize_clef_request(payload, model)
-            if actual_clef_backend is None:
-                return error_response(
-                    503, "Clef router is not configured", "server_error"
-                )
-            try:
-                response = await actual_clef_backend.evaluate(model, normalized)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                return error_response(502, "Clef backend failed", "upstream_error")
-            return web.json_response(response, headers={"Cache-Control": "no-store"})
+            return await evaluate_clef(payload, model)
 
         return handle
 
