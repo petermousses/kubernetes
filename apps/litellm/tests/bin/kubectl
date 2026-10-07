@@ -17,7 +17,7 @@ if [[ "${arguments}" == *" get deployment litellm "* ]]; then
   exit 1
 fi
 
-if [[ "${arguments}" == *" get job/litellm-migrations-v1-103-0 -o jsonpath="* ]]; then
+if [[ "${arguments}" == *" get job/litellm-migrations-v1-104-0 -o jsonpath="* ]]; then
   case "${FAKE_MIGRATION_RESULT}" in
     complete)
       printf 'Complete=True\n'
@@ -34,6 +34,6 @@ if [[ "${arguments}" == *" get job/litellm-migrations-v1-103-0 -o jsonpath="* ]]
   esac
 fi
 
-if [[ "${arguments}" == *" logs -l job-name=litellm-migrations-v1-103-0 "* ]]; then
+if [[ "${arguments}" == *" logs -l job-name=litellm-migrations-v1-104-0 "* ]]; then
   printf 'retained migration failure log\n'
 fi

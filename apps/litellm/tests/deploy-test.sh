@@ -29,8 +29,8 @@ if run_deploy failed "${failure_log}" >"${scratch}/failed.out" 2>"${scratch}/fai
   printf 'deploy unexpectedly succeeded after a failed migration\n' >&2
   exit 1
 fi
-grep -Fq 'logs -l job-name=litellm-migrations-v1-103-0' "${failure_log}"
-grep -Fq 'describe job/litellm-migrations-v1-103-0' "${failure_log}"
+grep -Fq 'logs -l job-name=litellm-migrations-v1-104-0' "${failure_log}"
+grep -Fq 'describe job/litellm-migrations-v1-104-0' "${failure_log}"
 if grep -Fq "apply -k ${app_root}" "${failure_log}"; then
   printf 'gateway manifests were applied after a failed migration\n' >&2
   exit 1
@@ -57,7 +57,7 @@ grep -Fq 'backoffLimit: 0' "${app_root}/migration-job.yaml"
 grep -Fq 'restartPolicy: Never' "${app_root}/migration-job.yaml"
 grep -Fq 'runAsUser: 65532' "${app_root}/migration-job.yaml"
 grep -Fq 'name: DATABASE_URL' "${app_root}/migration-job.yaml"
-grep -Fq 'ghcr.io/berriai/litellm-migrations@sha256:dac0d22bbb18c418f45a5d1bf7c2cc044c812b77de23171df106d1cbb7fcbed5' \
+grep -Fq 'ghcr.io/berriai/litellm-migrations@sha256:280133fa9acd6e7d5d5253f8a7ad727cee57da42f0e4db31de666ad69fd00ec9' \
   "${app_root}/migration-job.yaml"
 if grep -Eq '^[[:space:]]+envFrom:' "${app_root}/migration-job.yaml"; then
   printf 'migration Job receives secrets it does not need\n' >&2

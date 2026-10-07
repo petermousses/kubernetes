@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/name: litellm
     app.kubernetes.io/component: gateway
     app.kubernetes.io/part-of: litellm
-    app.kubernetes.io/version: 1.103.0
+    app.kubernetes.io/version: 1.104.0
 spec:
   replicas: 1
   strategy:
@@ -23,7 +23,7 @@ spec:
         app.kubernetes.io/name: litellm
         app.kubernetes.io/component: gateway
         app.kubernetes.io/part-of: litellm
-        app.kubernetes.io/version: 1.103.0
+        app.kubernetes.io/version: 1.104.0
         mousses.xyz/authentik-oidc-client: "true"
         mousses.xyz/public-web-egress: "true"
     spec:
@@ -95,8 +95,8 @@ spec:
               type: RuntimeDefault
       containers:
         - name: litellm
-          # ghcr.io/berriai/litellm:v1.103.0; Cosign-verified index digest.
-          image: ghcr.io/berriai/litellm@sha256:bd089afdcd35b894b14a93f9743cdc8b591f82da1a38dd43a010a7b0c9de5fd7
+          # ghcr.io/berriai/litellm:v1.104.0; Cosign-verified index digest.
+          image: ghcr.io/berriai/litellm@sha256:625981c83410a3ea68eb0697590a57ec1d764d634514d54fa5db0591077ee839
           imagePullPolicy: IfNotPresent
           args:
             - --config
