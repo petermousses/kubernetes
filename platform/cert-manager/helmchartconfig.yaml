@@ -8,3 +8,28 @@ spec:
     extraArgs:
       - --dns01-recursive-nameservers-only
       - --dns01-recursive-nameservers=https://1.1.1.1/dns-query
+    securityContext: &podSecurityContext
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext: &containerSecurityContext
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+      seccompProfile:
+        type: RuntimeDefault
+    cainjector:
+      securityContext: *podSecurityContext
+      containerSecurityContext: *containerSecurityContext
+    webhook:
+      securityContext: *podSecurityContext
+      containerSecurityContext: *containerSecurityContext
+    startupapicheck:
+      securityContext: *podSecurityContext
+      containerSecurityContext: *containerSecurityContext

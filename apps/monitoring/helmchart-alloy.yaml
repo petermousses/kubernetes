@@ -12,12 +12,13 @@ spec:
   failurePolicy: abort
   timeout: 15m
   valuesContent: |-
-    podSecurityContext:
-      runAsNonRoot: true
-      runAsUser: 473
-      runAsGroup: 473
-      seccompProfile:
-        type: RuntimeDefault
+    global:
+      podSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 473
+        runAsGroup: 473
+        seccompProfile:
+          type: RuntimeDefault
     controller:
       type: deployment
       replicas: 1

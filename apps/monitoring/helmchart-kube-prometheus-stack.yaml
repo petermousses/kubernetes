@@ -12,23 +12,25 @@ spec:
   failurePolicy: abort
   timeout: 15m
   valuesContent: |-
-    podSecurityContext:
-      runAsNonRoot: true
-      runAsUser: 65534
-      runAsGroup: 65534
-      fsGroup: 65534
-      seccompProfile:
-        type: RuntimeDefault
-    containerSecurityContext:
-      runAsNonRoot: true
-      runAsUser: 65534
-      runAsGroup: 65534
-      allowPrivilegeEscalation: false
-      readOnlyRootFilesystem: true
-      capabilities:
-        drop: [ALL]
-      seccompProfile:
-        type: RuntimeDefault
+    upgradeJob:
+      enabled: false
+      podSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containerSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
     prometheusOperator:
       securityContext:
         runAsNonRoot: true
