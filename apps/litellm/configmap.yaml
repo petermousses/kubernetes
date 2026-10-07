@@ -88,6 +88,8 @@ data:
           timeout: 900
         model_info:
           mode: embedding
+          # Google Gemini Embedding 2 Standard online text-input rate; proxy benchmark, see AI_INFERENCE_PLAN.md.
+          input_cost_per_token: 0.0000002
       - model_name: qwen-image-2.1
         litellm_params:
           model: openai/qwen-image-2.1
