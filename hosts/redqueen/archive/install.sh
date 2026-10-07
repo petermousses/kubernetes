@@ -110,11 +110,13 @@ chmod 0600 "${ssh_key}"
 chmod 0644 "${ssh_key}.pub"
 
 readonly expected_env="${temporary_root}/redqueen-archive.env"
+# The archive's SSH identity and trust policy are pinned below, so skip unrelated
+# distribution-wide SSH config fragments that can reject this service account.
 cat >"${expected_env}" <<EOF
 BORG_BASE_DIR=${state_root}
 BORG_REPO=ssh://redqueen-archive@10.9.20.14/filesystem/k3s/backups/redqueen-ai/repo
 BORG_REMOTE_PATH=/usr/local/bin/borg
-BORG_RSH="ssh -i ${ssh_key} -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519 -o UserKnownHostsFile=${known_hosts} -o GlobalKnownHostsFile=/dev/null -o ServerAliveInterval=10 -o ServerAliveCountMax=30"
+BORG_RSH="ssh -F /dev/null -i ${ssh_key} -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519 -o UserKnownHostsFile=${known_hosts} -o GlobalKnownHostsFile=/dev/null -o ServerAliveInterval=10 -o ServerAliveCountMax=30"
 BORG_PASSCOMMAND=${passcommand_target}
 BORG_LOCK_WAIT=600
 EOF
