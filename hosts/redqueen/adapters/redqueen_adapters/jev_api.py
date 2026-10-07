@@ -455,29 +455,33 @@ def create_jev_app(
             headers={"Cache-Control": "no-store"},
         )
 
-    async def clef_systemone(request: web.Request) -> web.Response:
-        model = request.match_info["model"]
-        try:
-            payload = await request.json()
-        except (json.JSONDecodeError, aiohttp.ContentTypeError):
-            raise ValueError("request body must be valid JSON")
-        normalized = normalize_clef_request(payload, model)
-        if actual_clef_backend is None:
-            return error_response(503, "Clef router is not configured", "server_error")
-        try:
-            response = await actual_clef_backend.evaluate(model, normalized)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            return error_response(502, "Clef backend failed", "upstream_error")
-        return web.json_response(response, headers={"Cache-Control": "no-store"})
+    def clef_handler(model: str):
+        async def handle(request: web.Request) -> web.Response:
+            try:
+                payload = await request.json()
+            except (json.JSONDecodeError, aiohttp.ContentTypeError):
+                raise ValueError("request body must be valid JSON")
+            normalized = normalize_clef_request(payload, model)
+            if actual_clef_backend is None:
+                return error_response(
+                    503, "Clef router is not configured", "server_error"
+                )
+            try:
+                response = await actual_clef_backend.evaluate(model, normalized)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                return error_response(502, "Clef backend failed", "upstream_error")
+            return web.json_response(response, headers={"Cache-Control": "no-store"})
+
+        return handle
 
     app.router.add_get("/healthz", health)
     app.router.add_get("/readyz", ready)
     app.router.add_get("/v1/models", models)
     app.router.add_post("/v1/systemone", systemone)
     for model in CLEF_MODEL_FAMILIES:
-        app.router.add_post(f"/{model}/v1/systemone", clef_systemone)
+        app.router.add_post(f"/{model}/v1/systemone", clef_handler(model))
     return app
 
 
