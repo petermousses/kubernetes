@@ -104,14 +104,16 @@ else
 fi
 install -d -o root -g root -m 0755 -- "${archive_home}/.ssh"
 if [[ ! -e "${archive_home}/.ssh/authorized_keys" ]]; then
-  install -o root -g root -m 0600 /dev/null "${archive_home}/.ssh/authorized_keys"
+  install -o root -g root -m 0644 /dev/null "${archive_home}/.ssh/authorized_keys"
 fi
 [[ -f "${archive_home}/.ssh/authorized_keys" && ! -L "${archive_home}/.ssh/authorized_keys" ]] || {
   printf 'authorized_keys must be a regular file; preserving unexpected path\n' >&2
   exit 1
 }
 chown root:root "${archive_home}/.ssh/authorized_keys"
-chmod 0600 "${archive_home}/.ssh/authorized_keys"
+# The key is public, and sshd must be able to read it for this system account.
+# Keep root ownership so the restricted user cannot alter its forced command.
+chmod 0644 "${archive_home}/.ssh/authorized_keys"
 
 install -d -o root -g root -m 0755 -- "${archive_root}"
 if [[ -e "${repository_path}" ]]; then
