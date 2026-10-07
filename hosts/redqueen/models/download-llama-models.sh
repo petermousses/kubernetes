@@ -360,7 +360,7 @@ download_clef() {
   download "${model_root}" "${source_base}/LICENSE" LICENSE \
     bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a
   download "${model_root}" "${source_base}/README.md" SOURCE_MODEL_CARD.md \
-    b0211b6ca10038b3168dde51f148208b8c6b0fdccbbd765fce237dbc24f5d76
+    b0211b6ca10038b3168dde51f1482088b8c6b0fdccbbd765fce237dbc24f5d76
   download "${model_root}" "${gguf_base}/README.md" MODEL_CARD.md \
     c3a5cc3e2092dd6dd6dd10bf8cd878b02c973333588a38ac22aefca1fbfe98f6
 

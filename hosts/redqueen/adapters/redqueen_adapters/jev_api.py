@@ -102,7 +102,7 @@ class RouterClefBackend:
         async with self._slot:
             async with aiohttp.ClientSession(timeout=self.timeout) as session:
                 async with session.post(
-                    f"{self.url}/v1/systemone",
+                    f"{self.url}/upstream/{model}/v1/systemone",
                     json=payload,
                     headers={"Authorization": f"Bearer {self.api_key}"},
                 ) as response:
