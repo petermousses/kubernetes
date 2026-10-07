@@ -42,7 +42,9 @@ for model_id in \
   gemma-4-26b-a4b-it \
   qwen3.6-35b-a3b \
   huihui-glm-5.3-flash-abliterated-gguf \
-  embeddinggemma-2; do
+  embeddinggemma-2 \
+  clef-flash \
+  clef; do
   manifest="/srv/ai/models/${model_id}/SHA256SUMS"
   if [[ ! -s "${manifest}" ]]; then
     printf 'model checksum manifest is missing: %s\n' "${manifest}" >&2

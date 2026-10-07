@@ -156,6 +156,8 @@ spec:
             # caller's virtual key with TYPESAFE_API_KEY from litellm-env.
             - name: TYPESAFE_API_BASE
               value: http://jevk5-redqueen:8191
+            - name: PYTHONPATH
+              value: /etc/litellm
             - name: XDG_CACHE_HOME
               value: /app/cache
           startupProbe:
@@ -199,6 +201,10 @@ spec:
               mountPath: /etc/litellm/config.yaml
               subPath: config.yaml
               readOnly: true
+            - name: config
+              mountPath: /etc/litellm/redqueen_costs.py
+              subPath: redqueen_costs.py
+              readOnly: true
             - name: cache
               mountPath: /app/cache
             - name: migrations
@@ -212,6 +218,8 @@ spec:
             items:
               - key: config.yaml
                 path: config.yaml
+              - key: redqueen_costs.py
+                path: redqueen_costs.py
         - name: cache
           emptyDir:
             sizeLimit: 512Mi

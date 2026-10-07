@@ -10,6 +10,9 @@ readonly package_target="${target_root}/source/redqueen_adapters"
 readonly workflow_target="${target_root}/workflows"
 readonly venv="${target_root}/venv"
 readonly user_unit_dir="${HOME}/.config/systemd/user"
+readonly secret_dir=/srv/ai/secrets
+readonly qwen_key_file="${secret_dir}/qwen38-api-keys"
+readonly adapter_env_file="${secret_dir}/redqueen-adapters.env"
 
 if [[ "$(id -u)" -eq 0 ]]; then
   printf 'refusing to install the adapters as root\n' >&2
@@ -48,6 +51,40 @@ fi
   --requirement "${source_root}/requirements.lock"
 PYTHONPATH="${target_root}/source" "${venv}/bin/python" -m unittest discover \
   -s "${source_root}/tests" -v
+
+if [[ -e "${adapter_env_file}" ]]; then
+  [[ -f "${adapter_env_file}" && ! -L "${adapter_env_file}" && \
+    -r "${adapter_env_file}" && -w "${adapter_env_file}" ]] || {
+    printf 'adapter environment file must be a readable regular file owned by ai\n' >&2
+    exit 1
+  }
+  [[ -r "${qwen_key_file}" && -s "${qwen_key_file}" ]] || {
+    printf 'missing existing Qwen router credential: %s\n' "${qwen_key_file}" >&2
+    exit 1
+  }
+  mapfile -t qwen_key_lines <"${qwen_key_file}"
+  [[ "${#qwen_key_lines[@]}" -eq 1 && \
+    "${qwen_key_lines[0]}" =~ ^[a-f0-9]{64}$ ]] || {
+    printf 'Qwen router credential must contain one 64-character hex key\n' >&2
+    exit 1
+  }
+  mapfile -t configured_router_keys < <(
+    sed -n 's/^QWEN_API_KEY=//p' "${adapter_env_file}"
+  )
+  if [[ "${#configured_router_keys[@]}" -eq 0 ]]; then
+    readonly adapter_env_partial="$(mktemp --tmpdir="${secret_dir}" .redqueen-adapters-env.XXXXXXXX)"
+    trap 'rm -f -- "${adapter_env_partial}"' EXIT
+    cat -- "${adapter_env_file}" >"${adapter_env_partial}"
+    printf 'QWEN_API_KEY=%s\n' "${qwen_key_lines[0]}" >>"${adapter_env_partial}"
+    chmod 0600 "${adapter_env_partial}"
+    mv -- "${adapter_env_partial}" "${adapter_env_file}"
+    trap - EXIT
+  elif [[ "${#configured_router_keys[@]}" -ne 1 || \
+    "${configured_router_keys[0]}" != "${qwen_key_lines[0]}" ]]; then
+    printf 'adapter environment has a mismatched or duplicate QWEN_API_KEY; preserving it\n' >&2
+    exit 1
+  fi
+fi
 
 install -d -m 0755 -- "${user_unit_dir}"
 for unit in qwen38.service qwen-image-adapter.service jevk5-adapter.service; do

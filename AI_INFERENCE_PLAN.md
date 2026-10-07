@@ -14,7 +14,7 @@ do **not** make k3s directly manage the AMD Halo GPU workloads in v1. run the in
 | Qwen3.8, Gemma 4 E4B/12B/26B-A4B, Qwen3.6-35B-A3B weights | Apache-2.0 |
 | Huihui GLM-5.3-Flash abliterated GGUF | MIT; reduced safety filtering; dedicated restricted key only |
 | Qwen Image 2.1 runtime | ComfyUI (GPL-3.0) + ComfyUI-GGUF (Apache-2.0) + OpenAI-compatible Images adapter (repository Apache-2.0); standard and uncensored image weights (Qwen Research License) |
-| JevK5 runtime | separate `llama.cpp` server + `/v1/systemone` adapter; JevK5 code and weights (Apache-2.0) |
+| System One models | JevK5's calibrated adapter plus model-pinned Cloudflare Clef / Clef-Flash routes through the private llama-swap router |
 | machine authentication | scoped LiteLLM virtual keys |
 | browser authentication | Authentik SSO |
 
@@ -26,7 +26,7 @@ browser ──> traefik ──> LibreChat ──> LiteLLM
 api clients ──> api.ai... ──────────────┤
                                         ├─> llama-swap ─> one llama.cpp text model at a time
                                         ├─> image adapter ─> ComfyUI (standard or uncensored Qwen Image)
-                                        └─> JevK5 adapter ─> llama.cpp
+                                        └─> System One adapter ─> JevK5 or llama-swap Clef
 ```
 
 raw Halo endpoints remain private and firewall-restricted to the cluster.
@@ -41,6 +41,7 @@ raw Halo endpoints remain private and firewall-restricted to the cluster.
 | [Gemma 4 E4B](https://huggingface.co/google/gemma-4-E4B-it), [12B](https://huggingface.co/google/gemma-4-12B-it), and [26B-A4B](https://huggingface.co/google/gemma-4-26B-A4B-it) weights | Apache-2.0 | permissive; preserve required notices when redistributing weights or derivatives. |
 | [Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) | Apache-2.0 | permissive; preserve required notices when redistributing weights or derivatives. |
 | [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2), GGUF from [Unsloth](https://huggingface.co/unsloth/embeddinggemma-2-GGUF) | Apache-2.0 | preserve the Apache license and model card; use task prefixes for query/document retrieval inputs. |
+| [Cloudflare Clef](https://huggingface.co/Cloudflare/clef) and [Clef-Flash](https://huggingface.co/Cloudflare/clef-flash), converted GGUFs from [ggml-org](https://huggingface.co/ggml-org/Clef-Flash-GGUF) | Apache-2.0 | preserve source and GGUF model cards plus the source license; use the typed System One decision API, not chat completion. |
 | [Huihui GLM-5.3-Flash abliterated GGUF](https://huggingface.co/huihui-ai/Huihui-GLM-5.3-Flash-abliterated-GGUF) | MIT | the model card calls this a crude, proof-of-concept abliteration, warns that safety filtering is significantly reduced, and recommends controlled research/testing; allow only through a dedicated restricted key. |
 | [Qwen Image 2.1](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE), including [uncensored GGUF derivative](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF) | Qwen Research License | non-commercial research/evaluation only unless a separate commercial license is obtained. the uncensored derivative has no built-in safety checker or content filter; keep it behind authenticated LiteLLM keys and do not imply moderation. |
 | [JevK5 runtime and model](https://github.com/allebee/jevk5/blob/main/LICENSE) | Apache-2.0 | permissive; the selected [GGUF weights](https://huggingface.co/alibiserikbay/JevK5-GGUF) carry the same license. |
@@ -138,12 +139,14 @@ step 1 is **complete**. the one-hour mixed GPU/memory stress gate, reboot recove
   - `/srv/ai/models/qwen3.8-27b/` — Qwen3.8 weights, multimodal projection, license, source revision and `SHA256SUMS`;
   - `/srv/ai/models/jevk5-4b-v0.3/` — JevK5 GGUF, calibration metadata, license, source revision and `SHA256SUMS`;
   - `/srv/ai/models/embeddinggemma-2/` — EmbeddingGemma 2 Q8_0 GGUF, license, model card, source revision and `SHA256SUMS`;
+  - `/srv/ai/models/clef-flash/` — BF16, Q8_0 and Q4_K_M Clef-Flash GGUFs plus shared Q8_0 projector, license, both model cards, source revisions and `SHA256SUMS`;
+  - `/srv/ai/models/clef/` — Clef Q4_K_M GGUF plus Q8_0 projector, license, both model cards, source revisions and `SHA256SUMS`;
   - `/srv/ai/models/qwen-image-2.1/` — Qwen Image model components, license, source revision and `SHA256SUMS`;
   - `/srv/ai/cache/` — disposable download, conversion and runtime caches; never the authoritative copy of a model;
   - `/srv/ai/comfyui/` — pinned ComfyUI checkout, immutable workflows and custom-node lock data.
 - configure every runtime to load weights from the authoritative `/srv/ai/models/` directories directly or through read-only symlinks; do not duplicate unmanaged model copies inside application directories or container layers.
-- download the pinned Qwen3.8-27B, JevK5 4B Q8_0 and Qwen Image 2.1 artifacts; record source revisions and SHA-256 hashes, and retain every required license/notice file beside the weights.
-- run separate `llama-server` instances for Qwen3.8 and JevK5, including Qwen’s multimodal projection and each service’s health and metrics endpoints.
+- download the pinned Qwen3.8-27B, JevK5 4B Q8_0, Clef/Flash quantizations and Qwen Image 2.1 artifacts; record source revisions and SHA-256 hashes, and retain every required license/notice file beside the weights.
+- run the private model router for chat, embedding and Clef servers; keep JevK5's calibrated local llama.cpp server behind the same typed adapter.
 - install a pinned ComfyUI revision and immutable Qwen Image 2.1 workflows for generation, editing, transparency and reference-image input.
 - bind inference ports only to the private interface and restrict the host firewall to required cluster sources; no raw model endpoint may be internet- or user-accessible.
 - **exit criterion:** every backend starts automatically after reboot, passes its direct health/functional test and remains inaccessible outside the approved cluster path.
@@ -251,7 +254,7 @@ SSH authentication is the v1 security boundary for the operator UI. if browser-o
 - implement and test the image adapter for `/v1/images/generations` and `/v1/images/edits`, including validation, timeouts, cancellation, queue limits and deterministic ComfyUI workflow mapping.
 - implement and test the JevK5 `/v1/systemone` adapter with typed request/response validation, option-count limits and calibrated model settings.
 - deploy LiteLLM and its dedicated PostgreSQL database with pinned images, non-committed Kubernetes Secrets, network policies, probes, resource limits and persistent storage.
-- register the approved chat/image IDs, `embeddinggemma-2` for LiteLLM's OpenAI-compatible `/v1/embeddings`, and LiteLLM's native authenticated `/typesafe/v1/systemone` pass-through, which forwards the exact `/v1/systemone` suffix to the redqueen adapter; prohibit wildcard pass-through and caller Authorization-header forwarding. [LiteLLM embeddings](https://docs.litellm.ai/docs/embedding), [LiteLLM TypeSafe pass-through](https://docs.litellm.ai/docs/pass_through/typesafe)
+- register the approved chat/image IDs, `embeddinggemma-2` for LiteLLM's OpenAI-compatible `/v1/embeddings`, JevK5 at `/typesafe/v1/systemone`, and each Clef precision at its exact model-pinned `/typesafe/<alias>/v1/systemone` path; prohibit wildcard pass-through and caller Authorization-header forwarding. register TypeSafe token rates using LiteLLM's custom model-cost map. [LiteLLM embeddings](https://docs.litellm.ai/docs/embedding), [LiteLLM TypeSafe pass-through](https://docs.litellm.ai/docs/pass_through/typesafe), [LiteLLM custom pricing](https://docs.litellm.ai/docs/proxy/custom_pricing/)
 - for each chat model, set LiteLLM `model_info.supports_reasoning` and `supported_reasoning_efforts` from that model's official specification and serving template/API. declare only the levels the backend actually implements; verify that the selected level reaches the backend's required request field instead of assuming capability metadata performs a parameter translation. run short per-level smoke requests before exposing the model. GLM-5.3-Flash supports `low`, `high` and `max` (default `max`); reasoning cannot be disabled. With llama.cpp, pass the chosen effort as `chat_template_kwargs.reasoning_effort`, and default `clear_thinking=true` for chat. [GLM-5.3 API changes](https://z.ai/blog/glm-5.3), [LiteLLM reasoning metadata](https://docs.litellm.ai/docs/reasoning_content/), [llama.cpp server options](https://github.com/ggml-org/llama.cpp/blob/v0.6.0/tools/server/README.md)
 - for every local chat model, set `model_info.input_cost_per_token` and `output_cost_per_token` in the versioned LiteLLM config using the closest relevant paid hosted API list rate, converted from USD per million tokens to USD per token. record the provider, source model, rate snapshot date and any currency conversion here. use an exact hosted counterpart when available; for a derivative with no hosted API, use the unmodified base model's rate and label it as a proxy. these values create API-equivalent spend in LiteLLM's logs/UI and are also used by LiteLLM budgets; they are not redqueen electricity, hardware depreciation or actual local operating cost. keep those local costs as a separate estimate. do not make a UI-only pricing change: `store_model_in_db: false` leaves this repository config authoritative. add cache/tier-specific cost fields only when the request usage exposes those token categories reliably. [LiteLLM custom pricing](https://docs.litellm.ai/docs/proxy/custom_pricing/), [LiteLLM spend tracking](https://docs.litellm.ai/docs/proxy/cost_tracking)
 
@@ -268,7 +271,21 @@ the following snapshot supplies the `model_info` rates above. prices are USD per
 | `qwen3.6-35b-a3b` | SiliconFlow `Qwen3.6-35B-A3B` | $0.24 / $1.80 |
 | `glm-5.3-flash-abliterated` | Z.AI `GLM-5.3-Flash` base model; proxy for the ablated derivative | $0.15 / $0.50 |
 
-price sources: [DeepInfra Gemma 4 E4B](https://deepinfra.com/google/gemma-4-E4B-it), [SiliconFlow pricing](https://www.siliconflow.com/pricing), [Z.AI pricing](https://docs.z.ai/guides/overview/pricing). the GLM ablation is not offered as a hosted API; its base-model price is only a comparison benchmark. refresh the sources and this table when adding/removing a chat model or when a listed provider rate changes. image aliases and JevK5 `/typesafe/v1/systemone` have no chat-token comparator here and remain excluded.
+price sources: [DeepInfra Gemma 4 E4B](https://deepinfra.com/google/gemma-4-E4B-it), [SiliconFlow pricing](https://www.siliconflow.com/pricing), [Z.AI pricing](https://docs.z.ai/guides/overview/pricing). the GLM ablation is not offered as a hosted API; its base-model rate is only a comparison benchmark. refresh these sources when adding/removing a chat model or a listed rate changes. System One API-equivalent rates are recorded below.
+
+#### API-equivalent System One rates — 2026-10-06
+
+these input-only hosted API rates feed LiteLLM spend and budget accounting for the typed endpoints. all outputs are free and set to zero. JevK5 has no published hosted price, so it uses Jev's $0.042 per 1M input-token rate as the requested proxy. the three local Clef-Flash precisions use Cloudflare's $0.09 per 1M input-token price; local Clef Q4 uses Cloudflare Clef's $0.24 per 1M input-token price. these are hosted API benchmarks, not local electricity or hardware costs. LiteLLM registers them under `typesafe/<response-model>` in `apps/litellm/configmap.yaml` so the native TypeSafe pass-through can account for them.
+
+| local System One alias | hosted benchmark | input / output per 1M tokens |
+| --- | --- | ---: |
+| `jevk5-4b-v0.3` | TypeSafe Jev 1.13; proxy because JevK5 has no separately published hosted rate | $0.042 / $0 |
+| `clef-flash-bf16` | Cloudflare Workers AI `@cf/cloudflare/clef-flash` | $0.09 / $0 |
+| `clef-flash-q8` | Cloudflare Workers AI `@cf/cloudflare/clef-flash` | $0.09 / $0 |
+| `clef-flash-q4` | Cloudflare Workers AI `@cf/cloudflare/clef-flash` | $0.09 / $0 |
+| `clef-q4` | Cloudflare Workers AI `@cf/cloudflare/clef` | $0.24 / $0 |
+
+price sources: [TypeSafe model pricing](https://docs.typesafe.ai/models), [Cloudflare Clef-Flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/), [Cloudflare Clef](https://developers.cloudflare.com/workers-ai/models/clef/), [Cloudflare Workers AI pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/). the model cards specify the matching typed `/v1/systemone` API; Clef-Flash accepts embedded images. [ggml-org Clef-Flash GGUF](https://huggingface.co/ggml-org/Clef-Flash-GGUF), [ggml-org Clef GGUF](https://huggingface.co/ggml-org/Clef-GGUF).
 - create separate least-privilege virtual keys for LibreChat, administrators and each machine client; enable request, latency, error and queue metrics without logging prompts or image contents by default.
 - **exit criterion:** one API hostname serves all three capabilities, rejects missing or incorrectly scoped keys, and exposes no route that bypasses LiteLLM authentication.
 
@@ -291,9 +308,9 @@ the implementation is versioned under `apps/litellm/` and `hosts/redqueen/` with
 - PostgreSQL `16.14-bookworm` is pinned by digest, runs as UID/GID 999, uses the retained static PV, and is reachable only from the gateway and migration pods;
 - secrets are never committed. `bootstrap-secrets.sh` prompts for the three redqueen upstream keys, generates the database password, LiteLLM master key and permanent salt, then refuses accidental rotation if the Secret already exists;
 - the redqueen image adapter exposes only bounded `/v1/images/generations` and `/v1/images/edits` contracts, maps requests into fixed workflows, limits execution to one active/four waiting jobs, cleans request-scoped inputs/outputs, verifies returned PNG dimensions and the requested alpha contract, and composites RGBA output onto a white matte for `background=opaque` so the response is truly opaque RGB;
-- the JevK5 adapter exposes only `/v1/systemone`, enforces TypeSafe-style typed inputs/outputs and uses the selected Q8_0 file's documented `temperature=1.22` and `knockout_temperature=0.93` calibration. its vendored prompt/readout is attributed to JevK5 v0.3.0 and SemIf;
+- the System One adapter keeps JevK5 at its existing `/v1/systemone` path, enforces TypeSafe-style typed inputs/outputs and uses the selected Q8_0 file's documented `temperature=1.22` and `knockout_temperature=0.93` calibration. model-pinned Clef routes forward only validated decision fields to llama-swap, force the path's local alias, and bound inline images to Cloudflare's documented payload limits;
 - Qwen binds to `10.9.20.242:8081`; the image and Jev adapters bind to `10.9.20.242:8190` and `:8191`. separate 256-bit upstream credentials protect every inference operation, and the host firewall admits only the NAS, redqueen itself and the k3s pod CIDR to those ports. llama.cpp leaves `/v1/models` metadata unauthenticated even with `--api-key-file`; this is accepted only behind that source-IP firewall, while the public `/v1/models` route remains behind LiteLLM authentication;
-- the public Traefik IngressRoute uses method-scoped allowlists: `GET`/`POST` only for the exact `/v1/responses` path and its slash-delimited subpaths, `GET` only for `/v1/models` and its slash-delimited subpaths, and `POST` only for the approved exact chat, embedding, image and `/typesafe/v1/systemone` paths. health, metrics and administrative routes remain cluster-only. the redqueen Jev adapter's internal route remains `/v1/systemone`.
+- the public Traefik IngressRoute uses method-scoped allowlists: `GET`/`POST` only for the exact `/v1/responses` path and its slash-delimited subpaths, `GET` only for `/v1/models` and its slash-delimited subpaths, and `POST` only for approved exact chat, embedding, image, JevK5 and four model-pinned Clef paths. health, metrics and administrative routes remain cluster-only. the redqueen System One adapter has fixed internal paths for each Clef alias and retains JevK5's `/v1/systemone` path.
 
 the execution order is deliberately split at the privilege boundary:
 

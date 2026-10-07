@@ -71,6 +71,25 @@ class FakeJevBackend:
         }
 
 
+class FakeClefBackend:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+
+    async def evaluate(self, model: str, payload: dict) -> dict:
+        self.calls.append((model, payload))
+        answers = {}
+        for question_id, question in payload["questions"].items():
+            if question["type"] == "noul":
+                answers[question_id] = {"type": "noul", "noul": 0.9}
+            else:
+                raise AssertionError("this fake only supports noul questions")
+        return {
+            "model": model,
+            "answers": answers,
+            "usage": {"input_tokens": 17, "output_tokens": 0},
+        }
+
+
 class RecordingComfyBackend(ComfyBackend):
     def __init__(self) -> None:
         workflow_dir = Path(__file__).resolve().parents[2] / "comfyui"
@@ -569,6 +588,51 @@ class AdapterTestCase(unittest.IsolatedAsyncioTestCase):
                 "/v1/systemone", headers=self.auth(), json=payload
             )
             self.assertEqual(response.status, 400)
+
+    async def test_clef_route_pins_model_and_accepts_bounded_embedded_images(self) -> None:
+        backend = FakeClefBackend()
+        client = await self.client(
+            create_jev_app(
+                JevSettings(api_key=TOKEN), FakeJevBackend(), clef_backend=backend
+            )
+        )
+        image_url = "data:image/png;base64," + base64.b64encode(
+            png((64, 64))
+        ).decode()
+        payload = {
+            "model": "clef-flash",
+            "state": {"ticket": "check this image"},
+            "questions": {
+                "has_item": {
+                    "type": "noul",
+                    "instructions": "Is there an item in the image?",
+                }
+            },
+            "images": [image_url],
+        }
+        path = "/clef-flash-q4/v1/systemone"
+        self.assertEqual((await client.post(path, json=payload)).status, 401)
+
+        response = await client.post(path, headers=self.auth(), json=payload)
+        self.assertEqual(response.status, 200)
+        body = await response.json()
+        self.assertEqual(body["model"], "clef-flash-q4")
+        self.assertEqual(body["usage"]["input_tokens"], 17)
+        self.assertEqual(backend.calls[0][0], "clef-flash-q4")
+        self.assertEqual(backend.calls[0][1]["model"], "clef-flash-q4")
+        self.assertEqual(backend.calls[0][1]["images"], [image_url])
+
+        invalid = await client.post(
+            path,
+            headers=self.auth(),
+            json={**payload, "images": ["https://example.com/image.png"]},
+        )
+        self.assertEqual(invalid.status, 400)
+
+        mismatched_model = await client.post(
+            path, headers=self.auth(), json={**payload, "model": "clef"}
+        )
+        self.assertEqual(mismatched_model.status, 400)
 
     async def test_jev_backend_failure_is_redacted_as_502(self) -> None:
         class BrokenJevBackend(FakeJevBackend):

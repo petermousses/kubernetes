@@ -106,6 +106,7 @@ data:
     litellm_settings:
       callbacks:
         - prometheus
+        - redqueen_costs.cost_registry
       json_logs: true
       key_alias_pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
       redact_messages_in_exceptions: true
@@ -125,3 +126,42 @@ data:
       trusted_proxy_ranges:
         - 10.42.0.0/16
         - 10.9.20.14/32
+  redqueen_costs.py: |
+    import litellm
+    from litellm.integrations.custom_logger import CustomLogger
+
+    MODEL_COSTS = {
+        "typesafe/jevk5-4b-v0.3": {
+            "input_cost_per_token": 0.000000042,
+            "output_cost_per_token": 0,
+            "litellm_provider": "typesafe",
+            "mode": "evaluation",
+        },
+        "typesafe/clef-flash-bf16": {
+            "input_cost_per_token": 0.00000009,
+            "output_cost_per_token": 0,
+            "litellm_provider": "typesafe",
+            "mode": "evaluation",
+        },
+        "typesafe/clef-flash-q8": {
+            "input_cost_per_token": 0.00000009,
+            "output_cost_per_token": 0,
+            "litellm_provider": "typesafe",
+            "mode": "evaluation",
+        },
+        "typesafe/clef-flash-q4": {
+            "input_cost_per_token": 0.00000009,
+            "output_cost_per_token": 0,
+            "litellm_provider": "typesafe",
+            "mode": "evaluation",
+        },
+        "typesafe/clef-q4": {
+            "input_cost_per_token": 0.00000024,
+            "output_cost_per_token": 0,
+            "litellm_provider": "typesafe",
+            "mode": "evaluation",
+        },
+    }
+
+    litellm.register_model(MODEL_COSTS, persist_across_reloads=True)
+    cost_registry = CustomLogger()
