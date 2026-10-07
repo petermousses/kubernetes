@@ -158,7 +158,7 @@ models:
 
   embeddinggemma-2:
     cmd: >-
-      /srv/ai/runtimes/llama.cpp-v0.6.0-d812350/bin/llama-server
+      /srv/ai/runtimes/llama.cpp-b11457-5ad1c5d/bin/llama-server
       --model /srv/ai/models/embeddinggemma-2/embeddinggemma-2-Q8_0.gguf
       --alias embeddinggemma-2
       --ctx-size 8192
