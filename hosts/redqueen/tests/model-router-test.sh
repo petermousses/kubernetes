@@ -38,9 +38,9 @@ for model in "${clef_models[@]}"; do
   grep -Fq "  ${model}:" "${router_config}"
   grep -Fq -- "--alias ${model}" "${router_config}"
   grep -Fq "            - ${model}" "${router_config}"
-  grep -Fq "typesafe/${model}" "${litellm_config}"
+  grep -Fq "openai/${model}" "${litellm_config}"
 done
-grep -Fq 'typesafe/jevk5-4b-v0.3' "${litellm_config}"
+grep -Fq 'openai/jevk5-4b-v0.3' "${litellm_config}"
 
 grep -Fq '  - "${env.QWEN_API_KEY}"' "${router_config}"
 grep -Fq 'globalTTL: 300' "${router_config}"

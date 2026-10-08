@@ -114,9 +114,11 @@ for the upstream login behavior.
 
 use LiteLLM's native `POST /v1/systemone` for System One bodies and
 `POST /v1/decisions` for OpenAI Decisions bodies. both routes use the same
-static decision models in `model_list`; LiteLLM routes each through its
-TypeSafe provider to `jevk5-redqueen:8191` and substitutes the stored
-`TYPESAFE_API_KEY`. the five canonical model IDs are `jevk5-4b-v0.3`,
+static decision models in `model_list`. each uses LiteLLM's `openai/` decision
+provider and calls the OpenAI-format `/v1/decisions` route on the local
+`jevk5-redqueen:8191` adapter using the stored Redqueen adapter key. the
+adapter translates that request into the existing local System One contract.
+the five canonical model IDs are `jevk5-4b-v0.3`,
 `clef-flash-bf16`, `clef-flash-q8`, `clef-flash-q4`, and `clef-q4`.
 
 those aliases are real LiteLLM catalog entries in this repository. after the
@@ -127,17 +129,19 @@ automatically add models to this proxy. see LiteLLM's [Decisions API
 documentation](https://docs.litellm.ai/docs/decisions) and [v1.104.2 release
 notes](https://docs.litellm.ai/release_notes/v1.104.2/v1-104-2).
 
+the native OpenAI-format `/v1/decisions` route accepts `input_image` parts for
+the four local Clef models. Redqueen rejects remote image URLs, validates
+embedded PNG/JPEG/WebP `data:` URLs, and limits each decoded image to 4 MiB and
+16 megapixels, with four images and 8 MiB total. JevK5 is text-only and returns
+a clear 400 if sent an image. `/v1/systemone` remains available; LiteLLM
+translates it to the same local OpenAI-format decision endpoint.
+
 the old `POST /typesafe/v1/systemone` and `GET /typesafe/v1/models` routes
-remain temporarily for clients that have not migrated and for the local Clef
-image contract. the legacy POST accepts `model`, `state`, `questions`, and for
-Clef up to four embedded PNG/JPEG/WebP `data:` URLs in `images`; remote image
-URLs are rejected. each decoded image is limited to 4 MiB and 16 megapixels,
-with 8 MiB total. LiteLLM's native TypeSafe decision provider accepts text
-only, so do not remove the legacy route until a live Clef image request works
-through a replacement path or image input is no longer needed. The old
-pass-through reads its upstream key from the proxy environment and does not
-enforce its `models` allowlist; keep its virtual key dedicated and restrict
-`allowed_routes` to the exact legacy routes.
+remain during migration for compatibility and rollback. keep the dedicated
+legacy virtual key restricted to those exact routes: the TypeSafe pass-through
+reads its upstream key from the proxy environment and does not enforce its
+`models` allowlist. retire those routes only after the live native Clef image
+check succeeds and callers have moved.
 
 keep the decision IDs off the shared LibreChat key. its dynamic `/v1/models`
 picker should remain limited to chat models, and its image tool should keep
@@ -153,15 +157,16 @@ check from a workstation:
 enter a disposable or restricted LiteLLM virtual key at the hidden prompt, not
 the master key. by default the key must allow all five decision aliases, so
 `GET /v1/models` can verify the catalog; `jevk5-4b-v0.3` on both native
-decision routes; `clef-flash-bf16` through the temporary legacy image route;
+decision routes; `clef-flash-bf16` with an inline image on the native Decisions
+route and through the temporary legacy image route;
 `qwen-image-2.1`; and `allowed_routes` for `/v1/models`, `/v1/systemone`,
 `/v1/decisions`, `/typesafe/v1/systemone`, `/typesafe/v1/models`,
 `/v1/images/generations`, and `/v1/images/edits`. when using `--text-model`,
 it must also allow each selected chat alias and `/v1/chat/completions`; when
 repeating `--image-model`, it must allow each selected image alias. the
 validator checks auth and method boundaries,
-exercises both native request formats, verifies a Clef request with an embedded
-image over the legacy route, generates and edits a 512×512 PNG, validates both
+exercises both native request formats, verifies Clef image input through both
+the native and legacy routes, generates and edits a 512×512 PNG, validates both
 image files, and prints their private temporary directory for visual
 inspection. the live rollout and eventual legacy-route retirement remain
 operator steps; see [`AI_INFERENCE_PLAN.md`](../../AI_INFERENCE_PLAN.md).

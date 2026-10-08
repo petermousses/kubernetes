@@ -48,7 +48,8 @@ CLEF_IMAGE_COMPAT_MODEL = "clef-flash-bf16"
 class ValidationResult(NamedTuple):
     choice: str
     confidence: float
-    clef_image_choice: str
+    native_clef_image_choice: str
+    legacy_clef_image_choice: str
     generated: Path
     edited: Path
     text_models: tuple[str, ...]
@@ -332,6 +333,48 @@ def _validate_clef_image_response(response: dict) -> str:
         for field in ("input_tokens", "output_tokens")
     ):
         raise RuntimeError("Clef image response has invalid token usage")
+    return choice
+
+
+def _validate_native_clef_image_response(response: dict) -> str:
+    if response.get("model") != CLEF_IMAGE_COMPAT_MODEL:
+        raise RuntimeError("native Clef image response reported the wrong model")
+    answers = response.get("answers")
+    if not isinstance(answers, list) or len(answers) != 1:
+        raise RuntimeError("native Clef image response must contain one answer")
+    answer = answers[0]
+    if (
+        not isinstance(answer, dict)
+        or answer.get("type") != "choice"
+        or answer.get("name") != "visual_check"
+    ):
+        raise RuntimeError("native Clef image response is missing its visual choice")
+    expected = {"red_cube", "other"}
+    probabilities = answer.get("probabilities")
+    if not isinstance(probabilities, list) or len(probabilities) != len(expected):
+        raise RuntimeError("native Clef image response has invalid probabilities")
+    observed: dict[str, float] = {}
+    for item in probabilities:
+        if not isinstance(item, dict):
+            raise RuntimeError("native Clef image response has invalid probabilities")
+        label = item.get("value")
+        probability = item.get("probability")
+        if (
+            not isinstance(label, str)
+            or isinstance(probability, bool)
+            or not isinstance(probability, (int, float))
+            or not math.isfinite(probability)
+            or not 0 <= probability <= 1
+        ):
+            raise RuntimeError("native Clef image response has invalid probabilities")
+        observed[label] = float(probability)
+    if set(observed) != expected or not math.isclose(
+        sum(observed.values()), 1.0, rel_tol=1e-6, abs_tol=1e-6
+    ):
+        raise RuntimeError("native Clef image response has invalid probabilities")
+    choice = answer.get("choice")
+    if choice != "red_cube":
+        raise RuntimeError(f"native Clef classified the generated image as {choice!r}")
     return choice
 
 
@@ -729,6 +772,46 @@ def validate(
     generated = _decode_image_response(generation_response)
     _write_new(generated_path, generated)
 
+    clef_image_url = (
+        "data:image/png;base64," + base64.b64encode(generated).decode("ascii")
+    )
+    native_clef_image_payload = {
+        "model": CLEF_IMAGE_COMPAT_MODEL,
+        "input": [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "Classify the uploaded picture."},
+                    {"type": "input_image", "image_url": clef_image_url, "detail": "low"},
+                ],
+            }
+        ],
+        "questions": [
+            {
+                "type": "choice",
+                "name": "visual_check",
+                "instructions": (
+                    "Does the image show one red cube on a plain white background?"
+                ),
+                "choices": [
+                    {"value": "red_cube", "description": "One centered red cube"},
+                    {"value": "other", "description": "Anything else"},
+                ],
+            }
+        ],
+    }
+    native_clef_image_response = _post_json(
+        opener,
+        url=decisions_url,
+        api_key=api_key,
+        payload=native_clef_image_payload,
+        timeout=timeout,
+    )
+    native_clef_image_choice = _validate_native_clef_image_response(
+        native_clef_image_response
+    )
+
     clef_image_payload = {
         "model": CLEF_IMAGE_COMPAT_MODEL,
         "state": "Classify the uploaded picture.",
@@ -744,9 +827,7 @@ def validate(
                 },
             }
         },
-        "images": [
-            "data:image/png;base64," + base64.b64encode(generated).decode("ascii")
-        ],
+        "images": [clef_image_url],
     }
     clef_image_response = _post_json(
         opener,
@@ -755,7 +836,7 @@ def validate(
         payload=clef_image_payload,
         timeout=timeout,
     )
-    clef_image_choice = _validate_clef_image_response(clef_image_response)
+    legacy_clef_image_choice = _validate_clef_image_response(clef_image_response)
 
     edit_body, edit_type = _multipart_edit(generated, image_model)
     status, response_body, response_type = _request(
@@ -787,7 +868,8 @@ def validate(
     return ValidationResult(
         choice,
         confidence,
-        clef_image_choice,
+        native_clef_image_choice,
+        legacy_clef_image_choice,
         generated_path,
         edited_path,
         tuple(text_models),
@@ -851,7 +933,8 @@ def main() -> None:
                 [
                     *text_lines,
                     f"JevK5 OK: choice={result.choice}, confidence={result.confidence:.6f}",
-                    f"Clef image compatibility OK: choice={result.clef_image_choice}",
+                    f"Native Clef image OK: choice={result.native_clef_image_choice}",
+                    f"Legacy Clef compatibility OK: choice={result.legacy_clef_image_choice}",
                 ]
             )
             + "\n"

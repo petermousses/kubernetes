@@ -120,8 +120,19 @@ for typesafe_contract in \
   'name: TYPESAFE_API_BASE' \
   'value: http://jevk5-redqueen:8191'; do
   if ! grep -Fq "${typesafe_contract}" "${app_root}/deployment.yaml"; then
-    printf 'LiteLLM is missing its JevK5 TypeSafe configuration: %s\n' \
+    printf 'LiteLLM is missing its temporary TypeSafe pass-through configuration: %s\n' \
       "${typesafe_contract}" >&2
+    exit 1
+  fi
+done
+for decisions_contract in \
+  'name: REDQUEEN_DECISIONS_API_BASE' \
+  'value: http://jevk5-redqueen:8191/v1' \
+  'name: REDQUEEN_DECISIONS_API_KEY' \
+  'key: TYPESAFE_API_KEY'; do
+  if ! grep -Fq "${decisions_contract}" "${app_root}/deployment.yaml"; then
+    printf 'LiteLLM is missing its OpenAI-compatible decisions configuration: %s\n' \
+      "${decisions_contract}" >&2
     exit 1
   fi
 done
@@ -174,14 +185,14 @@ if grep -Fq 'model_name: deepseek-v4.1-flash-q2' "${app_root}/configmap.yaml"; t
   exit 1
 fi
 grep -Fq '      store_model_in_db: false' "${app_root}/configmap.yaml"
-for priced_typesafe_model in \
-  'typesafe/jevk5-4b-v0.3' \
-  'typesafe/clef-flash-bf16' \
-  'typesafe/clef-flash-q8' \
-  'typesafe/clef-flash-q4' \
-  'typesafe/clef-q4'; do
-  if ! grep -Fq "${priced_typesafe_model}" "${app_root}/configmap.yaml"; then
-    printf 'LiteLLM custom cost registry is missing %s\n' "${priced_typesafe_model}" >&2
+for priced_openai_model in \
+  'openai/jevk5-4b-v0.3' \
+  'openai/clef-flash-bf16' \
+  'openai/clef-flash-q8' \
+  'openai/clef-flash-q4' \
+  'openai/clef-q4'; do
+  if ! grep -Fq "${priced_openai_model}" "${app_root}/configmap.yaml"; then
+    printf 'LiteLLM custom cost registry is missing %s\n' "${priced_openai_model}" >&2
     exit 1
   fi
 done

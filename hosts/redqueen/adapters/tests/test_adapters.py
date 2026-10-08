@@ -81,8 +81,31 @@ class FakeClefBackend:
         for question_id, question in payload["questions"].items():
             if question["type"] == "noul":
                 answers[question_id] = {"type": "noul", "noul": 0.9}
+            elif question["type"] == "choice":
+                probabilities = {
+                    key: 1 / len(question["criteria"])
+                    for key in question["criteria"]
+                }
+                answers[question_id] = {
+                    "type": "choice",
+                    "choice": next(iter(probabilities)),
+                    "probabilities": probabilities,
+                    "confidence": max(probabilities.values()),
+                }
             else:
-                raise AssertionError("this fake only supports noul questions")
+                probabilities = {
+                    str(index): 1 / len(question["criteria"])
+                    for index in range(len(question["criteria"]))
+                }
+                answers[question_id] = {
+                    "type": "score",
+                    "score": sum(
+                        int(key) * probability
+                        for key, probability in probabilities.items()
+                    ),
+                    "probabilities": probabilities,
+                    "confidence": max(probabilities.values()),
+                }
         return {
             "model": model,
             "answers": answers,
@@ -633,6 +656,172 @@ class AdapterTestCase(unittest.IsolatedAsyncioTestCase):
             path, headers=self.auth(), json={**payload, "model": "clef-not-real"}
         )
         self.assertEqual(mismatched_model.status, 400)
+
+    async def test_openai_decisions_accepts_bounded_clef_image_input(self) -> None:
+        backend = FakeClefBackend()
+        client = await self.client(
+            create_jev_app(
+                JevSettings(api_key=TOKEN), FakeJevBackend(), clef_backend=backend
+            )
+        )
+        image_url = "data:image/png;base64," + base64.b64encode(
+            png((64, 64))
+        ).decode()
+        payload = {
+            "model": "clef-flash-q8",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "classify this image"},
+                        {
+                            "type": "input_image",
+                            "image_url": image_url,
+                            "detail": "original",
+                        },
+                    ],
+                }
+            ],
+            "questions": [
+                {
+                    "type": "predicate",
+                    "name": "is_red",
+                    "instructions": "Is the main object red?",
+                },
+                {
+                    "type": "choice",
+                    "name": "object",
+                    "instructions": "What is shown?",
+                    "choices": [
+                        {"value": "red_cube", "description": "a red cube"},
+                        {"value": "other"},
+                    ],
+                },
+                {
+                    "type": "score",
+                    "name": "visibility",
+                    "instructions": "How visible is the main object?",
+                    "levels": [
+                        {"label": "obscured", "description": "hard to see"},
+                        {"label": "clear", "description": "easy to see"},
+                    ],
+                },
+            ],
+        }
+
+        response = await client.post(
+            "/v1/decisions", headers=self.auth(), json=payload
+        )
+
+        self.assertEqual(response.status, 200)
+        body = await response.json()
+        self.assertEqual(body["model"], "clef-flash-q8")
+        self.assertEqual(body["answers"][0]["probability"], 0.9)
+        self.assertEqual(body["answers"][0]["name"], "is_red")
+        self.assertEqual(body["answers"][1]["choice"], "red_cube")
+        self.assertEqual(body["answers"][1]["name"], "object")
+        self.assertEqual(body["answers"][2]["score"], 0.5)
+        self.assertEqual(
+            [item["label"] for item in body["answers"][2]["probabilities"]],
+            ["obscured", "clear"],
+        )
+        self.assertEqual(body["usage"]["total_tokens"], 17)
+        self.assertEqual(backend.calls[0][0], "clef-flash-q8")
+        self.assertEqual(backend.calls[0][1]["images"], [image_url])
+        self.assertEqual(
+            backend.calls[0][1]["state"],
+            [{"role": "user", "content": "classify this image"}],
+        )
+        unsupported_remote_image = await client.post(
+            "/v1/decisions",
+            headers=self.auth(),
+            json={
+                **payload,
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_image",
+                                "image_url": "https://example.test/image.png",
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+        self.assertEqual(unsupported_remote_image.status, 400)
+
+    async def test_openai_decisions_maps_boolean_choices_and_rejects_jev_images(
+        self,
+    ) -> None:
+        jev_backend = FakeJevBackend()
+        client = await self.client(
+            create_jev_app(JevSettings(api_key=TOKEN), jev_backend)
+        )
+        payload = {
+            "model": "jevk5-4b-v0.3",
+            "input": "Does this need a human?",
+            "questions": [
+                {
+                    "type": "choice",
+                    "instructions": "Choose whether a human is needed.",
+                    "choices": [
+                        {"value": True},
+                        {"value": "true"},
+                        {"value": False},
+                    ],
+                }
+            ],
+        }
+        response = await client.post(
+            "/v1/decisions", headers=self.auth(), json=payload
+        )
+        self.assertEqual(response.status, 200)
+        answer = (await response.json())["answers"][0]
+        self.assertIsNone(answer["name"])
+        self.assertIs(answer["choice"], True)
+        self.assertEqual(
+            [item["value"] for item in answer["probabilities"]],
+            [True, "true", False],
+        )
+        self.assertEqual(
+            jev_backend.calls[0][1]["criteria"],
+            {
+                "openai_choice_0": "boolean true",
+                "openai_choice_1": "true",
+                "openai_choice_2": "boolean false",
+            },
+        )
+
+        unsupported_image = await client.post(
+            "/v1/decisions",
+            headers=self.auth(),
+            json={
+                **payload,
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_image",
+                                "image_url": (
+                                    "data:image/png;base64,"
+                                    + base64.b64encode(png((64, 64))).decode()
+                                ),
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+        self.assertEqual(unsupported_image.status, 400)
+        self.assertIn(
+            "local Clef models",
+            (await unsupported_image.json())["error"]["message"],
+        )
 
     async def test_jev_backend_failure_is_redacted_as_502(self) -> None:
         class BrokenJevBackend(FakeJevBackend):

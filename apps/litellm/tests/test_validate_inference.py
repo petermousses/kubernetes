@@ -55,6 +55,7 @@ class FakeOpener:
         self.requests: list[tuple[str, str, str]] = []
         self.image_models: list[str] = []
         self.text_models: list[str] = []
+        self.native_clef_image_payloads: list[dict] = []
 
     def open(self, request: object, timeout: float) -> FakeResponse:
         del timeout
@@ -120,6 +121,38 @@ class FakeOpener:
             )
         if path == "/v1/decisions":
             payload = json.loads(body)
+            if payload.get("model") == "clef-flash-bf16":
+                expected_image = (
+                    "data:image/png;base64," + base64.b64encode(self.image).decode()
+                )
+                content = payload.get("input", [{}])[0].get("content", [])
+                if not any(
+                    isinstance(part, dict)
+                    and part.get("type") == "input_image"
+                    and part.get("image_url") == expected_image
+                    for part in content
+                ):
+                    return FakeResponse(400, {"error": {"message": "wrong image"}})
+                self.native_clef_image_payloads.append(payload)
+                return FakeResponse(
+                    200,
+                    {
+                        "model": "clef-flash-bf16",
+                        "answers": [
+                            {
+                                "type": "choice",
+                                "name": "visual_check",
+                                "choice": "red_cube",
+                                "probabilities": [
+                                    {"value": "red_cube", "probability": 0.97},
+                                    {"value": "other", "probability": 0.03},
+                                ],
+                                "confidence": 0.97,
+                            }
+                        ],
+                        "usage": {"input_tokens": 42, "output_tokens": 0},
+                    },
+                )
             if payload.get("model") != "jevk5-4b-v0.3":
                 return FakeResponse(400, {"error": {"message": "wrong model"}})
             return FakeResponse(
@@ -250,9 +283,11 @@ class ValidationScriptTest(unittest.TestCase):
                 opener=opener,
             )
             self.assertEqual(result.choice, "misdelivered")
-            self.assertEqual(result.clef_image_choice, "red_cube")
+            self.assertEqual(result.native_clef_image_choice, "red_cube")
+            self.assertEqual(result.legacy_clef_image_choice, "red_cube")
             self.assertEqual(result.generated.read_bytes(), opener.image)
             self.assertEqual(result.edited.read_bytes(), opener.image)
+        self.assertEqual(len(opener.native_clef_image_payloads), 1)
 
         self.assertEqual(
             [(method, path) for method, path, _ in opener.requests],
@@ -270,6 +305,7 @@ class ValidationScriptTest(unittest.TestCase):
                 ("POST", "/v1/systemone"),
                 ("POST", "/v1/decisions"),
                 ("POST", "/v1/images/generations"),
+                ("POST", "/v1/decisions"),
                 ("POST", "/typesafe/v1/systemone"),
                 ("POST", "/v1/images/edits"),
             ],

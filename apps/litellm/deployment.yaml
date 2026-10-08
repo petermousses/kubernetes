@@ -152,8 +152,15 @@ spec:
               value: /app/migrations
             - name: PRISMA_BINARY_CACHE_DIR
               value: /app/cache/prisma
-            # Native decision models and the temporary TypeSafe pass-through
-            # use this redqueen adapter base; LiteLLM adds /v1/systemone.
+            # The OpenAI decision provider appends /decisions to this /v1 base.
+            - name: REDQUEEN_DECISIONS_API_BASE
+              value: http://jevk5-redqueen:8191/v1
+            - name: REDQUEEN_DECISIONS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-env
+                  key: TYPESAFE_API_KEY
+            # Retain these for the temporary TypeSafe pass-through only.
             - name: TYPESAFE_API_BASE
               value: http://jevk5-redqueen:8191
             - name: PYTHONPATH

@@ -49,6 +49,7 @@ IMAGE_DATA_URL = re.compile(
     r"^data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$"
 )
 CLEF_QUESTION_ID = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
+OPENAI_DECISION_ROLES = {"user"}
 
 
 @dataclass(frozen=True)
@@ -301,6 +302,330 @@ def normalize_images(value: object) -> list[str]:
     return images
 
 
+def normalize_openai_decision_input(value: object) -> tuple[object, list[str]]:
+    if isinstance(value, str):
+        return value, []
+    if not isinstance(value, list) or not value:
+        raise ValueError("input must be a string or a non-empty message list")
+
+    messages: list[dict[str, str]] = []
+    images: list[str] = []
+    for index, message in enumerate(value):
+        if not isinstance(message, dict) or set(message) - {
+            "type",
+            "role",
+            "content",
+        }:
+            raise ValueError(f"input message {index} has unsupported fields")
+        if message.get("type", "message") != "message":
+            raise ValueError(f"input message {index} must have type 'message'")
+        role = message.get("role")
+        if not isinstance(role, str) or role not in OPENAI_DECISION_ROLES:
+            raise ValueError(f"input message {index} has an unsupported role")
+        content = message.get("content")
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            text_parts: list[str] = []
+            for part_index, part in enumerate(content):
+                if not isinstance(part, dict):
+                    raise ValueError(
+                        f"input message {index} content part {part_index} "
+                        "must be an object"
+                    )
+                part_type = part.get("type")
+                if part_type == "input_text":
+                    if set(part) != {"type", "text"} or not isinstance(
+                        part.get("text"), str
+                    ):
+                        raise ValueError("input_text parts require only a text string")
+                    text_parts.append(part["text"])
+                elif part_type == "input_image":
+                    if set(part) - {"type", "image_url", "detail"}:
+                        raise ValueError("input_image part has unsupported fields")
+                    image_url = part.get("image_url")
+                    if not isinstance(image_url, str):
+                        raise ValueError("input_image parts require a data URL string")
+                    detail = part.get("detail")
+                    if detail is not None and (
+                        not isinstance(detail, str)
+                        or detail not in {"auto", "low", "high", "original"}
+                    ):
+                        raise ValueError(
+                            "input_image detail must be auto, low, high or original"
+                        )
+                    images.append(image_url)
+                else:
+                    raise ValueError(f"unsupported input content type {part_type!r}")
+            text = "".join(text_parts)
+        else:
+            raise ValueError(
+                f"input message {index} content must be a string or content-part list"
+            )
+        messages.append({"role": role, "content": text})
+
+    try:
+        encoded_state = json.dumps(
+            messages, ensure_ascii=False, allow_nan=False
+        ).encode()
+    except (TypeError, ValueError) as error:
+        raise ValueError("input must contain finite JSON values") from error
+    if len(encoded_state) > 512 * 1024:
+        raise ValueError("input text exceeds 512 KiB")
+    return messages, normalize_images(images) if images else []
+
+
+def normalize_openai_decision_questions(
+    value: object,
+) -> tuple[dict[str, dict], list[dict]]:
+    if not isinstance(value, list) or not 1 <= len(value) <= MAX_CLEF_QUESTIONS:
+        raise ValueError(f"questions must contain 1-{MAX_CLEF_QUESTIONS} entries")
+
+    normalized: dict[str, dict] = {}
+    output_specs: list[dict] = []
+    for index, question in enumerate(value):
+        if not isinstance(question, dict):
+            raise ValueError("each question must be an object")
+        kind = question.get("type")
+        if not isinstance(kind, str):
+            raise ValueError(f"unknown question type {kind!r}")
+        allowed_fields = {
+            "predicate": {"type", "name", "instructions"},
+            "choice": {"type", "name", "instructions", "choices"},
+            "score": {"type", "name", "instructions", "levels"},
+        }.get(kind)
+        if allowed_fields is None:
+            raise ValueError(f"unknown question type {kind!r}")
+        unknown = sorted(set(question) - allowed_fields)
+        if unknown:
+            raise ValueError(f"unsupported question fields: {', '.join(unknown)}")
+        if "instructions" not in question:
+            raise ValueError("question instructions are required")
+        name = question.get("name")
+        if name is not None and (not isinstance(name, str) or len(name) > 256):
+            raise ValueError(
+                "question name must be a string of at most 256 characters"
+            )
+        internal_id = f"openai_question_{index}"
+        internal_question: dict
+        output_spec = {"type": kind, "name": name, "internal_id": internal_id}
+
+        if kind == "predicate":
+            internal_question = {
+                "type": "noul",
+                "instructions": _instructions(question["instructions"]),
+            }
+        elif kind == "choice":
+            choices = question.get("choices")
+            if not isinstance(choices, list) or not 2 <= len(choices) <= 255:
+                raise ValueError("choice questions require 2-255 choices")
+            criteria: dict[str, str | None] = {}
+            original_values: dict[str, str | bool] = {}
+            seen_values: set[tuple[str, str | bool]] = set()
+            for choice_index, choice in enumerate(choices):
+                if not isinstance(choice, dict) or set(choice) - {
+                    "value",
+                    "description",
+                }:
+                    raise ValueError(
+                        "each choice must contain only value and description"
+                    )
+                original = choice.get("value")
+                if isinstance(original, bool):
+                    identity = ("boolean", original)
+                elif isinstance(original, str):
+                    identity = ("string", original)
+                else:
+                    raise ValueError("choice values must be strings or booleans")
+                if identity in seen_values:
+                    raise ValueError("choice values must be unique")
+                seen_values.add(identity)
+                key = f"openai_choice_{choice_index}"
+                description = choice.get("description")
+                if description is not None and not isinstance(description, str):
+                    raise ValueError("choice descriptions must be strings")
+                if description:
+                    criteria[key] = description
+                elif isinstance(original, bool):
+                    criteria[key] = f"boolean {str(original).lower()}"
+                else:
+                    criteria[key] = original or "empty string"
+                original_values[key] = original
+            internal_question = {
+                "type": "choice",
+                "instructions": _instructions(question["instructions"]),
+                "criteria": criteria,
+            }
+            output_spec["original_values"] = original_values
+        else:
+            levels = question.get("levels")
+            if not isinstance(levels, list) or not 2 <= len(levels) <= 10:
+                raise ValueError("score questions require 2-10 levels")
+            labels: list[str] = []
+            criteria: list[str] = []
+            for level_index, level in enumerate(levels):
+                if not isinstance(level, dict) or set(level) - {
+                    "label",
+                    "description",
+                }:
+                    raise ValueError(
+                        "each score level must contain only label and description"
+                    )
+                label = level.get("label")
+                description = level.get("description")
+                if not isinstance(label, str):
+                    raise ValueError("score level labels must be strings")
+                if description is not None and not isinstance(description, str):
+                    raise ValueError("score level descriptions must be strings")
+                labels.append(label)
+                criteria.append(
+                    f"{label}: {description}"
+                    if label and description
+                    else label or description or f"Level {level_index + 1}"
+                )
+            internal_question = {
+                "type": "score",
+                "instructions": _instructions(question["instructions"]),
+                "criteria": criteria,
+            }
+            output_spec["labels"] = labels
+
+        normalized[internal_id] = normalize_question(internal_question)
+        output_specs.append(output_spec)
+    return normalized, output_specs
+
+
+def normalize_openai_decision_request(
+    payload: object,
+) -> tuple[dict, list[dict], str]:
+    if not isinstance(payload, dict):
+        raise ValueError("request body must be a JSON object")
+    allowed_fields = {"model", "input", "questions", "safety_identifier", "stream"}
+    unknown = sorted(set(payload) - allowed_fields)
+    if unknown:
+        raise ValueError(f"unsupported fields: {', '.join(unknown)}")
+    if payload.get("stream") is not None and payload.get("stream") is not False:
+        raise ValueError("streaming is not supported")
+    safety_identifier = payload.get("safety_identifier")
+    if safety_identifier is not None and (
+        not isinstance(safety_identifier, str) or len(safety_identifier) > 128
+    ):
+        raise ValueError(
+            "safety_identifier must be a string of at most 128 characters"
+        )
+
+    requested_model = payload.get("model")
+    if not isinstance(requested_model, str):
+        raise ValueError("model is required")
+    if requested_model.startswith("openai/"):
+        requested_model = requested_model.removeprefix("openai/")
+    if requested_model in MODEL_ALIASES:
+        model = MODEL
+    elif requested_model in CLEF_MODEL_FAMILIES:
+        model = requested_model
+    elif requested_model in CLEF_FAMILY_DEFAULTS:
+        model = CLEF_FAMILY_DEFAULTS[requested_model]
+    else:
+        raise ValueError("model must be one of the configured JevK5 or Clef aliases")
+
+    if "input" not in payload:
+        raise ValueError("input is required")
+    state, images = normalize_openai_decision_input(payload["input"])
+    if images and model not in CLEF_MODEL_FAMILIES:
+        raise ValueError("input_image is supported only by the local Clef models")
+    questions, output_specs = normalize_openai_decision_questions(
+        payload.get("questions")
+    )
+    systemone_payload = {"model": model, "state": state, "questions": questions}
+    if images:
+        systemone_payload["images"] = images
+    return systemone_payload, output_specs, model
+
+
+def serialize_openai_decision_response(body: object, output_specs: list[dict]) -> dict:
+    if not isinstance(body, dict) or not isinstance(body.get("answers"), dict):
+        raise ValueError("decision backend returned an invalid response")
+    internal_answers = body["answers"]
+    if set(internal_answers) != {spec["internal_id"] for spec in output_specs}:
+        raise ValueError("decision backend returned the wrong answer ids")
+
+    answers: list[dict] = []
+    for spec in output_specs:
+        answer = internal_answers[spec["internal_id"]]
+        if not isinstance(answer, dict):
+            raise ValueError("decision backend returned a malformed answer")
+        result = {"type": spec["type"], "name": spec["name"]}
+        if spec["type"] == "predicate":
+            if answer.get("type") != "noul":
+                raise ValueError("decision backend returned the wrong answer type")
+            result["probability"] = answer["noul"]
+        elif spec["type"] == "choice":
+            if answer.get("type") != "choice":
+                raise ValueError("decision backend returned the wrong answer type")
+            original_values = spec["original_values"]
+            choice = answer.get("choice")
+            if choice not in original_values:
+                raise ValueError("decision backend returned an unknown choice")
+            probabilities = answer.get("probabilities")
+            if not isinstance(probabilities, dict) or set(probabilities) != set(
+                original_values
+            ):
+                raise ValueError("decision backend returned invalid probabilities")
+            result.update(
+                choice=original_values[choice],
+                probabilities=[
+                    {"value": original_values[key], "probability": probability}
+                    for key, probability in probabilities.items()
+                ],
+                confidence=answer["confidence"],
+            )
+        else:
+            if answer.get("type") != "score":
+                raise ValueError("decision backend returned the wrong answer type")
+            labels = spec["labels"]
+            probabilities = answer.get("probabilities")
+            expected_keys = {str(index) for index in range(len(labels))}
+            if not isinstance(probabilities, dict) or set(probabilities) != (
+                expected_keys
+            ):
+                raise ValueError("decision backend returned invalid probabilities")
+            result.update(
+                score=answer["score"],
+                probabilities=[
+                    {
+                        "value": index,
+                        "label": label,
+                        "probability": probabilities[str(index)],
+                    }
+                    for index, label in enumerate(labels)
+                ],
+                confidence=answer["confidence"],
+            )
+        answers.append(result)
+
+    usage = body.get("usage")
+    if not isinstance(usage, dict):
+        raise ValueError("decision backend response is missing usage")
+    input_tokens = usage.get("input_tokens")
+    output_tokens = usage.get("output_tokens", 0)
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in (input_tokens, output_tokens)
+    ):
+        raise ValueError("decision backend returned invalid token usage")
+    return {
+        "model": body.get("model"),
+        "answers": answers,
+        "usage": {
+            "input_tokens": input_tokens,
+            "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+            "output_tokens": output_tokens,
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": input_tokens + output_tokens,
+        },
+    }
+
+
 def validate_clef_response(
     model: str, questions: dict[str, dict], body: object
 ) -> dict:
@@ -440,11 +765,7 @@ def create_jev_app(
             }
         )
 
-    async def systemone(request: web.Request) -> web.Response:
-        try:
-            payload = await request.json()
-        except (json.JSONDecodeError, aiohttp.ContentTypeError):
-            raise ValueError("request body must be valid JSON")
+    async def dispatch_systemone(payload: object) -> web.Response:
         if not isinstance(payload, dict):
             raise ValueError("request body must be a JSON object")
         requested_model = payload.get("model", MODEL)
@@ -491,6 +812,33 @@ def create_jev_app(
             headers={"Cache-Control": "no-store"},
         )
 
+    async def systemone(request: web.Request) -> web.Response:
+        try:
+            payload = await request.json()
+        except (json.JSONDecodeError, aiohttp.ContentTypeError):
+            raise ValueError("request body must be valid JSON")
+        return await dispatch_systemone(payload)
+
+    async def decisions(request: web.Request) -> web.Response:
+        try:
+            payload = await request.json()
+        except (json.JSONDecodeError, aiohttp.ContentTypeError):
+            raise ValueError("request body must be valid JSON")
+        systemone_payload, output_specs, _ = normalize_openai_decision_request(payload)
+        response = await dispatch_systemone(systemone_payload)
+        if response.status != 200:
+            return response
+        try:
+            body = json.loads(response.body)
+            openai_body = serialize_openai_decision_response(body, output_specs)
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return error_response(
+                502, "decision backend returned an invalid response", "upstream_error"
+            )
+        return web.json_response(
+            openai_body, headers={"Cache-Control": "no-store"}
+        )
+
     def clef_handler(model: str):
         async def handle(request: web.Request) -> web.Response:
             try:
@@ -504,6 +852,7 @@ def create_jev_app(
     app.router.add_get("/healthz", health)
     app.router.add_get("/readyz", ready)
     app.router.add_get("/v1/models", models)
+    app.router.add_post("/v1/decisions", decisions)
     app.router.add_post("/v1/systemone", systemone)
     for model in CLEF_MODEL_FAMILIES:
         app.router.add_post(f"/{model}/v1/systemone", clef_handler(model))
