@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/name: litellm
     app.kubernetes.io/component: gateway
     app.kubernetes.io/part-of: litellm
-    app.kubernetes.io/version: 1.104.0
+    app.kubernetes.io/version: 1.104.2
 spec:
   replicas: 1
   strategy:
@@ -23,7 +23,7 @@ spec:
         app.kubernetes.io/name: litellm
         app.kubernetes.io/component: gateway
         app.kubernetes.io/part-of: litellm
-        app.kubernetes.io/version: 1.104.0
+        app.kubernetes.io/version: 1.104.2
         mousses.xyz/authentik-oidc-client: "true"
         mousses.xyz/public-web-egress: "true"
     spec:
@@ -95,8 +95,8 @@ spec:
               type: RuntimeDefault
       containers:
         - name: litellm
-          # ghcr.io/berriai/litellm:v1.104.0; Cosign-verified index digest.
-          image: ghcr.io/berriai/litellm@sha256:625981c83410a3ea68eb0697590a57ec1d764d634514d54fa5db0591077ee839
+          # ghcr.io/berriai/litellm:v1.104.2; pinned GHCR OCI index digest.
+          image: ghcr.io/berriai/litellm@sha256:3d88bd757134a00e8c00237b85a021ab1f6d54abb9c1df750f411dbe7256a500
           imagePullPolicy: IfNotPresent
           args:
             - --config
@@ -152,8 +152,8 @@ spec:
               value: /app/migrations
             - name: PRISMA_BINARY_CACHE_DIR
               value: /app/cache/prisma
-            # LiteLLM appends the exact /v1/systemone suffix and replaces the
-            # caller's virtual key with TYPESAFE_API_KEY from litellm-env.
+            # Native decision models and the temporary TypeSafe pass-through
+            # use this redqueen adapter base; LiteLLM adds /v1/systemone.
             - name: TYPESAFE_API_BASE
               value: http://jevk5-redqueen:8191
             - name: PYTHONPATH

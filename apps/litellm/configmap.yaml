@@ -110,6 +110,46 @@ data:
           api_base: http://qwen-image-redqueen:8190/v1
           api_key: os.environ/QWEN_IMAGE_API_KEY
           timeout: 900
+      - model_name: jevk5-4b-v0.3
+        litellm_params:
+          model: typesafe/jevk5-4b-v0.3
+          api_base: os.environ/TYPESAFE_API_BASE
+          api_key: os.environ/TYPESAFE_API_KEY
+          timeout: 900
+        model_info:
+          mode: evaluation
+      - model_name: clef-flash-bf16
+        litellm_params:
+          model: typesafe/clef-flash-bf16
+          api_base: os.environ/TYPESAFE_API_BASE
+          api_key: os.environ/TYPESAFE_API_KEY
+          timeout: 900
+        model_info:
+          mode: evaluation
+      - model_name: clef-flash-q8
+        litellm_params:
+          model: typesafe/clef-flash-q8
+          api_base: os.environ/TYPESAFE_API_BASE
+          api_key: os.environ/TYPESAFE_API_KEY
+          timeout: 900
+        model_info:
+          mode: evaluation
+      - model_name: clef-flash-q4
+        litellm_params:
+          model: typesafe/clef-flash-q4
+          api_base: os.environ/TYPESAFE_API_BASE
+          api_key: os.environ/TYPESAFE_API_KEY
+          timeout: 900
+        model_info:
+          mode: evaluation
+      - model_name: clef-q4
+        litellm_params:
+          model: typesafe/clef-q4
+          api_base: os.environ/TYPESAFE_API_BASE
+          api_key: os.environ/TYPESAFE_API_KEY
+          timeout: 900
+        model_info:
+          mode: evaluation
 
     litellm_settings:
       callbacks:

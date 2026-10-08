@@ -64,12 +64,40 @@ class FakeOpener:
         self.requests.append((method, path, authorization))
         body = request.data or b""
         if method == "GET":
+            if path in {"/v1/models", "/typesafe/v1/models"}:
+                if authorization != f"Bearer {self.api_key}":
+                    return FakeResponse(401, {"error": {"message": "invalid key"}})
+                model_ids = (
+                    [
+                        "jevk5-4b-v0.3",
+                        "clef-flash-bf16",
+                        "clef-flash-q8",
+                        "clef-flash-q4",
+                        "clef-q4",
+                    ]
+                    if path == "/v1/models"
+                    else [
+                        "jevk5-4b-v0.3",
+                        "jev-latest",
+                        "jevk5",
+                        "clef-flash-bf16",
+                        "clef-flash-q8",
+                        "clef-flash-q4",
+                        "clef-q4",
+                        "clef-flash",
+                        "clef",
+                    ]
+                )
+                return FakeResponse(
+                    200,
+                    {"object": "list", "data": [{"id": model} for model in model_ids]},
+                )
             return FakeResponse(404, {"detail": "Not Found"})
         if authorization != f"Bearer {self.api_key}":
             return FakeResponse(401, {"error": {"message": "invalid key"}})
-        if path == "/typesafe/v1/systemone":
+        if path == "/v1/systemone":
             payload = json.loads(body)
-            if payload.get("model") != "jev-latest":
+            if payload.get("model") != "jevk5-4b-v0.3":
                 return FakeResponse(400, {"error": {"message": "wrong model"}})
             return FakeResponse(
                 200,
@@ -84,6 +112,55 @@ class FakeOpener:
                                 "delayed": 0.02,
                                 "misdelivered": 0.97,
                             },
+                            "confidence": 0.97,
+                        }
+                    },
+                    "usage": {"input_tokens": 42, "output_tokens": 0},
+                },
+            )
+        if path == "/v1/decisions":
+            payload = json.loads(body)
+            if payload.get("model") != "jevk5-4b-v0.3":
+                return FakeResponse(400, {"error": {"message": "wrong model"}})
+            return FakeResponse(
+                200,
+                {
+                    "model": "jevk5-4b-v0.3",
+                    "answers": [
+                        {
+                            "type": "choice",
+                            "name": "route",
+                            "choice": "misdelivered",
+                            "probabilities": [
+                                {"value": "delivered", "probability": 0.01},
+                                {"value": "delayed", "probability": 0.02},
+                                {"value": "misdelivered", "probability": 0.97},
+                            ],
+                            "confidence": 0.97,
+                        }
+                    ],
+                    "usage": {"input_tokens": 42, "output_tokens": 0},
+                },
+            )
+        if path == "/typesafe/v1/systemone":
+            payload = json.loads(body)
+            expected_image = (
+                "data:image/png;base64," + base64.b64encode(self.image).decode()
+            )
+            if (
+                payload.get("model") != "clef-flash-bf16"
+                or payload.get("images") != [expected_image]
+            ):
+                return FakeResponse(400, {"error": {"message": "wrong Clef image"}})
+            return FakeResponse(
+                200,
+                {
+                    "model": "clef-flash-bf16",
+                    "answers": {
+                        "visual_check": {
+                            "type": "choice",
+                            "choice": "red_cube",
+                            "probabilities": {"red_cube": 0.97, "other": 0.03},
                             "confidence": 0.97,
                         }
                     },
@@ -173,17 +250,27 @@ class ValidationScriptTest(unittest.TestCase):
                 opener=opener,
             )
             self.assertEqual(result.choice, "misdelivered")
+            self.assertEqual(result.clef_image_choice, "red_cube")
             self.assertEqual(result.generated.read_bytes(), opener.image)
             self.assertEqual(result.edited.read_bytes(), opener.image)
 
         self.assertEqual(
             [(method, path) for method, path, _ in opener.requests],
             [
+                ("GET", "/v1/systemone"),
+                ("GET", "/v1/decisions"),
                 ("GET", "/typesafe/v1/systemone"),
+                ("GET", "/typesafe/v1/models"),
+                ("POST", "/v1/systemone"),
+                ("POST", "/v1/decisions"),
                 ("POST", "/typesafe/v1/systemone"),
                 ("POST", "/v1/images/generations"),
-                ("POST", "/typesafe/v1/systemone"),
+                ("GET", "/v1/models"),
+                ("GET", "/typesafe/v1/models"),
+                ("POST", "/v1/systemone"),
+                ("POST", "/v1/decisions"),
                 ("POST", "/v1/images/generations"),
+                ("POST", "/typesafe/v1/systemone"),
                 ("POST", "/v1/images/edits"),
             ],
         )

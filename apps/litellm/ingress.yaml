@@ -52,6 +52,22 @@ spec:
         - name: litellm
           port: http
     - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/systemone`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/decisions`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/images/generations`)
       middlewares:
         - name: security-headers

@@ -60,8 +60,11 @@ before applying the kustomization, confirm all of the following:
    `/v1/chat/completions`, `/v1/images/generations`, and `/v1/images/edits`.
    Do not add `qwen-image-2.1-uncensored` to the shared LibreChat key: LibreChat
    has one global OpenAI image-tool model setting, which remains the standard
-   `qwen-image-2.1`. Use a separate explicitly scoped key for direct API tests
-   of the uncensored alias. Never use the master key. Use the
+   `qwen-image-2.1`. Keep `jevk5-4b-v0.3` and all four Clef decision aliases
+   off this key too: dynamic model discovery would otherwise add typed decision
+   models to LibreChat's chat picker. Use separate explicitly scoped keys for
+   decision calls and direct API tests of the uncensored alias. Never use the
+   master key. Use the
    [LiteLLM admin tunnel](../litellm/README.md) if needed. On the NAS, run
    this script and paste the virtual key at its hidden prompt:
 
@@ -146,6 +149,8 @@ chat-model selector entry; its single global image-tool setting stays on
 `qwen-image-2.1`. The uncensored image alias is exposed through LiteLLM for
 direct API evaluation with a separately scoped virtual key, not through the
 shared LibreChat image tool. JevK5 is a typed decision route, not a chat model.
+Keep all five System One decision aliases off the shared LibreChat key so
+dynamic model discovery keeps its chat picker limited to conversational models.
 
 the file is mounted with `subPath`, so restart the API after changing it:
 

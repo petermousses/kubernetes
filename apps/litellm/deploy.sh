@@ -3,7 +3,7 @@ set -euo pipefail
 
 readonly app_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly namespace=litellm
-readonly migration_job=litellm-migrations-v1-104-0
+readonly migration_job=litellm-migrations-v1-104-2
 readonly migration_poll_seconds="${LITELLM_MIGRATION_POLL_SECONDS:-5}"
 readonly migration_timeout_seconds="${LITELLM_MIGRATION_TIMEOUT_SECONDS:-1800}"
 

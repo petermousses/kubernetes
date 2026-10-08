@@ -29,8 +29,8 @@ if run_deploy failed "${failure_log}" >"${scratch}/failed.out" 2>"${scratch}/fai
   printf 'deploy unexpectedly succeeded after a failed migration\n' >&2
   exit 1
 fi
-grep -Fq 'logs -l job-name=litellm-migrations-v1-104-0' "${failure_log}"
-grep -Fq 'describe job/litellm-migrations-v1-104-0' "${failure_log}"
+grep -Fq 'logs -l job-name=litellm-migrations-v1-104-2' "${failure_log}"
+grep -Fq 'describe job/litellm-migrations-v1-104-2' "${failure_log}"
 if grep -Fq "apply -k ${app_root}" "${failure_log}"; then
   printf 'gateway manifests were applied after a failed migration\n' >&2
   exit 1
@@ -57,7 +57,7 @@ grep -Fq 'backoffLimit: 0' "${app_root}/migration-job.yaml"
 grep -Fq 'restartPolicy: Never' "${app_root}/migration-job.yaml"
 grep -Fq 'runAsUser: 65532' "${app_root}/migration-job.yaml"
 grep -Fq 'name: DATABASE_URL' "${app_root}/migration-job.yaml"
-grep -Fq 'ghcr.io/berriai/litellm-migrations@sha256:280133fa9acd6e7d5d5253f8a7ad727cee57da42f0e4db31de666ad69fd00ec9' \
+grep -Fq 'ghcr.io/berriai/litellm-migrations@sha256:35c0d71472914586ad683fa853403509b8a57a9975c0d1bc5d02b4adebfed91d' \
   "${app_root}/migration-job.yaml"
 if grep -Eq '^[[:space:]]+envFrom:' "${app_root}/migration-job.yaml"; then
   printf 'migration Job receives secrets it does not need\n' >&2
@@ -140,6 +140,11 @@ readonly -a configured_models=(
   glm-5.3-flash-abliterated
   qwen-image-2.1
   qwen-image-2.1-uncensored
+  jevk5-4b-v0.3
+  clef-flash-bf16
+  clef-flash-q8
+  clef-flash-q4
+  clef-q4
 )
 for model in "${configured_models[@]}"; do
   if ! grep -Fq "      - model_name: ${model}" "${app_root}/configmap.yaml"; then
@@ -202,6 +207,8 @@ readonly -a public_api_rules=(
   "${public_host} && Method(\`POST\`) && Path(\`/v1/chat/completions/input_tokens\`)"
   "${public_host} && Method(\`POST\`) && Path(\`/v1/embeddings\`)"
   "${public_host} && Method(\`GET\`) && (Path(\`/v1/models\`) || PathPrefix(\`/v1/models/\`))"
+  "${public_host} && Method(\`POST\`) && Path(\`/v1/systemone\`)"
+  "${public_host} && Method(\`POST\`) && Path(\`/v1/decisions\`)"
   "${public_host} && Method(\`POST\`) && Path(\`/v1/images/generations\`)"
   "${public_host} && Method(\`POST\`) && Path(\`/v1/images/edits\`)"
   "${public_host} && Method(\`POST\`) && Path(\`/typesafe/v1/systemone\`)"
