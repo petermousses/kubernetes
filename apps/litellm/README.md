@@ -120,6 +120,15 @@ provider and calls the OpenAI-format `/v1/decisions` route on the local
 adapter translates that request into the existing local System One contract.
 the five canonical model IDs are `jevk5-4b-v0.3`,
 `clef-flash-bf16`, `clef-flash-q8`, `clef-flash-q4`, and `clef-q4`.
+the `clef-flash` shorthand is also registered and selects `clef-flash-bf16`.
+restricted virtual keys must include that exact alias in their model scope to
+use or list it.
+
+the LiteLLM rollout does not install or restart the separate Redqueen systemd
+adapter. deploy this repository's adapter code on Redqueen with
+`hosts/redqueen/adapters/install.sh`, then restart `jevk5-adapter.service` in
+the owning user session. without that step the old adapter returns 404 for
+`/v1/decisions`.
 
 those aliases are real LiteLLM catalog entries in this repository. after the
 config is deployed, authenticated `GET /v1/models` returns them to keys whose
@@ -155,8 +164,8 @@ check from a workstation:
 ```
 
 enter a disposable or restricted LiteLLM virtual key at the hidden prompt, not
-the master key. by default the key must allow all five decision aliases, so
-`GET /v1/models` can verify the catalog; `jevk5-4b-v0.3` on both native
+the master key. by default the key must allow all five canonical decision
+aliases, so `GET /v1/models` can verify the catalog; `jevk5-4b-v0.3` on both native
 decision routes; `clef-flash-bf16` with an inline image on the native Decisions
 route and through the temporary legacy image route;
 `qwen-image-2.1`; and `allowed_routes` for `/v1/models`, `/v1/systemone`,
@@ -168,5 +177,7 @@ validator checks auth and method boundaries,
 exercises both native request formats, verifies Clef image input through both
 the native and legacy routes, generates and edits a 512×512 PNG, validates both
 image files, and prints their private temporary directory for visual
-inspection. the live rollout and eventual legacy-route retirement remain
-operator steps; see [`AI_INFERENCE_PLAN.md`](../../AI_INFERENCE_PLAN.md).
+inspection. to validate the `clef-flash` shorthand separately, add it to the
+virtual key's model scope and request it in a System One call. the live rollout
+and eventual legacy-route retirement remain operator steps; see
+[`AI_INFERENCE_PLAN.md`](../../AI_INFERENCE_PLAN.md).
