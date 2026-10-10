@@ -1,0 +1,162 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minecraft-agent
+  labels:
+    app.kubernetes.io/name: minecraft-agent
+    app.kubernetes.io/part-of: minecraft-agent
+    app.kubernetes.io/component: runtime
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: minecraft-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minecraft-agent
+        app.kubernetes.io/part-of: minecraft-agent
+        app.kubernetes.io/component: runtime
+        mousses.xyz/litellm-client: "true"
+        mousses.xyz/traefik-http-backend: "true"
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runtime
+          # Image from successful Actions run 37991577794 at source commit e091567f1c73976da06a70f12c02a53a13c15421.
+          image: ghcr.io/petermousses/minecraft-agent-runtime@sha256:d6bc6b898a92ac005322326f662a4cf2f14fd52849ea65b2aaf6f8dd7fe7239e
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: viewer
+              containerPort: 3077
+              protocol: TCP
+            - name: status
+              containerPort: 3078
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: minecraft-agent-config
+            - secretRef:
+                name: minecraft-agent-secrets
+          startupProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - curl -fsS http://127.0.0.1:3078/ | grep -q '"recordReady":true'
+            failureThreshold: 60
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - curl -fsS http://127.0.0.1:3078/ | grep -q '"recordReady":true'
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket:
+              port: status
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "2"
+              memory: 3Gi
+            limits:
+              cpu: "4"
+              memory: 5Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: server-data
+              mountPath: /data/server
+            - name: run-data
+              mountPath: /app/runs
+        - name: frontend
+          # Image from successful Actions run 37991577794 at source commit e091567f1c73976da06a70f12c02a53a13c15421.
+          image: ghcr.io/petermousses/minecraft-agent-frontend@sha256:0fdf65802db8887b912e962030193bc4e6ad155b60f31c9a40f02489d520babd
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUNTIME_HOST
+              value: 127.0.0.1
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 12
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /viewer/
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: run-data
+              mountPath: /var/www/runs
+              readOnly: true
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+            - name: temporary
+              mountPath: /tmp
+      volumes:
+        - name: server-data
+          persistentVolumeClaim:
+            claimName: minecraft-agent-server
+        - name: run-data
+          persistentVolumeClaim:
+            claimName: minecraft-agent-runs
+        - name: nginx-config
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: temporary
+          emptyDir:
+            sizeLimit: 64Mi
+      terminationGracePeriodSeconds: 150
