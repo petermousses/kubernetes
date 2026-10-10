@@ -24,6 +24,10 @@ spec:
         mousses.xyz/traefik-http-backend: "true"
     spec:
       automountServiceAccountToken: false
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
       imagePullSecrets:
         - name: ghcr-pull
       securityContext:
