@@ -100,6 +100,32 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  name: allow-minecraft-agent-ingress
+  namespace: litellm
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: litellm
+      app.kubernetes.io/component: gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: minecraft-agent
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: minecraft-agent
+              app.kubernetes.io/component: runtime
+              mousses.xyz/litellm-client: "true"
+      ports:
+        - protocol: TCP
+          port: 4000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
   name: allow-prometheus-metrics-ingress
   namespace: litellm
 spec:
