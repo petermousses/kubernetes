@@ -48,6 +48,7 @@ ProtectSystem=strict
 ReadOnlyPaths=/srv/ai/bin/llama-swap
 ReadOnlyPaths=/usr/bin/llama-server
 ReadOnlyPaths=/srv/ai/runtimes/llama.cpp-v0.6.0-d812350
+ReadOnlyPaths=/srv/ai/runtimes/llama.cpp-b11457-5ad1c5d
 ReadOnlyPaths=/srv/ai/model-router
 ReadOnlyPaths=/srv/ai/models
 ReadOnlyPaths=/srv/ai/secrets/llama-swap.env

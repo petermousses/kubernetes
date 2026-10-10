@@ -156,6 +156,128 @@ models:
     ttl: 60
     concurrencyLimit: 1
 
+  embeddinggemma-2:
+    cmd: >-
+      /srv/ai/runtimes/llama.cpp-b11457-5ad1c5d/bin/llama-server
+      --model /srv/ai/models/embeddinggemma-2/embeddinggemma-2-Q8_0.gguf
+      --alias embeddinggemma-2
+      --ctx-size 8192
+      --pooling mean
+      --embedding
+      --gpu-layers 999
+      --parallel 1
+      --cont-batching
+      --metrics
+      --slots
+      --no-ui
+      --threads 16
+      --threads-http 8
+      --api-key-file /srv/ai/secrets/qwen38-api-keys
+      --host 127.0.0.1
+      --port ${PORT}
+    ttl: 300
+    concurrencyLimit: 1
+
+  clef-flash-bf16:
+    cmd: >-
+      /srv/ai/runtimes/llama.cpp-b11457-5ad1c5d/bin/llama-server
+      --model /srv/ai/models/clef-flash/Clef-Flash-BF16.gguf
+      --mmproj /srv/ai/models/clef-flash/mmproj-Clef-Flash-Q8_0.gguf
+      --alias clef-flash-bf16
+      --ctx-size 65536
+      --cache-type-k q8_0
+      --cache-type-v q8_0
+      --gpu-layers 999
+      --parallel 1
+      --cont-batching
+      --flash-attn auto
+      --jinja
+      --metrics
+      --slots
+      --no-ui
+      --threads 28
+      --threads-http 8
+      --api-key-file /srv/ai/secrets/qwen38-api-keys
+      --host 127.0.0.1
+      --port ${PORT}
+    ttl: 300
+    concurrencyLimit: 1
+
+  clef-flash-q8:
+    cmd: >-
+      /srv/ai/runtimes/llama.cpp-b11457-5ad1c5d/bin/llama-server
+      --model /srv/ai/models/clef-flash/Clef-Flash-Q8_0.gguf
+      --mmproj /srv/ai/models/clef-flash/mmproj-Clef-Flash-Q8_0.gguf
+      --alias clef-flash-q8
+      --ctx-size 65536
+      --cache-type-k q8_0
+      --cache-type-v q8_0
+      --gpu-layers 999
+      --parallel 1
+      --cont-batching
+      --flash-attn auto
+      --jinja
+      --metrics
+      --slots
+      --no-ui
+      --threads 28
+      --threads-http 8
+      --api-key-file /srv/ai/secrets/qwen38-api-keys
+      --host 127.0.0.1
+      --port ${PORT}
+    ttl: 300
+    concurrencyLimit: 1
+
+  clef-flash-q4:
+    cmd: >-
+      /srv/ai/runtimes/llama.cpp-b11457-5ad1c5d/bin/llama-server
+      --model /srv/ai/models/clef-flash/Clef-Flash-Q4_K_M.gguf
+      --mmproj /srv/ai/models/clef-flash/mmproj-Clef-Flash-Q8_0.gguf
+      --alias clef-flash-q4
+      --ctx-size 65536
+      --cache-type-k q8_0
+      --cache-type-v q8_0
+      --gpu-layers 999
+      --parallel 1
+      --cont-batching
+      --flash-attn auto
+      --jinja
+      --metrics
+      --slots
+      --no-ui
+      --threads 28
+      --threads-http 8
+      --api-key-file /srv/ai/secrets/qwen38-api-keys
+      --host 127.0.0.1
+      --port ${PORT}
+    ttl: 300
+    concurrencyLimit: 1
+
+  clef-q4:
+    cmd: >-
+      /srv/ai/runtimes/llama.cpp-b11457-5ad1c5d/bin/llama-server
+      --model /srv/ai/models/clef/Clef-Q4_K_M.gguf
+      --mmproj /srv/ai/models/clef/mmproj-Clef-Q8_0.gguf
+      --alias clef-q4
+      --ctx-size 65536
+      --cache-type-k q8_0
+      --cache-type-v q8_0
+      --gpu-layers 999
+      --parallel 1
+      --cont-batching
+      --flash-attn auto
+      --jinja
+      --metrics
+      --slots
+      --no-ui
+      --threads 28
+      --threads-http 8
+      --api-key-file /srv/ai/secrets/qwen38-api-keys
+      --host 127.0.0.1
+      --port ${PORT}
+    ttl: 300
+    concurrencyLimit: 1
+
 routing:
   router:
     use: group
@@ -171,3 +293,8 @@ routing:
             - gemma-4-26b-a4b-it
             - qwen3.6-35b-a3b
             - glm-5.3-flash-abliterated
+            - embeddinggemma-2
+            - clef-flash-bf16
+            - clef-flash-q8
+            - clef-flash-q4
+            - clef-q4

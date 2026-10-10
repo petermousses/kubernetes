@@ -8,6 +8,20 @@ metadata:
     app.kubernetes.io/part-of: openmediavault
 spec:
   valuesContent: |-
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 65532
+      runAsGroup: 65532
+      seccompProfile:
+        type: RuntimeDefault
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+        add: [NET_BIND_SERVICE]
+      readOnlyRootFilesystem: true
+      seccompProfile:
+        type: RuntimeDefault
     providers:
       kubernetesCRD:
         allowExternalNameServices: true

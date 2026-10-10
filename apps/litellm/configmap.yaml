@@ -35,6 +35,8 @@ data:
           # DeepInfra hosted Gemma 4 E4B list rate; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.00000002
           output_cost_per_token: 0.0000001
+          supports_reasoning: true
+          # Gemma exposes thinking mode, not discrete reasoning-effort levels.
       - model_name: gemma-4-12b-it
         litellm_params:
           model: openai/gemma-4-12b-it
@@ -45,6 +47,8 @@ data:
           # SiliconFlow hosted Gemma 4 12B list rate; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.0000001
           output_cost_per_token: 0.0000003
+          supports_reasoning: true
+          # Gemma exposes thinking mode, not discrete reasoning-effort levels.
       - model_name: gemma-4-26b-a4b-it
         litellm_params:
           model: openai/gemma-4-26b-a4b-it
@@ -55,6 +59,8 @@ data:
           # SiliconFlow hosted Gemma 4 26B-A4B list rate; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.00000014
           output_cost_per_token: 0.0000004
+          supports_reasoning: true
+          # Gemma exposes thinking mode, not discrete reasoning-effort levels.
       - model_name: qwen3.6-35b-a3b
         litellm_params:
           model: openai/qwen3.6-35b-a3b
@@ -65,6 +71,8 @@ data:
           # SiliconFlow hosted Qwen3.6 35B-A3B list rate; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.00000024
           output_cost_per_token: 0.0000018
+          supports_reasoning: true
+          # Qwen3.6 exposes thinking mode, not discrete reasoning-effort levels.
       - model_name: glm-5.3-flash-abliterated
         litellm_params:
           model: openai/glm-5.3-flash-abliterated
@@ -80,6 +88,16 @@ data:
             - low
             - high
             - max
+      - model_name: embeddinggemma-2
+        litellm_params:
+          model: openai/embeddinggemma-2
+          api_base: http://qwen-redqueen:8081/v1
+          api_key: os.environ/QWEN_API_KEY
+          timeout: 900
+        model_info:
+          mode: embedding
+          # Google Gemini Embedding 2 Standard online text-input rate; proxy benchmark, see AI_INFERENCE_PLAN.md.
+          input_cost_per_token: 0.0000002
       - model_name: qwen-image-2.1
         litellm_params:
           model: openai/qwen-image-2.1
@@ -92,10 +110,59 @@ data:
           api_base: http://qwen-image-redqueen:8190/v1
           api_key: os.environ/QWEN_IMAGE_API_KEY
           timeout: 900
+      - model_name: jevk5-4b-v0.3
+        litellm_params:
+          model: openai/jevk5-4b-v0.3
+          api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
+          api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
+          timeout: 900
+        model_info:
+          mode: evaluation
+      - model_name: clef-flash-bf16
+        litellm_params:
+          model: openai/clef-flash-bf16
+          api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
+          api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
+          timeout: 900
+        model_info:
+          mode: evaluation
+      - model_name: clef-flash-q8
+        litellm_params:
+          model: openai/clef-flash-q8
+          api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
+          api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
+          timeout: 900
+        model_info:
+          mode: evaluation
+      - model_name: clef-flash-q4
+        litellm_params:
+          model: openai/clef-flash-q4
+          api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
+          api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
+          timeout: 900
+        model_info:
+          mode: evaluation
+      - model_name: clef-flash
+        litellm_params:
+          model: openai/clef-flash-bf16
+          api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
+          api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
+          timeout: 900
+        model_info:
+          mode: evaluation
+      - model_name: clef-q4
+        litellm_params:
+          model: openai/clef-q4
+          api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
+          api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
+          timeout: 900
+        model_info:
+          mode: evaluation
 
     litellm_settings:
       callbacks:
         - prometheus
+        - redqueen_costs.cost_registry
       json_logs: true
       key_alias_pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
       redact_messages_in_exceptions: true
@@ -115,3 +182,42 @@ data:
       trusted_proxy_ranges:
         - 10.42.0.0/16
         - 10.9.20.14/32
+  redqueen_costs.py: |
+    import litellm
+    from litellm.integrations.custom_logger import CustomLogger
+
+    MODEL_COSTS = {
+        "openai/jevk5-4b-v0.3": {
+            "input_cost_per_token": 0.000000042,
+            "output_cost_per_token": 0,
+            "litellm_provider": "openai",
+            "mode": "evaluation",
+        },
+        "openai/clef-flash-bf16": {
+            "input_cost_per_token": 0.00000009,
+            "output_cost_per_token": 0,
+            "litellm_provider": "openai",
+            "mode": "evaluation",
+        },
+        "openai/clef-flash-q8": {
+            "input_cost_per_token": 0.00000009,
+            "output_cost_per_token": 0,
+            "litellm_provider": "openai",
+            "mode": "evaluation",
+        },
+        "openai/clef-flash-q4": {
+            "input_cost_per_token": 0.00000009,
+            "output_cost_per_token": 0,
+            "litellm_provider": "openai",
+            "mode": "evaluation",
+        },
+        "openai/clef-q4": {
+            "input_cost_per_token": 0.00000024,
+            "output_cost_per_token": 0,
+            "litellm_provider": "openai",
+            "mode": "evaluation",
+        },
+    }
+
+    litellm.register_model(MODEL_COSTS, persist_across_reloads=True)
+    cost_registry = CustomLogger()

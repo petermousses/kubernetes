@@ -25,10 +25,6 @@ spec:
       automountServiceAccountToken: false
       nodeSelector:
         kubernetes.io/hostname: openmediavault
-      securityContext:
-        runAsNonRoot: false
-        runAsUser: 0
-        runAsGroup: 0
       containers:
         - name: valkey
           image: docker.io/valkey/valkey@sha256:3eeb09785cd61ec8e3be35f8804c8892080f3ca21934d628abc24ee4ed1698f6
@@ -70,16 +66,13 @@ spec:
               cpu: 500m
               memory: 512Mi
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - ALL
-              add:
-                - CHOWN
-                - DAC_OVERRIDE
-                - FOWNER
-                - SETGID
-                - SETUID
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:

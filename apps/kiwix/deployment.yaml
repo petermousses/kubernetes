@@ -63,6 +63,9 @@ spec:
               cpu: "2"
               memory: 1Gi
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
             allowPrivilegeEscalation: false
             capabilities:
               drop:

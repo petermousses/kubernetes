@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/name: litellm
     app.kubernetes.io/component: gateway
     app.kubernetes.io/part-of: litellm
-    app.kubernetes.io/version: 1.103.0
+    app.kubernetes.io/version: 1.104.2
 spec:
   replicas: 1
   strategy:
@@ -23,7 +23,7 @@ spec:
         app.kubernetes.io/name: litellm
         app.kubernetes.io/component: gateway
         app.kubernetes.io/part-of: litellm
-        app.kubernetes.io/version: 1.103.0
+        app.kubernetes.io/version: 1.104.2
         mousses.xyz/authentik-oidc-client: "true"
         mousses.xyz/public-web-egress: "true"
     spec:
@@ -95,8 +95,8 @@ spec:
               type: RuntimeDefault
       containers:
         - name: litellm
-          # ghcr.io/berriai/litellm:v1.103.0; Cosign-verified index digest.
-          image: ghcr.io/berriai/litellm@sha256:bd089afdcd35b894b14a93f9743cdc8b591f82da1a38dd43a010a7b0c9de5fd7
+          # ghcr.io/berriai/litellm:v1.104.2; pinned GHCR OCI index digest.
+          image: ghcr.io/berriai/litellm@sha256:3d88bd757134a00e8c00237b85a021ab1f6d54abb9c1df750f411dbe7256a500
           imagePullPolicy: IfNotPresent
           args:
             - --config
@@ -152,10 +152,19 @@ spec:
               value: /app/migrations
             - name: PRISMA_BINARY_CACHE_DIR
               value: /app/cache/prisma
-            # LiteLLM appends the exact /v1/systemone suffix and replaces the
-            # caller's virtual key with TYPESAFE_API_KEY from litellm-env.
+            # The OpenAI decision provider appends /decisions to this /v1 base.
+            - name: REDQUEEN_DECISIONS_API_BASE
+              value: http://jevk5-redqueen:8191/v1
+            - name: REDQUEEN_DECISIONS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-env
+                  key: TYPESAFE_API_KEY
+            # Retain these for the temporary TypeSafe pass-through only.
             - name: TYPESAFE_API_BASE
               value: http://jevk5-redqueen:8191
+            - name: PYTHONPATH
+              value: /etc/litellm
             - name: XDG_CACHE_HOME
               value: /app/cache
           startupProbe:
@@ -199,6 +208,10 @@ spec:
               mountPath: /etc/litellm/config.yaml
               subPath: config.yaml
               readOnly: true
+            - name: config
+              mountPath: /etc/litellm/redqueen_costs.py
+              subPath: redqueen_costs.py
+              readOnly: true
             - name: cache
               mountPath: /app/cache
             - name: migrations
@@ -212,6 +225,8 @@ spec:
             items:
               - key: config.yaml
                 path: config.yaml
+              - key: redqueen_costs.py
+                path: redqueen_costs.py
         - name: cache
           emptyDir:
             sizeLimit: 512Mi

@@ -36,7 +36,31 @@ spec:
         - name: litellm
           port: http
     - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/embeddings`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`GET`) && (Path(`/v1/models`) || PathPrefix(`/v1/models/`))
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/systemone`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/decisions`)
       middlewares:
         - name: security-headers
         - name: request-limits
@@ -61,6 +85,14 @@ spec:
           port: http
     - kind: Rule
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/typesafe/v1/systemone`)
+      middlewares:
+        - name: security-headers
+        - name: request-limits
+      services:
+        - name: litellm
+          port: http
+    - kind: Rule
+      match: Host(`api.ai.omv.mousses.xyz`) && Method(`GET`) && Path(`/typesafe/v1/models`)
       middlewares:
         - name: security-headers
         - name: request-limits

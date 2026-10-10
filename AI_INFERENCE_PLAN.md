@@ -9,11 +9,13 @@ do **not** make k3s directly manage the AMD Halo GPU workloads in v1. run the in
 | api gateway | LiteLLM (MIT for the open-source core) |
 | chat ui | LibreChat (MIT) |
 | identity | Authentik OIDC (MIT for the community core) |
+| backup archive | Borg 1.4.5 over restricted SSH (BSD-3-Clause) |
 | text-model router | `llama-swap` (MIT) dynamically starts/stops `llama.cpp` (MIT) model servers |
+| embedding model | EmbeddingGemma 2 through the same private llama-swap and LiteLLM gateways |
 | Qwen3.8, Gemma 4 E4B/12B/26B-A4B, Qwen3.6-35B-A3B weights | Apache-2.0 |
 | Huihui GLM-5.3-Flash abliterated GGUF | MIT; reduced safety filtering; dedicated restricted key only |
 | Qwen Image 2.1 runtime | ComfyUI (GPL-3.0) + ComfyUI-GGUF (Apache-2.0) + OpenAI-compatible Images adapter (repository Apache-2.0); standard and uncensored image weights (Qwen Research License) |
-| JevK5 runtime | separate `llama.cpp` server + `/v1/systemone` adapter; JevK5 code and weights (Apache-2.0) |
+| System One models | JevK5's calibrated adapter plus model-pinned Cloudflare Clef / Clef-Flash routes through the private llama-swap router |
 | machine authentication | scoped LiteLLM virtual keys |
 | browser authentication | Authentik SSO |
 
@@ -25,7 +27,7 @@ browser ──> traefik ──> LibreChat ──> LiteLLM
 api clients ──> api.ai... ──────────────┤
                                         ├─> llama-swap ─> one llama.cpp text model at a time
                                         ├─> image adapter ─> ComfyUI (standard or uncensored Qwen Image)
-                                        └─> JevK5 adapter ─> llama.cpp
+                                        └─> System One adapter ─> JevK5 or llama-swap Clef
 ```
 
 raw Halo endpoints remain private and firewall-restricted to the cluster.
@@ -39,6 +41,8 @@ raw Halo endpoints remain private and firewall-restricted to the cluster.
 | [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/LICENSE) | Apache-2.0 | permissive model license; preserve required notices when redistributing weights or derivatives. |
 | [Gemma 4 E4B](https://huggingface.co/google/gemma-4-E4B-it), [12B](https://huggingface.co/google/gemma-4-12B-it), and [26B-A4B](https://huggingface.co/google/gemma-4-26B-A4B-it) weights | Apache-2.0 | permissive; preserve required notices when redistributing weights or derivatives. |
 | [Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) | Apache-2.0 | permissive; preserve required notices when redistributing weights or derivatives. |
+| [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2), GGUF from [Unsloth](https://huggingface.co/unsloth/embeddinggemma-2-GGUF) | Apache-2.0 | preserve the Apache license and model card; use task prefixes for query/document retrieval inputs. |
+| [Cloudflare Clef](https://huggingface.co/Cloudflare/clef) and [Clef-Flash](https://huggingface.co/Cloudflare/clef-flash), converted GGUFs from [ggml-org](https://huggingface.co/ggml-org/Clef-Flash-GGUF) | Apache-2.0 | preserve source and GGUF model cards plus the source license; use the typed System One decision API, not chat completion. |
 | [Huihui GLM-5.3-Flash abliterated GGUF](https://huggingface.co/huihui-ai/Huihui-GLM-5.3-Flash-abliterated-GGUF) | MIT | the model card calls this a crude, proof-of-concept abliteration, warns that safety filtering is significantly reduced, and recommends controlled research/testing; allow only through a dedicated restricted key. |
 | [Qwen Image 2.1](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE), including [uncensored GGUF derivative](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF) | Qwen Research License | non-commercial research/evaluation only unless a separate commercial license is obtained. the uncensored derivative has no built-in safety checker or content filter; keep it behind authenticated LiteLLM keys and do not imply moderation. |
 | [JevK5 runtime and model](https://github.com/allebee/jevk5/blob/main/LICENSE) | Apache-2.0 | permissive; the selected [GGUF weights](https://huggingface.co/alibiserikbay/JevK5-GGUF) carry the same license. |
@@ -53,6 +57,7 @@ raw Halo endpoints remain private and firewall-restricted to the cluster.
 | [Podman](https://github.com/podman-container-tools/podman/blob/main/LICENSE) | Apache-2.0 | permissive. |
 | [systemd](https://github.com/systemd/systemd/blob/main/LICENSES/README.md) | LGPL-2.1-or-later generally | udev programs include GPL-2.0-or-later code; normal service use creates no project-specific distribution requirement. |
 | [PostgreSQL](https://www.postgresql.org/about/licence/) | PostgreSQL License | permissive. |
+| [Borg](https://github.com/borgbackup/borg/blob/master/LICENSE) | BSD-3-Clause | client-side encrypted, deduplicated NAS archives; the AI-node binary is pinned and signature-verified. |
 | [k3s](https://github.com/k3s-io/k3s) | Apache-2.0 | permissive. |
 | [Kubernetes](https://github.com/kubernetes/kubernetes) | Apache-2.0 | permissive. |
 | [Traefik Proxy](https://github.com/traefik/traefik/blob/master/LICENSE.md) | MIT | the separate Traefik Helm chart is Apache-2.0. |
@@ -135,12 +140,15 @@ step 1 is **complete**. the one-hour mixed GPU/memory stress gate, reboot recove
 - use this storage layout:
   - `/srv/ai/models/qwen3.8-27b/` — Qwen3.8 weights, multimodal projection, license, source revision and `SHA256SUMS`;
   - `/srv/ai/models/jevk5-4b-v0.3/` — JevK5 GGUF, calibration metadata, license, source revision and `SHA256SUMS`;
+  - `/srv/ai/models/embeddinggemma-2/` — EmbeddingGemma 2 Q8_0 GGUF, license, model card, source revision and `SHA256SUMS`;
+  - `/srv/ai/models/clef-flash/` — BF16, Q8_0 and Q4_K_M Clef-Flash GGUFs plus shared Q8_0 projector, license, both model cards, source revisions and `SHA256SUMS`;
+  - `/srv/ai/models/clef/` — Clef Q4_K_M GGUF plus Q8_0 projector, license, both model cards, source revisions and `SHA256SUMS`;
   - `/srv/ai/models/qwen-image-2.1/` — Qwen Image model components, license, source revision and `SHA256SUMS`;
   - `/srv/ai/cache/` — disposable download, conversion and runtime caches; never the authoritative copy of a model;
   - `/srv/ai/comfyui/` — pinned ComfyUI checkout, immutable workflows and custom-node lock data.
 - configure every runtime to load weights from the authoritative `/srv/ai/models/` directories directly or through read-only symlinks; do not duplicate unmanaged model copies inside application directories or container layers.
-- download the pinned Qwen3.8-27B, JevK5 4B Q8_0 and Qwen Image 2.1 artifacts; record source revisions and SHA-256 hashes, and retain every required license/notice file beside the weights.
-- run separate `llama-server` instances for Qwen3.8 and JevK5, including Qwen’s multimodal projection and each service’s health and metrics endpoints.
+- download the pinned Qwen3.8-27B, JevK5 4B Q8_0, Clef/Flash quantizations and Qwen Image 2.1 artifacts; record source revisions and SHA-256 hashes, and retain every required license/notice file beside the weights.
+- run the private model router for chat, embedding and Clef servers; keep JevK5's calibrated local llama.cpp server behind the same typed adapter.
 - install a pinned ComfyUI revision and immutable Qwen Image 2.1 workflows for generation, editing, transparency and reference-image input.
 - bind inference ports only to the private interface and restrict the host firewall to required cluster sources; no raw model endpoint may be internet- or user-accessible.
 - **exit criterion:** every backend starts automatically after reboot, passes its direct health/functional test and remains inaccessible outside the approved cluster path.
@@ -162,6 +170,7 @@ authoritative model artifacts are complete on the local NVMe, read-only to the s
 | backend | pinned source and selected artifacts | bytes |
 |---|---|---:|
 | Qwen3.8-27B | `ggml-org/Qwen3.8-27B-GGUF@71bc7b627595dc8a91039addd9c791ae548d6747`: `Qwen3.8-27B-Q4_K_M.gguf` plus `mmproj-Qwen3.8-27B-Q8_0.gguf`; license/model card from `Qwen/Qwen3.8-27B@1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0` | 19,603,117,536 |
+| EmbeddingGemma 2 | `unsloth/embeddinggemma-2-GGUF@ba3888272494be64ed88c9eb536ddc61a1be73d5`: `embeddinggemma-2-Q8_0.gguf`; source model `google/embeddinggemma-2@914f7f89142e33e77833254d9c9b90c3cef7303b` | 309,855,520 |
 | JevK5 4B v0.3 | `alibiserikbay/JevK5-GGUF@ec67b0bfce5119a8b11a2cdb430bb43e3fa3e82a`: `jevk5-4b-v0.3-Q8_0.gguf`; license from `allebee/jevk5@f944fe37ff1d5ed3830aa4c8d88b7189c8c1268a` | 4,482,402,720 |
 | Qwen Image 2.1 | `Comfy-Org/Qwen-Image-2.1@9a44dbdb47cefd046be9c0a13476192f34c8db8e`: BF16 diffusion model, BF16 Qwen3-VL encoder, INT8 T2I/I2I prompt enhancers and BF16 VAE; license/model card from `Qwen/Qwen-Image-2.1@790c92633540aa0cb11d9abf19eb46d861714758` | 51,382,269,424 |
 
@@ -247,7 +256,7 @@ SSH authentication is the v1 security boundary for the operator UI. if browser-o
 - implement and test the image adapter for `/v1/images/generations` and `/v1/images/edits`, including validation, timeouts, cancellation, queue limits and deterministic ComfyUI workflow mapping.
 - implement and test the JevK5 `/v1/systemone` adapter with typed request/response validation, option-count limits and calibrated model settings.
 - deploy LiteLLM and its dedicated PostgreSQL database with pinned images, non-committed Kubernetes Secrets, network policies, probes, resource limits and persistent storage.
-- register only `qwen3.8-27b`, `qwen-image-2.1` and LiteLLM's native authenticated `/typesafe/v1/systemone` pass-through, which forwards the exact `/v1/systemone` suffix to the redqueen adapter; prohibit wildcard pass-through and caller Authorization-header forwarding. [LiteLLM TypeSafe pass-through](https://docs.litellm.ai/docs/pass_through/typesafe)
+- register the approved chat/image IDs, `embeddinggemma-2` for LiteLLM's OpenAI-compatible `/v1/embeddings`, and all five canonical System One models as static LiteLLM decision entries. expose `/v1/systemone` and `/v1/decisions`; retain the exact TypeSafe pass-through temporarily for existing clients and rollback during image-route migration. register per-model decision rates using LiteLLM's custom cost map. [LiteLLM embeddings](https://docs.litellm.ai/docs/embedding), [LiteLLM Decisions API](https://docs.litellm.ai/docs/decisions), [LiteLLM TypeSafe pass-through](https://docs.litellm.ai/docs/pass_through/typesafe), [LiteLLM custom pricing](https://docs.litellm.ai/docs/proxy/custom_pricing/)
 - for each chat model, set LiteLLM `model_info.supports_reasoning` and `supported_reasoning_efforts` from that model's official specification and serving template/API. declare only the levels the backend actually implements; verify that the selected level reaches the backend's required request field instead of assuming capability metadata performs a parameter translation. run short per-level smoke requests before exposing the model. GLM-5.3-Flash supports `low`, `high` and `max` (default `max`); reasoning cannot be disabled. With llama.cpp, pass the chosen effort as `chat_template_kwargs.reasoning_effort`, and default `clear_thinking=true` for chat. [GLM-5.3 API changes](https://z.ai/blog/glm-5.3), [LiteLLM reasoning metadata](https://docs.litellm.ai/docs/reasoning_content/), [llama.cpp server options](https://github.com/ggml-org/llama.cpp/blob/v0.6.0/tools/server/README.md)
 - for every local chat model, set `model_info.input_cost_per_token` and `output_cost_per_token` in the versioned LiteLLM config using the closest relevant paid hosted API list rate, converted from USD per million tokens to USD per token. record the provider, source model, rate snapshot date and any currency conversion here. use an exact hosted counterpart when available; for a derivative with no hosted API, use the unmodified base model's rate and label it as a proxy. these values create API-equivalent spend in LiteLLM's logs/UI and are also used by LiteLLM budgets; they are not redqueen electricity, hardware depreciation or actual local operating cost. keep those local costs as a separate estimate. do not make a UI-only pricing change: `store_model_in_db: false` leaves this repository config authoritative. add cache/tier-specific cost fields only when the request usage exposes those token categories reliably. [LiteLLM custom pricing](https://docs.litellm.ai/docs/proxy/custom_pricing/), [LiteLLM spend tracking](https://docs.litellm.ai/docs/proxy/cost_tracking)
 
@@ -264,7 +273,21 @@ the following snapshot supplies the `model_info` rates above. prices are USD per
 | `qwen3.6-35b-a3b` | SiliconFlow `Qwen3.6-35B-A3B` | $0.24 / $1.80 |
 | `glm-5.3-flash-abliterated` | Z.AI `GLM-5.3-Flash` base model; proxy for the ablated derivative | $0.15 / $0.50 |
 
-price sources: [DeepInfra Gemma 4 E4B](https://deepinfra.com/google/gemma-4-E4B-it), [SiliconFlow pricing](https://www.siliconflow.com/pricing), [Z.AI pricing](https://docs.z.ai/guides/overview/pricing). the GLM ablation is not offered as a hosted API; its base-model price is only a comparison benchmark. refresh the sources and this table when adding/removing a chat model or when a listed provider rate changes. image aliases and JevK5 `/typesafe/v1/systemone` have no chat-token comparator here and remain excluded.
+price sources: [DeepInfra Gemma 4 E4B](https://deepinfra.com/google/gemma-4-E4B-it), [SiliconFlow pricing](https://www.siliconflow.com/pricing), [Z.AI pricing](https://docs.z.ai/guides/overview/pricing). the GLM ablation is not offered as a hosted API; its base-model rate is only a comparison benchmark. refresh these sources when adding/removing a chat model or a listed rate changes. System One API-equivalent rates are recorded below.
+
+#### API-equivalent System One rates — 2026-10-06
+
+these input-only hosted API rates feed LiteLLM spend and budget accounting for the typed endpoints. all outputs are free and set to zero. JevK5 has no published hosted price, so it uses Jev's $0.042 per 1M input-token rate as the requested proxy. the three local Clef-Flash precisions use Cloudflare's $0.09 per 1M input-token price; local Clef Q4 uses Cloudflare Clef's $0.24 per 1M input-token price. these are hosted API benchmarks, not local electricity or hardware costs. LiteLLM registers them under `openai/<response-model>` in `apps/litellm/configmap.yaml` for the local OpenAI Decisions adapter.
+
+| local System One alias | hosted benchmark | input / output per 1M tokens |
+| --- | --- | ---: |
+| `jevk5-4b-v0.3` | TypeSafe Jev 1.13; proxy because JevK5 has no separately published hosted rate | $0.042 / $0 |
+| `clef-flash-bf16` | Cloudflare Workers AI `@cf/cloudflare/clef-flash` | $0.09 / $0 |
+| `clef-flash-q8` | Cloudflare Workers AI `@cf/cloudflare/clef-flash` | $0.09 / $0 |
+| `clef-flash-q4` | Cloudflare Workers AI `@cf/cloudflare/clef-flash` | $0.09 / $0 |
+| `clef-q4` | Cloudflare Workers AI `@cf/cloudflare/clef` | $0.24 / $0 |
+
+price sources: [TypeSafe model pricing](https://docs.typesafe.ai/models), [Cloudflare Clef-Flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/), [Cloudflare Clef](https://developers.cloudflare.com/workers-ai/models/clef/), [Cloudflare Workers AI pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/). the model cards specify the matching typed `/v1/systemone` API; Clef-Flash accepts embedded images. [ggml-org Clef-Flash GGUF](https://huggingface.co/ggml-org/Clef-Flash-GGUF), [ggml-org Clef GGUF](https://huggingface.co/ggml-org/Clef-GGUF).
 - create separate least-privilege virtual keys for LibreChat, administrators and each machine client; enable request, latency, error and queue metrics without logging prompts or image contents by default.
 - **exit criterion:** one API hostname serves all three capabilities, rejects missing or incorrectly scoped keys, and exposes no route that bypasses LiteLLM authentication.
 
@@ -282,14 +305,14 @@ the v1 boundary is frozen: redqueen remains outside k3s, while one LiteLLM repli
 
 the implementation is versioned under `apps/litellm/` and `hosts/redqueen/` with these controls:
 
-- LiteLLM `v1.103.0` is pinned by a Cosign-verified OCI index digest, runs as UID/GID 101 with a read-only root filesystem, one worker, one replica, a fixed 1 CPU/4 GiB envelope, production mode and probes. schema updates remain disabled during normal startup. the Admin UI is enabled inside the Pod but no UI or management path is present on the public API IngressRoute;
-- a separate, explicitly ordered migration Job runs before the gateway. it uses LiteLLM's dedicated, offline `litellm-migrations:v1.103.0` image pinned to a Cosign-verified index digest, its native v2 resolver, UID/GID 65532 and a read-only root filesystem. `apps/litellm/deploy.sh` exists because plain `kubectl apply -k .` would create a migration/startup race; use the script for installs and upgrades;
+- the last recorded live LiteLLM version is `v1.104.0`; this repository now targets `v1.104.2`, pinned by its GHCR OCI index digest. the candidate keeps UID/GID 101, a read-only root filesystem, one worker/replica, a fixed 1 CPU/4 GiB envelope, production mode and probes. schema updates remain disabled during normal startup. the Admin UI stays inside the Pod and off the public API IngressRoute. v1.104.2 adds the native Decisions routes and decision providers without new database migrations or breaking changes. [v1.104.2 release notes](https://docs.litellm.ai/release_notes/v1.104.2/v1-104-2);
+- a separate, explicitly ordered migration Job runs before the gateway and now targets LiteLLM's dedicated `litellm-migrations:v1.104.2` image, pinned by its GHCR OCI index digest. it retains the native v2 resolver, UID/GID 65532 and a read-only root filesystem. `apps/litellm/deploy.sh` exists because plain `kubectl apply -k .` would create a migration/startup race; use the script for installs and upgrades;
 - PostgreSQL `16.14-bookworm` is pinned by digest, runs as UID/GID 999, uses the retained static PV, and is reachable only from the gateway and migration pods;
 - secrets are never committed. `bootstrap-secrets.sh` prompts for the three redqueen upstream keys, generates the database password, LiteLLM master key and permanent salt, then refuses accidental rotation if the Secret already exists;
 - the redqueen image adapter exposes only bounded `/v1/images/generations` and `/v1/images/edits` contracts, maps requests into fixed workflows, limits execution to one active/four waiting jobs, cleans request-scoped inputs/outputs, verifies returned PNG dimensions and the requested alpha contract, and composites RGBA output onto a white matte for `background=opaque` so the response is truly opaque RGB;
-- the JevK5 adapter exposes only `/v1/systemone`, enforces TypeSafe-style typed inputs/outputs and uses the selected Q8_0 file's documented `temperature=1.22` and `knockout_temperature=0.93` calibration. its vendored prompt/readout is attributed to JevK5 v0.3.0 and SemIf;
+- the System One adapter keeps JevK5 at its existing `/v1/systemone` path and adds an OpenAI Decisions `/v1/decisions` adapter for LiteLLM's `openai/` provider. it converts named predicate/choice/score questions and bounded inline images into the existing local System One contract. model-pinned Clef routes forward only validated decision fields to llama-swap, force the path's local alias, and bound inline images to Cloudflare's documented payload limits;
 - Qwen binds to `10.9.20.242:8081`; the image and Jev adapters bind to `10.9.20.242:8190` and `:8191`. separate 256-bit upstream credentials protect every inference operation, and the host firewall admits only the NAS, redqueen itself and the k3s pod CIDR to those ports. llama.cpp leaves `/v1/models` metadata unauthenticated even with `--api-key-file`; this is accepted only behind that source-IP firewall, while the public `/v1/models` route remains behind LiteLLM authentication;
-- the public Traefik IngressRoute uses method-scoped allowlists: `GET`/`POST` only for the exact `/v1/responses` path and its slash-delimited subpaths, `GET` only for `/v1/models` and its slash-delimited subpaths, and `POST` only for the approved exact chat, image and `/typesafe/v1/systemone` paths. health, metrics and administrative routes remain cluster-only. the redqueen Jev adapter's internal route remains `/v1/systemone`.
+- the public Traefik IngressRoute uses method-scoped allowlists: `GET`/`POST` only for the exact `/v1/responses` path and its slash-delimited subpaths, `GET` only for `/v1/models` and its slash-delimited subpaths, and `POST` only for approved exact chat, embedding, image, `/v1/systemone`, `/v1/decisions`, and transitional TypeSafe routes. health, metrics and administrative routes remain cluster-only. the redqueen System One adapter has fixed internal paths for each Clef alias and retains JevK5's `/v1/systemone` path.
 
 the execution order is deliberately split at the privilege boundary:
 
@@ -346,7 +369,7 @@ run `./apps/litellm/validate_inference.py` from a workstation with a disposable 
 
 the 2026-09-29 public validation passed with a virtual key: JevK5 chose `misdelivered` at confidence `0.998321`, and Qwen Image returned valid 512×512 generation and edit PNGs. visual inspection confirmed that the edit changed the centered cube from red to blue while preserving its shape and plain background. LiteLLM v1.103.0 forwards edit uploads as `image[]`; redqueen adapter commit `720cb2e` accepts that field through its existing bounded image validation. all 13 adapter tests passed on redqueen, and a live `image[]` edit returned HTTP 200 with a valid 512×512 PNG. the NAS-origin firewall allow probe subsequently passed. the owner elected to proceed to step 4 with the scoped-key matrix and live Prometheus scrape check explicitly deferred, not passed.
 
-JevK5 is deliberately absent from `/v1/models`: that list contains LiteLLM `model_list` entries for OpenAI-compatible calls, while JevK5 is a typed decision API behind the native `/typesafe/v1/systemone` pass-through. a virtual key for JevK5 must be restricted by nonempty `allowed_routes` containing `/typesafe/v1/systemone`; its `models` allowlist does not govern this pass-through. do not add a fake chat model merely to make JevK5 appear in `/v1/models`. future decision models need an explicit typed route or a dedicated decision router with model-aware authorization; a shared unrestricted pass-through would make per-model key isolation impossible. verify the key's actual denials before relying on this boundary.
+At the 2026-09-29 baseline JevK5 was absent from `/v1/models`: the gateway only listed its static `model_list` entries, while JevK5 was reachable through the TypeSafe pass-through. the pass-through's `models` allowlist does not constrain its request body; its virtual key must restrict `allowed_routes` to the exact pass-through path. this was the historical reason not to publish a fake chat alias. the v1.104.2 integration below replaces that model-list gap with typed decision routes and real evaluation entries; keep the old pass-through key dedicated until the Clef image contract no longer depends on it.
 
 #### static model expansion and redqueen cutover — 2026-09-30
 
@@ -460,7 +483,7 @@ the first live OIDC check found the worker and both Secrets present but discover
 - test the new chat host's Authentik flow and restricted LiteLLM key immediately after cutover. the owner explicitly accepts loss of Open WebUI state, so rollback does not include restoring that data.
 - keep redqueen outside k3s until the mixed-load and reboot gates pass; then join and taint it. commit and push each independently reviewable implementation phase without staging unrelated changes.
 - **exit criterion:** the new path passes every acceptance test under normal and reboot conditions, monitoring is green, app recovery is documented, and the repository and remote branch are clean and synchronized. Open WebUI data is intentionally excluded from rollback.
-- [ ] **owner todo after every exit criterion passes:** choose the final NAS archive destination, manually copy `/srv/ai/models/` from redqueen to it, copy the adjacent licenses/source revisions/`SHA256SUMS`, and verify every destination hash against the source. record the NAS path in this plan after the copy. the NAS archive is a recovery copy; inference continues to load weights from redqueen’s local NVMe.
+- [ ] **owner todo after the remaining migration exit criteria pass:** run the first full encrypted Borg archive to the NAS, verify the archive and restore/hash-check representative model files, and securely escrow the Borg passphrase and exported key off both hosts. the destination is `/filesystem/k3s/backups/redqueen-ai/repo`; inference continues to load weights from redqueen’s local NVMe. once the baseline archive passes, enable the daily timer so later snapshots send only new/different chunks.
 
 ## implementation plan
 
@@ -514,8 +537,8 @@ use pinned Podman Quadlets or systemd services running under the dedicated, non-
 
   - `qwen3.8-27b`, `gemma-4-e4b-it`, `gemma-4-12b-it`, `gemma-4-26b-a4b-it`, `qwen3.6-35b-a3b` and `glm-5.3-flash-abliterated` through `/v1/chat/completions`
   - `qwen-image-2.1` and `qwen-image-2.1-uncensored` through `/v1/images/generations` and `/v1/images/edits`
-  - JevK5 through LiteLLM's native `/typesafe/v1/systemone` pass-through to redqueen's exact `/v1/systemone` adapter
-- keep `store_model_in_db: false`; make each listed public model a reviewed static `model_list` entry in `apps/litellm/configmap.yaml`. the six text aliases share the existing `qwen-redqueen:8081` endpoint and `QWEN_API_KEY`; both image aliases share `qwen-image-redqueen:8190` and `QWEN_IMAGE_API_KEY`. no new Kubernetes Service, firewall port or network-policy exception is required.
+  - the five canonical System One model aliases plus the `clef-flash` bf16 shorthand through LiteLLM's native `/v1/systemone` and `/v1/decisions` routes
+- keep `store_model_in_db: false`; make each listed public model a reviewed static `model_list` entry in `apps/litellm/configmap.yaml`. the six text aliases and EmbeddingGemma share the existing `qwen-redqueen:8081` endpoint and `QWEN_API_KEY`; both image aliases share `qwen-image-redqueen:8190` and `QWEN_IMAGE_API_KEY`; decision aliases use LiteLLM's `openai/` provider at the existing `jevk5-redqueen:8191` OpenAI Decisions adapter. the adapter key is aliased from the existing `TYPESAFE_API_KEY` Secret value while the TypeSafe pass-through remains enabled. no new Kubernetes Service, firewall port or network-policy exception is required.
 
 - use LiteLLM virtual keys:
   - one restricted key for LibreChat;
@@ -523,7 +546,7 @@ use pinned Podman Quadlets or systemd services running under the dedicated, non-
   - model allowlists, request limits and audit metadata per key;
   - master key usable only for administration.
 
-[LiteLLM supports virtual keys, routing and OpenAI image endpoints](https://docs.litellm.ai/docs/). for JevK5, use the native TypeSafe integration at `/typesafe/v1/systemone`, never wildcard `include_subpath`, and never forward the caller’s Authorization header; current bugs make those generic patterns unsafe or unreliable. [LiteLLM TypeSafe pass-through](https://docs.litellm.ai/docs/pass_through/typesafe), [wildcard auth issue](https://github.com/BerriAI/litellm/issues/36508), [header-forwarding issue](https://github.com/BerriAI/litellm/issues/32202)
+[LiteLLM supports virtual keys, routing and OpenAI image endpoints](https://docs.litellm.ai/docs/). decision models are explicit proxy `model_list` entries, so scoped keys can authorize them and `/v1/models` can list their aliases. the provider table in the Decisions docs does not provision proxy models. the `openai/` decision provider accepts image input and calls `/v1/decisions`; Redqueen's adapter maps validated base64 image data URLs into the existing local Clef image contract. JevK5 remains text-only. keep the old `/typesafe/v1/systemone` pass-through during rollout for compatibility and rollback; retire it after the live native Clef image check passes and callers migrate. never use wildcard `include_subpath` or forward the caller's Authorization header on that legacy route. [LiteLLM Decisions API](https://docs.litellm.ai/docs/decisions), [LiteLLM TypeSafe pass-through](https://docs.litellm.ai/docs/pass_through/typesafe)
 
 ### 4. deploy Authentik and connect LibreChat
 
@@ -575,11 +598,70 @@ do not install the AMD GPU Operator or move the inference services into pods in 
   - Authentik group admission, admin mapping, logout and revoked-user denial;
   - streaming chat, vision input and tool calls;
   - image generation, editing, transparency and multiple references;
-  - typed JevK5 decisions through `/typesafe/v1/systemone`;
+  - JevK5 decisions through both `/v1/systemone` and `/v1/decisions`;
+  - Clef image requests through native `/v1/decisions` and the temporary `/typesafe/v1/systemone` compatibility route;
   - 30-minute mixed load: two Qwen streams + one JevK5 request + one image job, with no OOM, driver reset, stalled stream or 5xx;
   - raw Halo ports unreachable from users;
   - Authentik and LiteLLM PostgreSQL restore tests.
 
-nightly database dumps must be copied off the OpenMediaVault host. a dump sitting beside the database on the same machine is not a backup.
+nightly database dumps must be copied off the OpenMediaVault host. a dump sitting beside the database on the same machine is not a backup. the redqueen archive below covers AI-host runtime state, not Authentik/LiteLLM database backups.
 
-the only intentionally unresolved input is the final off-host backup destination; it does not change the platform architecture.
+the off-host database-backup destination and restore automation remain unresolved; they are separate from the selected redqueen runtime archive destination.
+
+#### redqueen runtime archive — 2026-10-07
+
+the repository now contains an owner-run NAS receiver setup and an `ai`-user systemd timer using pinned, signature-verified Borg 1.4.5. Borg makes point-in-time archives with content-defined chunking and deduplication: the initial run transfers the baseline; unchanged model bytes are not retransmitted on each daily run. Borg still walks/stats the local source tree and reads changed/new files. The repository is client-side encrypted with `repokey-blake2`; the NAS never receives plaintext model content or the passphrase. See Borg’s [deduplication overview](https://borgbackup.readthedocs.io/en/stable/quickstart.html), [encryption/key requirements](https://borgbackup.readthedocs.io/en/stable/usage/init.html), and [SSH server restrictions](https://borgbackup.readthedocs.io/en/stable/usage/serve.html).
+
+- repository: `/filesystem/k3s/backups/redqueen-ai/repo` on the same NAS filesystem as `/filesystem/k3s/data`;
+- receiver: key-only `redqueen-archive` account with an unusable password hash; its sole SSH key is restricted to Borg, that exact repository, no forwarding/PTY, and append-only server mode. Debian `sshd` rejects a password-locked Linux account before public-key authentication, so the setup deliberately does not use `passwd --lock`. [Debian `sshd` account checks](https://manpages.debian.org/testing/openssh-server/sshd.8.en.html)
+- archive contents: `/srv/ai` (model weights, licenses/checksums, runtimes, model routers, ComfyUI source/config/workflows and outputs) and the `ai` user's systemd unit definitions;
+- exclusions: `/srv/ai/secrets`, disposable caches and archive state, model-router runtime sockets, and ComfyUI temporary state;
+- schedule: daily at 04:30 redqueen local time with up to 30 minutes randomized delay; the timer remains disabled until the first archive is explicitly verified after migration acceptance;
+- retention: no automated prune/compact or deletion is configured. this avoids silently expiring recovery points, but means NAS usage grows with new/changed data. Borg append-only mode is not immutable/WORM storage: a holder of the archive SSH key can still issue logical delete/prune operations, so protect that key and do not describe the NAS as tamper-proof.
+
+owner-run setup:
+
+```bash
+# on the NAS, from the pulled repository root
+sudo apt-get update
+sudo apt-get install --yes gnupg
+sudo ./hosts/openmediavault/setup-redqueen-ai-archive.sh
+sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+sudoedit /var/lib/redqueen-archive/.ssh/authorized_keys
+
+# on redqueen, run as ai; the installer prints the public key, not the passphrase
+cd /srv/ai/config
+hosts/redqueen/archive/install.sh
+ssh-keyscan -t ed25519 10.9.20.14 > ~/.ssh/redqueen-nas-archive.known_hosts
+chmod 0600 ~/.ssh/redqueen-nas-archive.known_hosts
+ssh-keygen -lf ~/.ssh/redqueen-nas-archive.known_hosts
+set -a
+. ~/.config/redqueen-archive.env
+set +a
+/srv/ai/bin/borg init --encryption=repokey-blake2 --append-only "$BORG_REPO"
+
+# on the Mac, compare the NAS/keyscan fingerprints before trusting the known_hosts entry.
+# store each clipboard value directly in the password manager; never paste it into chat.
+ssh -i ~/.ssh/redqueen ai@redqueen.mousses.xyz \
+  'set -a; . ~/.config/redqueen-archive.env; set +a; /srv/ai/bin/borg key export "$BORG_REPO"' | pbcopy
+ssh -i ~/.ssh/redqueen ai@redqueen.mousses.xyz \
+  'cat /srv/ai/secrets/redqueen-archive-passphrase' | tr -d '\r\n' | pbcopy
+```
+
+In `authorized_keys`, put the exact `command="/usr/local/bin/borg serve --append-only --restrict-to-repository /filesystem/k3s/backups/redqueen-ai/repo",restrict` prefix printed by the NAS script immediately before the full `ssh-ed25519 ...` public-key line printed by the redqueen installer. Then, as `ai`, confirm `borg list "$BORG_REPO"`; run the first `systemctl --user start redqueen-archive.service` only after the remaining migration gates pass. Verify `borg list`/`borg info` and restore/hash-check model files before `systemctl --user enable --now redqueen-archive.timer`. The timer is installed but not enabled before that owner verification. Do not commit the key or passphrase.
+
+#### first embedding model: EmbeddingGemma 2 — 2026-10-06
+
+the pinned `unsloth/embeddinggemma-2-GGUF@ba3888272494be64ed88c9eb536ddc61a1be73d5` Q8_0 artifact is 309,855,520 bytes and SHA-256 verified. its original model is Apache-2.0. llama.cpp v0.6.0 does not recognize the GGUF's `gemma-embedding2` architecture, so redqueen builds the isolated ROCm runtime from release `b11457` at commit `5ad1c5da0ad7f6176256b823925aad19134f0263` for this model. the server uses native mean pooling and embedding-only mode on the existing private `10.9.20.242:8081` listener. an authenticated request to that listener returned HTTP 200 with one finite 768-dimensional vector at unit L2 norm. it does not use the reranking flag or install a multimodal projector, so this registration is text-only.
+
+the versioned LiteLLM ConfigMap registers `embeddinggemma-2` on authenticated `POST /v1/embeddings`, through the existing `qwen-redqueen` Service, EndpointSlice, port, firewall allowlist, upstream credential and egress policy. no other public API route is added. model inputs are passed through as supplied; clients doing retrieval should prefix queries with `task: search result | query: ...` and corpus entries with `title: ... | text: ...`, following the [model card](https://huggingface.co/unsloth/embeddinggemma-2-GGUF). this ConfigMap still requires the NAS deployment step before LiteLLM serves the alias.
+
+for API-equivalent spend tracking, `embeddinggemma-2` uses Google's Gemini Embedding 2 Standard online text-input rate as a proxy: $0.20 per 1M input tokens, or $0.0000002 per token. this is a hosted benchmark, not the cost of running EmbeddingGemma locally; embedding outputs are not billed. [Google Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing), [Google Cloud embedding pricing](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing)
+
+#### native LiteLLM decisions integration — 2026-10-08
+
+the repository now targets LiteLLM `v1.104.2`, the stable patch that adds `POST /v1/systemone` and `POST /v1/decisions`; its release notes say there are no new database migrations or breaking changes. the gateway and dedicated migration image are pinned to GHCR OCI index digests. the last recorded live version is `v1.104.0`; this change is a repository candidate and has not been deployed to the NAS. use `./apps/litellm/deploy.sh` for the migration-before-gateway rollout. [v1.104.2 release notes](https://docs.litellm.ai/release_notes/v1.104.2/v1-104-2)
+
+`apps/litellm/configmap.yaml` registers five canonical decision aliases as static `model_list` entries: `jevk5-4b-v0.3`, `clef-flash-bf16`, `clef-flash-q8`, `clef-flash-q4`, and `clef-q4`. it also registers `clef-flash` as a convenience alias for `clef-flash-bf16`; scoped virtual keys must explicitly allow that alias. all use LiteLLM's `openai/` provider at the existing Redqueen adapter. the new `/v1/decisions` handler converts OpenAI decision requests into its bounded local System One contract; the native `/v1/systemone` LiteLLM route is translated through that same handler. JevK5 is text-only; all four Clef variants accept validated inline data-URL images. the OpenAI adapter key is aliased from the existing `TYPESAFE_API_KEY` Secret field to avoid rotating durable credentials. after deployment, these aliases will be regular `/v1/models` catalog entries visible to virtual keys whose model scopes include them; LiteLLM's provider table is only its support catalog and does not add them to this proxy. [LiteLLM Decisions API](https://docs.litellm.ai/docs/decisions)
+
+the old `POST /typesafe/v1/systemone` and `GET /typesafe/v1/models` routes remain exposed during migration for compatibility and rollback. the adapter continues accepting bounded `images` on the old route; its new OpenAI `/v1/decisions` handler converts `input_image` data URLs into that same local Clef request. `validate_inference.py` checks both native request formats, Clef image input through both native and legacy paths, and the aliases in both model inventories. run it with a dedicated restricted key that allows the five decision aliases, `qwen-image-2.1`, the required exact routes, and no LibreChat use. retire the old routes only after the deployed native image check passes and callers migrate. the decision IDs remain excluded from the shared LibreChat key so its dynamic picker stays chat-only.

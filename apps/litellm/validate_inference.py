@@ -35,11 +35,21 @@ SUPPORTED_TEXT_MODELS = (
     "qwen3.6-35b-a3b",
     "glm-5.3-flash-abliterated",
 )
+SUPPORTED_DECISION_MODELS = (
+    "jevk5-4b-v0.3",
+    "clef-flash-bf16",
+    "clef-flash-q8",
+    "clef-flash-q4",
+    "clef-q4",
+)
+CLEF_IMAGE_COMPAT_MODEL = "clef-flash-bf16"
 
 
 class ValidationResult(NamedTuple):
     choice: str
     confidence: float
+    native_clef_image_choice: str
+    legacy_clef_image_choice: str
     generated: Path
     edited: Path
     text_models: tuple[str, ...]
@@ -224,6 +234,150 @@ def _validate_jev_response(response: dict) -> tuple[str, float]:
     return choice, float(confidence)
 
 
+def _validate_decisions_response(response: dict) -> None:
+    if response.get("model") != "jevk5-4b-v0.3":
+        raise RuntimeError("JevK5 Decisions response reported the wrong model")
+    answers = response.get("answers")
+    if not isinstance(answers, list) or len(answers) != 1:
+        raise RuntimeError("JevK5 Decisions response must contain one answer")
+    answer = answers[0]
+    if (
+        not isinstance(answer, dict)
+        or answer.get("type") != "choice"
+        or answer.get("name") != "route"
+    ):
+        raise RuntimeError("JevK5 Decisions response is missing the route choice")
+    expected = {"delivered", "delayed", "misdelivered"}
+    probabilities = answer.get("probabilities")
+    if not isinstance(probabilities, list) or len(probabilities) != len(expected):
+        raise RuntimeError("JevK5 Decisions response has invalid probabilities")
+    observed: dict[str, float] = {}
+    for probability in probabilities:
+        if not isinstance(probability, dict):
+            raise RuntimeError("JevK5 Decisions response has invalid probabilities")
+        label = probability.get("value")
+        value = probability.get("probability")
+        if (
+            not isinstance(label, str)
+            or label not in expected
+            or isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or not 0 <= value <= 1
+        ):
+            raise RuntimeError("JevK5 Decisions response has invalid probabilities")
+        observed[label] = float(value)
+    if set(observed) != expected or not math.isclose(
+        sum(observed.values()), 1.0, rel_tol=1e-6, abs_tol=1e-6
+    ):
+        raise RuntimeError("JevK5 Decisions response has invalid probabilities")
+    choice = answer.get("choice")
+    if choice != "misdelivered":
+        raise RuntimeError(
+            f"JevK5 Decisions selected {choice!r}; expected 'misdelivered'"
+        )
+    confidence = answer.get("confidence")
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not math.isfinite(confidence)
+        or not 0 <= confidence <= 1
+    ):
+        raise RuntimeError("JevK5 Decisions response has invalid confidence")
+    usage = response.get("usage")
+    if not isinstance(usage, dict) or any(
+        isinstance(usage.get(field), bool)
+        or not isinstance(usage.get(field), int)
+        or usage[field] < 0
+        for field in ("input_tokens", "output_tokens")
+    ):
+        raise RuntimeError("JevK5 Decisions response has invalid token usage")
+
+
+def _validate_clef_image_response(response: dict) -> str:
+    if response.get("model") != CLEF_IMAGE_COMPAT_MODEL:
+        raise RuntimeError("Clef image response reported the wrong model")
+    answers = response.get("answers")
+    answer = answers.get("visual_check") if isinstance(answers, dict) else None
+    if not isinstance(answer, dict) or answer.get("type") != "choice":
+        raise RuntimeError("Clef image response is missing its visual choice")
+    expected = {"red_cube", "other"}
+    probabilities = answer.get("probabilities")
+    if not isinstance(probabilities, dict) or set(probabilities) != expected:
+        raise RuntimeError("Clef image response has the wrong probability keys")
+    values = list(probabilities.values())
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or not 0 <= value <= 1
+        for value in values
+    ) or not math.isclose(sum(values), 1.0, rel_tol=1e-6, abs_tol=1e-6):
+        raise RuntimeError("Clef image response has invalid probabilities")
+    choice = answer.get("choice")
+    if choice != "red_cube":
+        raise RuntimeError(f"Clef classified the generated image as {choice!r}")
+    confidence = answer.get("confidence")
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not math.isfinite(confidence)
+        or not 0 <= confidence <= 1
+    ):
+        raise RuntimeError("Clef image response has invalid confidence")
+    usage = response.get("usage")
+    if not isinstance(usage, dict) or any(
+        isinstance(usage.get(field), bool)
+        or not isinstance(usage.get(field), int)
+        or usage[field] < 0
+        for field in ("input_tokens", "output_tokens")
+    ):
+        raise RuntimeError("Clef image response has invalid token usage")
+    return choice
+
+
+def _validate_native_clef_image_response(response: dict) -> str:
+    if response.get("model") != CLEF_IMAGE_COMPAT_MODEL:
+        raise RuntimeError("native Clef image response reported the wrong model")
+    answers = response.get("answers")
+    if not isinstance(answers, list) or len(answers) != 1:
+        raise RuntimeError("native Clef image response must contain one answer")
+    answer = answers[0]
+    if (
+        not isinstance(answer, dict)
+        or answer.get("type") != "choice"
+        or answer.get("name") != "visual_check"
+    ):
+        raise RuntimeError("native Clef image response is missing its visual choice")
+    expected = {"red_cube", "other"}
+    probabilities = answer.get("probabilities")
+    if not isinstance(probabilities, list) or len(probabilities) != len(expected):
+        raise RuntimeError("native Clef image response has invalid probabilities")
+    observed: dict[str, float] = {}
+    for item in probabilities:
+        if not isinstance(item, dict):
+            raise RuntimeError("native Clef image response has invalid probabilities")
+        label = item.get("value")
+        probability = item.get("probability")
+        if (
+            not isinstance(label, str)
+            or isinstance(probability, bool)
+            or not isinstance(probability, (int, float))
+            or not math.isfinite(probability)
+            or not 0 <= probability <= 1
+        ):
+            raise RuntimeError("native Clef image response has invalid probabilities")
+        observed[label] = float(probability)
+    if set(observed) != expected or not math.isclose(
+        sum(observed.values()), 1.0, rel_tol=1e-6, abs_tol=1e-6
+    ):
+        raise RuntimeError("native Clef image response has invalid probabilities")
+    choice = answer.get("choice")
+    if choice != "red_cube":
+        raise RuntimeError(f"native Clef classified the generated image as {choice!r}")
+    return choice
+
+
 def _validate_png(image: bytes, expected_size: tuple[int, int]) -> None:
     if not image.startswith(b"\x89PNG\r\n\x1a\n"):
         raise RuntimeError("image response is not a PNG")
@@ -369,12 +523,16 @@ def validate(
         raise FileExistsError("validation output files already exist")
 
     opener = opener or urllib.request.build_opener(NoRedirectHandler())
-    jev_url = f"{base_url}/typesafe/v1/systemone"
+    models_url = f"{base_url}/v1/models"
+    systemone_url = f"{base_url}/v1/systemone"
+    decisions_url = f"{base_url}/v1/decisions"
+    typesafe_url = f"{base_url}/typesafe/v1/systemone"
+    typesafe_models_url = f"{base_url}/typesafe/v1/models"
     chat_url = f"{base_url}/v1/chat/completions"
     generation_url = f"{base_url}/v1/images/generations"
     edit_url = f"{base_url}/v1/images/edits"
     jev_payload = {
-        "model": "jev-latest",
+        "model": "jevk5-4b-v0.3",
         "state": {
             "tracking_event": (
                 "The carrier marked the parcel delivered, but it was delivered "
@@ -393,6 +551,31 @@ def validate(
             }
         },
     }
+    decisions_payload = {
+        "model": "jevk5-4b-v0.3",
+        "input": (
+            "The carrier marked the parcel delivered, but it was delivered "
+            "to the wrong address."
+        ),
+        "questions": [
+            {
+                "type": "choice",
+                "name": "route",
+                "instructions": "Classify the parcel outcome.",
+                "choices": [
+                    {
+                        "value": "delivered",
+                        "description": "Delivered to the intended recipient",
+                    },
+                    {"value": "delayed", "description": "Not yet delivered"},
+                    {
+                        "value": "misdelivered",
+                        "description": "Delivered to the wrong address or recipient",
+                    },
+                ],
+            }
+        ],
+    }
     generation_payload = {
         "model": image_model,
         "prompt": "a centered red cube on a plain white background, studio lighting",
@@ -402,6 +585,9 @@ def validate(
         "n": 1,
     }
     jev_body = json.dumps(jev_payload, separators=(",", ":")).encode()
+    decisions_body = json.dumps(
+        decisions_payload, separators=(",", ":")
+    ).encode()
     text_payload = {
         "messages": [
             {"role": "user", "content": "Reply with one short greeting."}
@@ -414,7 +600,7 @@ def validate(
 
     _expect_status(
         opener,
-        url=jev_url,
+        url=systemone_url,
         method="GET",
         expected=404,
         api_key=None,
@@ -424,7 +610,57 @@ def validate(
     )
     _expect_status(
         opener,
-        url=jev_url,
+        url=decisions_url,
+        method="GET",
+        expected=404,
+        api_key=None,
+        body=None,
+        content_type=None,
+        timeout=timeout,
+    )
+    _expect_status(
+        opener,
+        url=typesafe_url,
+        method="GET",
+        expected=404,
+        api_key=None,
+        body=None,
+        content_type=None,
+        timeout=timeout,
+    )
+    _expect_status(
+        opener,
+        url=typesafe_models_url,
+        method="GET",
+        expected=401,
+        api_key=None,
+        body=None,
+        content_type=None,
+        timeout=timeout,
+    )
+    _expect_status(
+        opener,
+        url=systemone_url,
+        method="POST",
+        expected=401,
+        api_key=None,
+        body=jev_body,
+        content_type="application/json",
+        timeout=timeout,
+    )
+    _expect_status(
+        opener,
+        url=decisions_url,
+        method="POST",
+        expected=401,
+        api_key=None,
+        body=decisions_body,
+        content_type="application/json",
+        timeout=timeout,
+    )
+    _expect_status(
+        opener,
+        url=typesafe_url,
         method="POST",
         expected=401,
         api_key=None,
@@ -467,14 +703,64 @@ def validate(
         )
         _validate_text_response(text_response, text_model)
 
-    jev_response = _post_json(
+    for url, required_models in (
+        (models_url, set(SUPPORTED_DECISION_MODELS)),
+        (typesafe_models_url, {CLEF_IMAGE_COMPAT_MODEL}),
+    ):
+        status, response_body, response_type = _request(
+            opener,
+            url=url,
+            method="GET",
+            api_key=api_key,
+            body=None,
+            content_type=None,
+            timeout=timeout,
+        )
+        if status != 200:
+            excerpt = response_body[:2_048].decode("utf-8", errors="replace")
+            excerpt = excerpt.replace(api_key, "[redacted]")
+            raise RuntimeError(f"GET {url} returned HTTP {status}: {excerpt}")
+        if response_type.split(";", 1)[0].strip().lower() != "application/json":
+            raise RuntimeError(
+                f"GET {url} returned non-JSON content type {response_type!r}"
+            )
+        try:
+            model_list = json.loads(response_body)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(f"GET {url} returned invalid JSON") from error
+        data = model_list.get("data") if isinstance(model_list, dict) else None
+        model_ids = (
+            {
+                item.get("id")
+                for item in data
+                if isinstance(item, dict) and isinstance(item.get("id"), str)
+            }
+            if isinstance(data, list)
+            else set()
+        )
+        missing_models = required_models - model_ids
+        if missing_models:
+            raise RuntimeError(
+                f"GET {url} is missing model IDs: {', '.join(sorted(missing_models))}"
+            )
+
+    systemone_response = _post_json(
         opener,
-        url=jev_url,
+        url=systemone_url,
         api_key=api_key,
         payload=jev_payload,
         timeout=timeout,
     )
-    choice, confidence = _validate_jev_response(jev_response)
+    choice, confidence = _validate_jev_response(systemone_response)
+
+    decisions_response = _post_json(
+        opener,
+        url=decisions_url,
+        api_key=api_key,
+        payload=decisions_payload,
+        timeout=timeout,
+    )
+    _validate_decisions_response(decisions_response)
 
     generation_response = _post_json(
         opener,
@@ -485,6 +771,72 @@ def validate(
     )
     generated = _decode_image_response(generation_response)
     _write_new(generated_path, generated)
+
+    clef_image_url = (
+        "data:image/png;base64," + base64.b64encode(generated).decode("ascii")
+    )
+    native_clef_image_payload = {
+        "model": CLEF_IMAGE_COMPAT_MODEL,
+        "input": [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "Classify the uploaded picture."},
+                    {"type": "input_image", "image_url": clef_image_url, "detail": "low"},
+                ],
+            }
+        ],
+        "questions": [
+            {
+                "type": "choice",
+                "name": "visual_check",
+                "instructions": (
+                    "Does the image show one red cube on a plain white background?"
+                ),
+                "choices": [
+                    {"value": "red_cube", "description": "One centered red cube"},
+                    {"value": "other", "description": "Anything else"},
+                ],
+            }
+        ],
+    }
+    native_clef_image_response = _post_json(
+        opener,
+        url=decisions_url,
+        api_key=api_key,
+        payload=native_clef_image_payload,
+        timeout=timeout,
+    )
+    native_clef_image_choice = _validate_native_clef_image_response(
+        native_clef_image_response
+    )
+
+    clef_image_payload = {
+        "model": CLEF_IMAGE_COMPAT_MODEL,
+        "state": "Classify the uploaded picture.",
+        "questions": {
+            "visual_check": {
+                "type": "choice",
+                "instructions": (
+                    "Does the image show one red cube on a plain white background?"
+                ),
+                "criteria": {
+                    "red_cube": "One centered red cube on a plain white background",
+                    "other": "Anything else",
+                },
+            }
+        },
+        "images": [clef_image_url],
+    }
+    clef_image_response = _post_json(
+        opener,
+        url=typesafe_url,
+        api_key=api_key,
+        payload=clef_image_payload,
+        timeout=timeout,
+    )
+    legacy_clef_image_choice = _validate_clef_image_response(clef_image_response)
 
     edit_body, edit_type = _multipart_edit(generated, image_model)
     status, response_body, response_type = _request(
@@ -514,15 +866,21 @@ def validate(
     _write_new(edited_path, edited)
 
     return ValidationResult(
-        choice, confidence, generated_path, edited_path, tuple(text_models)
+        choice,
+        confidence,
+        native_clef_image_choice,
+        legacy_clef_image_choice,
+        generated_path,
+        edited_path,
+        tuple(text_models),
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate JevK5 and selected Qwen Image models through the public "
-            "LiteLLM gateway."
+            "Validate native decisions, Clef image compatibility, and selected "
+            "Qwen Image models through the public LiteLLM gateway."
         )
     )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
@@ -575,6 +933,8 @@ def main() -> None:
                 [
                     *text_lines,
                     f"JevK5 OK: choice={result.choice}, confidence={result.confidence:.6f}",
+                    f"Native Clef image OK: choice={result.native_clef_image_choice}",
+                    f"Legacy Clef compatibility OK: choice={result.legacy_clef_image_choice}",
                 ]
             )
             + "\n"

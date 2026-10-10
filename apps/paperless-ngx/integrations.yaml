@@ -36,11 +36,14 @@ spec:
         app.kubernetes.io/name: paperless-ngx
         app.kubernetes.io/component: ai
         app.kubernetes.io/part-of: paperless-ngx
+        mousses.xyz/litellm-client: "true"
     spec:
       automountServiceAccountToken: false
       dnsConfig:
         options: [{name: ndots, value: "1"}]
-      securityContext: {runAsUser: 0, runAsGroup: 0}
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: paperless-ai
           image: clusterzx/paperless-ai@sha256:2b65888163fd59716f1c8285b31c5bd0b30c9c3c192c42b516688e3887d4ba60
@@ -48,12 +51,24 @@ spec:
           ports: [{name: http, containerPort: 3000, protocol: TCP}]
           envFrom: [{secretRef: {name: paperless-env}}]
           env:
+            - name: HOME
+              value: /app/data
+            - name: PM2_HOME
+              value: /app/data/.pm2
             - name: PAPERLESS_API_URL
               valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_API_URL}}
             - name: PAPERLESS_BASE_URL
               valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_INTERNAL_BASE_URL}}
             - name: PAPERLESS_AI_PORT
               valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_AI_PORT}}
+            - name: AI_PROVIDER
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: AI_PROVIDER}}
+            - name: CUSTOM_BASE_URL
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: CUSTOM_BASE_URL}}
+            - name: CUSTOM_MODEL
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: CUSTOM_MODEL}}
+            - name: CUSTOM_API_KEY
+              valueFrom: {secretKeyRef: {name: paperless-litellm-env, key: PAPERLESS_AI_LITELLM_API_KEY}}
           startupProbe:
             httpGet: {path: /health, port: http}
             failureThreshold: 60
@@ -72,13 +87,20 @@ spec:
             requests: {cpu: 250m, memory: 512Mi}
             limits: {cpu: "2", memory: 2Gi}
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
             capabilities: {drop: [ALL]}
             seccompProfile: {type: RuntimeDefault}
-          volumeMounts: [{name: paperless-ai-data, mountPath: /app/data}]
+          volumeMounts:
+            - {name: paperless-ai-data, mountPath: /app/data}
+            - {name: paperless-ai-openapi, mountPath: /app/OPENAPI}
       volumes:
         - name: paperless-ai-data
           persistentVolumeClaim: {claimName: paperless-ai}
+        - name: paperless-ai-openapi
+          emptyDir: {}
       nodeSelector: {kubernetes.io/hostname: openmediavault}
       terminationGracePeriodSeconds: 60
 ---
@@ -120,11 +142,14 @@ spec:
         app.kubernetes.io/name: paperless-ngx
         app.kubernetes.io/component: gpt
         app.kubernetes.io/part-of: paperless-ngx
+        mousses.xyz/litellm-client: "true"
     spec:
       automountServiceAccountToken: false
       dnsConfig:
         options: [{name: ndots, value: "1"}]
-      securityContext: {runAsUser: 0, runAsGroup: 0}
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: paperless-gpt
           image: icereed/paperless-gpt@sha256:15bad5d455b98f21bb7b5d6615f56871ff67a8bb379dc0dd7ba411f4633071a6
@@ -138,6 +163,10 @@ spec:
               valueFrom: {configMapKeyRef: {name: paperless-config, key: PAPERLESS_INTERNAL_BASE_URL}}
             - name: LLM_PROVIDER
               valueFrom: {configMapKeyRef: {name: paperless-config, key: LLM_PROVIDER}}
+            - name: OPENAI_BASE_URL
+              valueFrom: {configMapKeyRef: {name: paperless-config, key: OPENAI_BASE_URL}}
+            - name: OPENAI_API_KEY
+              valueFrom: {secretKeyRef: {name: paperless-litellm-env, key: PAPERLESS_GPT_LITELLM_API_KEY}}
             - name: LLM_MODEL
               valueFrom: {configMapKeyRef: {name: paperless-config, key: LLM_MODEL}}
             - name: LLM_LANGUAGE
@@ -163,12 +192,22 @@ spec:
             requests: {cpu: 100m, memory: 256Mi}
             limits: {cpu: 500m, memory: 512Mi}
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
             allowPrivilegeEscalation: false
             capabilities: {drop: [ALL]}
             seccompProfile: {type: RuntimeDefault}
-          volumeMounts: [{name: paperless-gpt-prompts, mountPath: /app/prompts}]
+          volumeMounts:
+            - {name: paperless-gpt-prompts, mountPath: /app/prompts}
+            - {name: paperless-gpt-config, mountPath: /app/config}
+            - {name: paperless-gpt-db, mountPath: /app/db}
       volumes:
         - name: paperless-gpt-prompts
           persistentVolumeClaim: {claimName: paperless-gpt}
+        - name: paperless-gpt-config
+          emptyDir: {}
+        - name: paperless-gpt-db
+          emptyDir: {}
       nodeSelector: {kubernetes.io/hostname: openmediavault}
       terminationGracePeriodSeconds: 60

@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minecraft-agent-config
+  labels:
+    app.kubernetes.io/part-of: minecraft-agent
+data:
+  LITELLM_BASE_URL: http://litellm.litellm.svc.cluster.local:4000
+  PLANNER_MODEL: qwen3.8-27b
+  CONTROLLER_MODEL: jevk5-4b-v0.3
+  MC_VIEW_DISTANCE: "4"
+  NATIVE_RENDER_DISTANCE: "4"
+  LP_NUM_THREADS: "3"
+  NODE_OPTIONS: --max-old-space-size=768
+  NATIVE_JAVA_XMX: 768M
+  STATUS_HOST: 0.0.0.0
+  STATUS_PORT: "3078"
+  VIEWER_PORT: "3077"
+  VIEWER_PREFIX: /viewer
+  NATIVE_VIEW: "1"
+  WAIT_NATIVE: "1"
+  NATIVE_RECORD: "1"
+  DRAGON_SENSOR_URL: http://127.0.0.1:3093
+  MC_PORT: "25576"

@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minecraft-agent
+  labels:
+    app.kubernetes.io/name: minecraft-agent
+    app.kubernetes.io/part-of: minecraft-agent
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: minecraft-agent-security-headers@kubernetescrd
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/href: https://minecraft-agent.omv.mousses.xyz
+    gethomepage.dev/group: Minecraft
+    gethomepage.dev/name: Minecraft Agent
+    gethomepage.dev/icon: mdi-minecraft
+    gethomepage.dev/description: Autonomous Minecraft agent and live viewer
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - minecraft-agent.omv.mousses.xyz
+      secretName: minecraft-agent-tls
+  rules:
+    - host: minecraft-agent.omv.mousses.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: minecraft-agent
+                port:
+                  name: http

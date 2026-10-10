@@ -110,42 +110,74 @@ connections. see the
 [LiteLLM Admin UI quickstart](https://docs.litellm.ai/docs/proxy/docker_quick_start)
 for the upstream login behavior.
 
-## public inference validation
+## decision models and public inference validation
 
-JevK5 uses LiteLLM's built-in TypeSafe pass-through. LiteLLM accepts the
-client's virtual key at `/typesafe/v1/systemone`, removes it, and authenticates
-the forwarded `/v1/systemone` request with `TYPESAFE_API_KEY`. The public
-IngressRoute exposes only that exact TypeSafe path. this follows LiteLLM's
-[native TypeSafe pass-through contract](https://docs.litellm.ai/docs/pass_through/typesafe).
+use LiteLLM's native `POST /v1/systemone` for System One bodies and
+`POST /v1/decisions` for OpenAI Decisions bodies. both routes use the same
+static decision models in `model_list`. each uses LiteLLM's `openai/` decision
+provider and calls the OpenAI-format `/v1/decisions` route on the local
+`jevk5-redqueen:8191` adapter using the stored Redqueen adapter key. the
+adapter translates that request into the existing local System One contract.
+the five canonical model IDs are `jevk5-4b-v0.3`,
+`clef-flash-bf16`, `clef-flash-q8`, `clef-flash-q4`, and `clef-q4`.
+the `clef-flash` shorthand is also registered and selects `clef-flash-bf16`.
+restricted virtual keys must include that exact alias in their model scope to
+use or list it.
 
-JevK5 does not appear in `/v1/models`: that inventory lists `model_list`
-entries, and the typed TypeSafe route is not a chat or image model. create a
-JevK5-only virtual key through the private `/key/generate` API using the master
-key and a nonempty route allowlist, for example:
+the LiteLLM rollout does not install or restart the separate Redqueen systemd
+adapter. deploy this repository's adapter code on Redqueen with
+`hosts/redqueen/adapters/install.sh`, then restart `jevk5-adapter.service` in
+the owning user session. without that step the old adapter returns 404 for
+`/v1/decisions`.
 
-```json
-{"key_alias":"jevk5-eval","duration":"7d","allowed_routes":["/typesafe/v1/systemone"]}
-```
+those aliases are real LiteLLM catalog entries in this repository. after the
+config is deployed, authenticated `GET /v1/models` returns them to keys whose
+model scopes include them. the
+provider/model table in LiteLLM's docs is a support catalog; it does not
+automatically add models to this proxy. see LiteLLM's [Decisions API
+documentation](https://docs.litellm.ai/docs/decisions) and [v1.104.2 release
+notes](https://docs.litellm.ai/release_notes/v1.104.2/v1-104-2).
 
-the `models` allowlist does not restrict this pass-through. an absent or empty
-`allowed_routes` list is not a deny-all; verify that the resulting key can call
-JevK5 but gets denied on Qwen chat and image routes. never send the master or
-virtual key to the public API hostname's management paths; they are not exposed.
+the native OpenAI-format `/v1/decisions` route accepts `input_image` parts for
+the four local Clef models. Redqueen rejects remote image URLs, validates
+embedded PNG/JPEG/WebP `data:` URLs, and limits each decoded image to 4 MiB and
+16 megapixels, with four images and 8 MiB total. JevK5 is text-only and returns
+a clear 400 if sent an image. `/v1/systemone` remains available; LiteLLM
+translates it to the same local OpenAI-format decision endpoint.
 
-run the combined JevK5 and Qwen Image contract check from a workstation:
+the old `POST /typesafe/v1/systemone` and `GET /typesafe/v1/models` routes
+remain during migration for compatibility and rollback. keep the dedicated
+legacy virtual key restricted to those exact routes: the TypeSafe pass-through
+reads its upstream key from the proxy environment and does not enforce its
+`models` allowlist. retire those routes only after the live native Clef image
+check succeeds and callers have moved.
+
+keep the decision IDs off the shared LibreChat key. its dynamic `/v1/models`
+picker should remain limited to chat models, and its image tool should keep
+using only `qwen-image-2.1`.
+
+run the combined decision, Clef-image compatibility, and Qwen Image contract
+check from a workstation:
 
 ```sh
 ./apps/litellm/validate_inference.py
 ```
 
 enter a disposable or restricted LiteLLM virtual key at the hidden prompt, not
-the master key. by default the key must permit `qwen-image-2.1` plus the exact
-image and TypeSafe routes exercised below. when using `--text-model`, it must
-also permit each selected chat alias and `/v1/chat/completions`; when repeating
-`--image-model`, it must permit each selected image alias. the validator checks
-missing-key and wrong-method rejection, requires JevK5 to classify a
-misdelivered parcel correctly, generates one 512×512 image, edits that generated
-image, validates both PNG structures and prints the private temporary directory
-containing both outputs for visual inspection. the expanded host cutover, model
-IDs and multi-model invocation are recorded in
+the master key. by default the key must allow all five canonical decision
+aliases, so `GET /v1/models` can verify the catalog; `jevk5-4b-v0.3` on both native
+decision routes; `clef-flash-bf16` with an inline image on the native Decisions
+route and through the temporary legacy image route;
+`qwen-image-2.1`; and `allowed_routes` for `/v1/models`, `/v1/systemone`,
+`/v1/decisions`, `/typesafe/v1/systemone`, `/typesafe/v1/models`,
+`/v1/images/generations`, and `/v1/images/edits`. when using `--text-model`,
+it must also allow each selected chat alias and `/v1/chat/completions`; when
+repeating `--image-model`, it must allow each selected image alias. the
+validator checks auth and method boundaries,
+exercises both native request formats, verifies Clef image input through both
+the native and legacy routes, generates and edits a 512×512 PNG, validates both
+image files, and prints their private temporary directory for visual
+inspection. to validate the `clef-flash` shorthand separately, add it to the
+virtual key's model scope and request it in a System One call. the live rollout
+and eventual legacy-route retirement remain operator steps; see
 [`AI_INFERENCE_PLAN.md`](../../AI_INFERENCE_PLAN.md).

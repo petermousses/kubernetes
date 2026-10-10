@@ -29,8 +29,8 @@ if run_deploy failed "${failure_log}" >"${scratch}/failed.out" 2>"${scratch}/fai
   printf 'deploy unexpectedly succeeded after a failed migration\n' >&2
   exit 1
 fi
-grep -Fq 'logs -l job-name=litellm-migrations-v1-103-0' "${failure_log}"
-grep -Fq 'describe job/litellm-migrations-v1-103-0' "${failure_log}"
+grep -Fq 'logs -l job-name=litellm-migrations-v1-104-2' "${failure_log}"
+grep -Fq 'describe job/litellm-migrations-v1-104-2' "${failure_log}"
 if grep -Fq "apply -k ${app_root}" "${failure_log}"; then
   printf 'gateway manifests were applied after a failed migration\n' >&2
   exit 1
@@ -57,7 +57,7 @@ grep -Fq 'backoffLimit: 0' "${app_root}/migration-job.yaml"
 grep -Fq 'restartPolicy: Never' "${app_root}/migration-job.yaml"
 grep -Fq 'runAsUser: 65532' "${app_root}/migration-job.yaml"
 grep -Fq 'name: DATABASE_URL' "${app_root}/migration-job.yaml"
-grep -Fq 'ghcr.io/berriai/litellm-migrations@sha256:dac0d22bbb18c418f45a5d1bf7c2cc044c812b77de23171df106d1cbb7fcbed5' \
+grep -Fq 'ghcr.io/berriai/litellm-migrations@sha256:35c0d71472914586ad683fa853403509b8a57a9975c0d1bc5d02b4adebfed91d' \
   "${app_root}/migration-job.yaml"
 if grep -Eq '^[[:space:]]+envFrom:' "${app_root}/migration-job.yaml"; then
   printf 'migration Job receives secrets it does not need\n' >&2
@@ -120,8 +120,19 @@ for typesafe_contract in \
   'name: TYPESAFE_API_BASE' \
   'value: http://jevk5-redqueen:8191'; do
   if ! grep -Fq "${typesafe_contract}" "${app_root}/deployment.yaml"; then
-    printf 'LiteLLM is missing its JevK5 TypeSafe configuration: %s\n' \
+    printf 'LiteLLM is missing its temporary TypeSafe pass-through configuration: %s\n' \
       "${typesafe_contract}" >&2
+    exit 1
+  fi
+done
+for decisions_contract in \
+  'name: REDQUEEN_DECISIONS_API_BASE' \
+  'value: http://jevk5-redqueen:8191/v1' \
+  'name: REDQUEEN_DECISIONS_API_KEY' \
+  'key: TYPESAFE_API_KEY'; do
+  if ! grep -Fq "${decisions_contract}" "${app_root}/deployment.yaml"; then
+    printf 'LiteLLM is missing its OpenAI-compatible decisions configuration: %s\n' \
+      "${decisions_contract}" >&2
     exit 1
   fi
 done
@@ -140,6 +151,11 @@ readonly -a configured_models=(
   glm-5.3-flash-abliterated
   qwen-image-2.1
   qwen-image-2.1-uncensored
+  jevk5-4b-v0.3
+  clef-flash-bf16
+  clef-flash-q8
+  clef-flash-q4
+  clef-q4
 )
 for model in "${configured_models[@]}"; do
   if ! grep -Fq "      - model_name: ${model}" "${app_root}/configmap.yaml"; then
@@ -169,8 +185,19 @@ if grep -Fq 'model_name: deepseek-v4.1-flash-q2' "${app_root}/configmap.yaml"; t
   exit 1
 fi
 grep -Fq '      store_model_in_db: false' "${app_root}/configmap.yaml"
-if [[ "$(grep -Fc 'api_base: http://qwen-redqueen:8081/v1' "${app_root}/configmap.yaml")" -ne 6 ]]; then
-  printf 'all six text model aliases must use the shared redqueen text endpoint\n' >&2
+for priced_openai_model in \
+  'openai/jevk5-4b-v0.3' \
+  'openai/clef-flash-bf16' \
+  'openai/clef-flash-q8' \
+  'openai/clef-flash-q4' \
+  'openai/clef-q4'; do
+  if ! grep -Fq "${priced_openai_model}" "${app_root}/configmap.yaml"; then
+    printf 'LiteLLM custom cost registry is missing %s\n' "${priced_openai_model}" >&2
+    exit 1
+  fi
+done
+if [[ "$(grep -Fc 'api_base: http://qwen-redqueen:8081/v1' "${app_root}/configmap.yaml")" -ne 7 ]]; then
+  printf 'all six chat aliases and EmbeddingGemma must use the shared redqueen text endpoint\n' >&2
   exit 1
 fi
 if [[ "$(grep -Fc 'api_base: http://qwen-image-redqueen:8190/v1' "${app_root}/configmap.yaml")" -ne 2 ]]; then
@@ -189,10 +216,14 @@ readonly -a public_api_rules=(
   "${public_host} && (Method(\`GET\`) || Method(\`POST\`)) && (Path(\`/v1/responses\`) || PathPrefix(\`/v1/responses/\`))"
   "${public_host} && Method(\`POST\`) && Path(\`/v1/chat/completions\`)"
   "${public_host} && Method(\`POST\`) && Path(\`/v1/chat/completions/input_tokens\`)"
+  "${public_host} && Method(\`POST\`) && Path(\`/v1/embeddings\`)"
   "${public_host} && Method(\`GET\`) && (Path(\`/v1/models\`) || PathPrefix(\`/v1/models/\`))"
+  "${public_host} && Method(\`POST\`) && Path(\`/v1/systemone\`)"
+  "${public_host} && Method(\`POST\`) && Path(\`/v1/decisions\`)"
   "${public_host} && Method(\`POST\`) && Path(\`/v1/images/generations\`)"
   "${public_host} && Method(\`POST\`) && Path(\`/v1/images/edits\`)"
   "${public_host} && Method(\`POST\`) && Path(\`/typesafe/v1/systemone\`)"
+  "${public_host} && Method(\`GET\`) && Path(\`/typesafe/v1/models\`)"
 )
 for public_api_rule in "${public_api_rules[@]}"; do
   if ! grep -Fq -- "match: ${public_api_rule}" "${app_root}/ingress.yaml"; then
@@ -204,7 +235,7 @@ done
 
 public_rule_count="$(grep -Ec '^[[:space:]]+match: ' "${app_root}/ingress.yaml")"
 if [[ "${public_rule_count}" -ne "${#public_api_rules[@]}" ]]; then
-  printf 'public API IngressRoute must contain only the seven approved route rules\n' >&2
+  printf 'public API IngressRoute must contain only the approved exact route rules\n' >&2
   exit 1
 fi
 if grep -Fq 'PathPrefix(`/v1/responses`)' "${app_root}/ingress.yaml" \
