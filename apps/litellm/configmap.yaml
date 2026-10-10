@@ -118,6 +118,14 @@ data:
           timeout: 900
         model_info:
           mode: evaluation
+      - model_name: clm-v0.1-8b
+        litellm_params:
+          model: openai/clm-v0.1-8b
+          api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
+          api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
+          timeout: 900
+        model_info:
+          mode: evaluation
       - model_name: clef-flash-bf16
         litellm_params:
           model: openai/clef-flash-bf16
@@ -189,6 +197,13 @@ data:
     MODEL_COSTS = {
         "openai/jevk5-4b-v0.3": {
             "input_cost_per_token": 0.000000042,
+            "output_cost_per_token": 0,
+            "litellm_provider": "openai",
+            "mode": "evaluation",
+        },
+        # No external API price is assigned; local compute and energy are not counted.
+        "openai/clm-v0.1-8b": {
+            "input_cost_per_token": 0,
             "output_cost_per_token": 0,
             "litellm_provider": "openai",
             "mode": "evaluation",
