@@ -37,8 +37,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: runtime
-          # Image from successful Actions run 37991577794 at source commit e091567f1c73976da06a70f12c02a53a13c15421.
-          image: ghcr.io/petermousses/minecraft-agent-runtime@sha256:d6bc6b898a92ac005322326f662a4cf2f14fd52849ea65b2aaf6f8dd7fe7239e
+          # Image from successful Actions run 38031393290 at source commit 91904b5fb790bc21de1eb47b8daade06bd3f9348.
+          image: ghcr.io/petermousses/minecraft-agent-runtime@sha256:cc31f9c3094c7a7dadaec29604728a066844f04fbab5793dfe105d84a6398b82
           imagePullPolicy: IfNotPresent
           ports:
             - name: viewer
