@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 
 NAMESPACE = "board-games"
@@ -161,6 +162,36 @@ def ensure_secret(name, fields):
     print(f"secret/{name} created", flush=True)
 
 
+def wait_for_job(name, timeout=330):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        job = get_object("job", name, NAMESPACE)
+        if not job:
+            raise SetupError(f"verification job disappeared: job/{name}")
+        for condition in job.get("status", {}).get("conditions", []):
+            if condition.get("status") != "True":
+                continue
+            if condition["type"] == "Complete":
+                print(f"job/{name} complete", flush=True)
+                return
+            if condition["type"] == "Failed":
+                reason = condition.get("reason", "unknown failure")
+                raise SetupError(f"repository verification failed: job/{name}: {reason}")
+        time.sleep(2)
+    raise SetupError(f"repository verification timed out: job/{name}")
+
+
+def endpoint_diagnostics():
+    print("collecting Restic service diagnostics", flush=True)
+    kube("get", "service", "restic", "-n", NAMESPACE, "-o", "yaml", check=False)
+    kube("get", "endpointslices", "-n", NAMESPACE,
+         "-l", "kubernetes.io/service-name=restic", "-o", "yaml", check=False)
+    kube("get", "pods", "-n", NAMESPACE, "-l", "app.kubernetes.io/name=restic-server",
+         "-o", "wide", check=False)
+    kube("logs", "-n", NAMESPACE, "deployment/restic-server", "--tail=100",
+         "--timestamps=true", check=False)
+
+
 def main():
     if os.geteuid() != 0:
         raise SetupError("run with sudo python3")
@@ -287,11 +318,13 @@ def prepare():
     ).stdout)
     job_name = job["metadata"]["name"]
     print(f"job/{job_name} created", flush=True)
-    result = kube("wait", "-n", NAMESPACE, "--for=condition=complete", "--timeout=210s",
-                  "job/" + job_name, check=False)
+    try:
+        wait_for_job(job_name)
+    except SetupError:
+        kube("logs", "-n", NAMESPACE, "job/" + job_name, check=False)
+        endpoint_diagnostics()
+        raise
     kube("logs", "-n", NAMESPACE, "job/" + job_name, check=False)
-    if result.returncode:
-        raise SetupError(f"repository verification did not complete: job/{job_name}")
 
     kube("get", "pods", "-n", NAMESPACE, "-l", "app.kubernetes.io/name=restic-server", "-o", "wide")
     kube("get", "pvc", "-n", NAMESPACE, "restic-repositories", "postgres-backup-staging")
