@@ -1,0 +1,25 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: volsync
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: volsync
+    app.kubernetes.io/part-of: backups
+spec:
+  chart: https://backube.github.io/helm-charts/volsync-0.16.0.tgz
+  targetNamespace: volsync-system
+  createNamespace: true
+  valuesContent: |-
+    fullnameOverride: volsync
+    replicaCount: 1
+    manageCRDs: true
+    nodeSelector:
+      kubernetes.io/hostname: openmediavault
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
