@@ -163,7 +163,7 @@ def ensure_secret(name, fields):
     print(f"secret/{name} created", flush=True)
 
 
-def wait_for_job(name, timeout=330):
+def wait_for_job(name, timeout=330, description="repository verification"):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         job = get_object("job", name, NAMESPACE)
@@ -177,9 +177,9 @@ def wait_for_job(name, timeout=330):
                 return
             if condition["type"] == "Failed":
                 reason = condition.get("reason", "unknown failure")
-                raise SetupError(f"repository verification failed: job/{name}: {reason}")
+                raise SetupError(f"{description} failed: job/{name}: {reason}")
         time.sleep(2)
-    raise SetupError(f"repository verification timed out: job/{name}")
+    raise SetupError(f"{description} timed out: job/{name}")
 
 
 def endpoint_diagnostics():
