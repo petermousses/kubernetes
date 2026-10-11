@@ -71,6 +71,7 @@ class FakeOpener:
                 model_ids = (
                     [
                         "jevk5-4b-v0.3",
+                        "clm-v0.1-8b",
                         "clef-flash-bf16",
                         "clef-flash-q8",
                         "clef-flash-q4",

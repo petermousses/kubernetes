@@ -118,11 +118,21 @@ static decision models in `model_list`. each uses LiteLLM's `openai/` decision
 provider and calls the OpenAI-format `/v1/decisions` route on the local
 `jevk5-redqueen:8191` adapter using the stored Redqueen adapter key. the
 adapter translates that request into the existing local System One contract.
-the five canonical model IDs are `jevk5-4b-v0.3`,
+the six canonical model IDs are `jevk5-4b-v0.3`, `clm-v0.1-8b`,
 `clef-flash-bf16`, `clef-flash-q8`, `clef-flash-q4`, and `clef-q4`.
 the `clef-flash` shorthand is also registered and selects `clef-flash-bf16`.
 restricted virtual keys must include that exact alias in their model scope to
 use or list it.
+
+CLM is a contrastive decision head, not a text generator. Redqueen runs its
+projection heads on CPU and uses a pinned Qwen3-8B encoder with last-token
+pooling and a 2048-token input limit. It scores only the candidate choices in
+each request; probabilities are relative to those candidates. It does not
+accept images or video, and it should be called through `/v1/systemone` or
+`/v1/decisions`, never `/v1/chat/completions`. LiteLLM exposes only the pinned
+ID `clm-v0.1-8b`; Redqueen's internal `clm-latest` alias is not a separate
+LiteLLM model. Its spend estimate is zero because no external API price is
+assigned; local compute and energy are not counted.
 
 the LiteLLM rollout does not install or restart the separate Redqueen systemd
 adapter. deploy this repository's adapter code on Redqueen with
@@ -164,8 +174,8 @@ check from a workstation:
 ```
 
 enter a disposable or restricted LiteLLM virtual key at the hidden prompt, not
-the master key. by default the key must allow all five canonical decision
-aliases, so `GET /v1/models` can verify the catalog; `jevk5-4b-v0.3` on both native
+the master key. by default the key must allow all six canonical decision
+IDs, so `GET /v1/models` can verify the catalog; `jevk5-4b-v0.3` on both native
 decision routes; `clef-flash-bf16` with an inline image on the native Decisions
 route and through the temporary legacy image route;
 `qwen-image-2.1`; and `allowed_routes` for `/v1/models`, `/v1/systemone`,
@@ -177,7 +187,9 @@ validator checks auth and method boundaries,
 exercises both native request formats, verifies Clef image input through both
 the native and legacy routes, generates and edits a 512×512 PNG, validates both
 image files, and prints their private temporary directory for visual
-inspection. to validate the `clef-flash` shorthand separately, add it to the
-virtual key's model scope and request it in a System One call. the live rollout
+inspection. the catalog check includes CLM; the semantic decision request in
+this validator still exercises JevK5. to validate the `clef-flash` shorthand
+separately, add it to the virtual key's model scope and request it in a System
+One call. the live rollout
 and eventual legacy-route retirement remain operator steps; see
 [`AI_INFERENCE_PLAN.md`](../../AI_INFERENCE_PLAN.md).

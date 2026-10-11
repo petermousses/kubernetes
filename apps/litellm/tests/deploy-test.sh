@@ -152,6 +152,7 @@ readonly -a configured_models=(
   qwen-image-2.1
   qwen-image-2.1-uncensored
   jevk5-4b-v0.3
+  clm-v0.1-8b
   clef-flash-bf16
   clef-flash-q8
   clef-flash-q4
@@ -187,6 +188,7 @@ fi
 grep -Fq '      store_model_in_db: false' "${app_root}/configmap.yaml"
 for priced_openai_model in \
   'openai/jevk5-4b-v0.3' \
+  'openai/clm-v0.1-8b' \
   'openai/clef-flash-bf16' \
   'openai/clef-flash-q8' \
   'openai/clef-flash-q4' \
