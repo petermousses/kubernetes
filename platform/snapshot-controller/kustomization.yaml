@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: kube-system
+resources:
+  # external-snapshotter v8.4.0, pinned to its release commit.
+  - https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/f21cb02763e7cd6a7fc84846f106b83119b5371d/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+  - https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/f21cb02763e7cd6a7fc84846f106b83119b5371d/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+  - https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/f21cb02763e7cd6a7fc84846f106b83119b5371d/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
+  - https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/f21cb02763e7cd6a7fc84846f106b83119b5371d/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml
+  - https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/f21cb02763e7cd6a7fc84846f106b83119b5371d/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml
+patches:
+  - path: deployment-patch.yaml

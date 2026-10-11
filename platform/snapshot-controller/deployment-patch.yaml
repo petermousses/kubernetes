@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snapshot-controller
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: snapshot-controller
+    app.kubernetes.io/part-of: backups
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: backups
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: snapshot-controller
+          # v8.4.0; upstream's example still points at v8.2.1.
+          image: registry.k8s.io/sig-storage/snapshot-controller@sha256:b845f4bbc34d70bd84e92f8021f47704df1de3dbabbd8289969651360b39d605
+          args:
+            - --v=2
+            - --leader-election=true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

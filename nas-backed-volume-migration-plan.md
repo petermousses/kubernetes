@@ -82,4 +82,6 @@ backup-only recovery can lose writes made since the latest usable backup and req
 
 ## current implementation checkpoint
 
-architecture approved; shared backup setup and namespace backup/restore verification are pending. no Longhorn installation or namespace cutover is recorded as completed. the next implementation step is shared backup setup followed by the `board-games` pilot; later namespaces, stages, node enablement, and database cutovers retain their approval gates.
+shared setup and the `board-games` pilot are approved. the relayed inventory confirms K3s v1.33.5+k3s1, PostgreSQL 17.6, and the active `data-postgres-0` claim on the OS filesystem with reclaim policy `Delete`. the older array-backed `board-games-postgres` claim is not mounted by `postgres-0`. the approved backup directory resolves to the Btrfs RAID array with approximately 32 TiB free.
+
+the snapshot controller and VolSync are absent from the relayed inventory. their OMV-pinned installation manifests are prepared under `platform/snapshot-controller/` and `platform/volsync/`; installation results are pending. the Restic endpoint, backup staging/cache storage, database backup jobs, and isolated restore verification follow after controller health is confirmed. no namespace cutover is recorded as completed. later namespaces, stages, node enablement, and database cutovers retain their approval gates.
