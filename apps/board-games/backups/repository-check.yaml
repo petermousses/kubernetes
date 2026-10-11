@@ -1,0 +1,118 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: restic-repository-check-
+  namespace: board-games
+  labels:
+    app.kubernetes.io/name: restic-repository-check
+    app.kubernetes.io/part-of: board-games
+    app.kubernetes.io/managed-by: nas-backup-migration
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: restic-repository-check
+        app.kubernetes.io/part-of: board-games
+        backups.mousses.xyz/restic-client: "true"
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: check
+          # VolSync 0.16.0 includes Restic 0.18.1 and Python 3.
+          image: quay.io/backube/volsync@sha256:0d03a6aad57569eba2c0eaa0848cf4a908d9744b372ff2224bb291a320f36d76
+          command: [/bin/bash, -euc]
+          args:
+            - |
+              python3 - <<'PY'
+              import base64
+              import os
+              import ssl
+              import urllib.error
+              import urllib.request
+
+              url = os.environ["RESTIC_REPOSITORY"].removeprefix("rest:")
+              context = ssl.create_default_context(cafile="/ca/ca.crt")
+              opener = urllib.request.build_opener(
+                  urllib.request.ProxyHandler({}),
+                  urllib.request.HTTPSHandler(context=context),
+              )
+              credentials = (os.environ["RESTIC_REST_USERNAME"] + ":" +
+                             os.environ["RESTIC_REST_PASSWORD"])
+              auth = "Basic " + base64.b64encode(credentials.encode()).decode()
+
+              def status(target, authenticated):
+                  headers = {"Authorization": auth} if authenticated else {}
+                  request = urllib.request.Request(target, headers=headers)
+                  try:
+                      with opener.open(request, timeout=15) as response:
+                          return response.status
+                  except urllib.error.HTTPError as error:
+                      return error.code
+
+              if status(url + "config", False) != 401:
+                  raise SystemExit("unauthenticated access was not rejected")
+              forbidden = url.rsplit("/data-postgres-0/", 1)[0] + "/other-repository/config"
+              if status(forbidden, True) not in (401, 403):
+                  raise SystemExit("repository isolation check failed")
+              if status(url + "config", True) not in (200, 404):
+                  raise SystemExit("authenticated repository access failed")
+              print("TLS, authentication, and repository isolation verified", flush=True)
+              PY
+
+              set +e
+              timeout 60s restic --cacert /ca/ca.crt --no-cache cat config \
+                >/dev/null 2>/tmp/restic-open-error
+              restic_status=$?
+              set -e
+              case "$restic_status" in
+                0) ;;
+                10) restic --cacert /ca/ca.crt --no-cache init --repository-version 2 ;;
+                *) cat /tmp/restic-open-error >&2; exit "$restic_status" ;;
+              esac
+              restic --cacert /ca/ca.crt --no-cache check
+              restic --cacert /ca/ca.crt --no-cache snapshots --json
+          envFrom:
+            - secretRef:
+                name: restic-data-postgres-0
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: ca
+              mountPath: /ca
+              readOnly: true
+            - name: temp
+              mountPath: /tmp
+      volumes:
+        - name: ca
+          secret:
+            secretName: restic-root-ca
+            items:
+              - key: tls.crt
+                path: ca.crt
+        - name: temp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Mi

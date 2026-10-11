@@ -1,0 +1,57 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: restic-bootstrap
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: restic-root-ca
+spec:
+  isCA: true
+  commonName: board-games Restic CA
+  subject:
+    organizations: [board-games backups]
+  secretName: restic-root-ca
+  duration: 87600h
+  renewBefore: 2160h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    # Preserve the trust key during automatic CA certificate renewal.
+    # A CA key replacement requires a coordinated trust rollover.
+    rotationPolicy: Never
+  usages: [cert sign, crl sign]
+  issuerRef:
+    name: restic-bootstrap
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: restic-ca
+spec:
+  ca:
+    secretName: restic-root-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: restic-server-tls
+spec:
+  secretName: restic-server-tls
+  duration: 2160h
+  renewBefore: 360h
+  dnsNames:
+    - restic.board-games.svc
+    - restic.board-games.svc.cluster.local
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages: [digital signature, server auth]
+  issuerRef:
+    name: restic-ca
+    kind: Issuer

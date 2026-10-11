@@ -1,0 +1,106 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: board-games-backup-local
+provisioner: kubernetes.io/no-provisioner
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: board-games-restic-repositories
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: board-games-backup-local
+  claimRef:
+    namespace: board-games
+    name: restic-repositories
+  local:
+    path: /filesystem/k3s/data/board-games/backups
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: restic-repositories
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: board-games-backup-local
+  volumeName: board-games-restic-repositories
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: board-games-postgres-backup-staging
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: board-games-backup-local
+  claimRef:
+    namespace: board-games
+    name: postgres-backup-staging
+  local:
+    path: /filesystem/k3s/data/board-games/backup-staging/data-postgres-0
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: board-games-backup-local
+  volumeName: board-games-postgres-backup-staging
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: board-games-postgres-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: board-games-backup-local
+  # VolSync 0.16.0 creates this claim for the postgres-backup source.
+  claimRef:
+    namespace: board-games
+    name: volsync-src-postgres-backup-cache
+  local:
+    path: /filesystem/k3s/data/board-games/backup-cache/data-postgres-0/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
