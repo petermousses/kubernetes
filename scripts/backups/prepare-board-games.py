@@ -3,6 +3,7 @@
 
 import base64
 import fcntl
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -313,8 +314,20 @@ def prepare():
     private_write(RECOVERY / "ca.crt", base64.b64decode(ca["data"]["tls.crt"]).decode())
     print(f"recovery credentials and TLS secrets saved at {RECOVERY}; do not paste their contents", flush=True)
 
+    service = get_object("service", "restic", NAMESPACE)
+    if not service:
+        raise SetupError("Restic Service disappeared before repository verification")
+    service_ips = service["spec"].get("clusterIPs") or [service["spec"].get("clusterIP")]
+    expected_ips = ",".join(str(ipaddress.ip_address(value)) for value in service_ips)
+    job_template = json.loads(kube(
+        "create", "--dry-run=client", "-f", str(MANIFESTS / "repository-check.yaml"),
+        "-o", "json", capture=True,
+    ).stdout)
+    job_template["spec"]["template"]["spec"]["containers"][0].setdefault("env", []).append({
+        "name": "EXPECTED_RESTIC_IPS", "value": expected_ips,
+    })
     job = json.loads(kube(
-        "create", "-f", str(MANIFESTS / "repository-check.yaml"), "-o", "json", capture=True,
+        "create", "-f", "-", "-o", "json", stdin=json.dumps(job_template), capture=True,
     ).stdout)
     job_name = job["metadata"]["name"]
     print(f"job/{job_name} created", flush=True)

@@ -20,6 +20,12 @@ spec:
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          # Resolve the cluster FQDN before the mousses.xyz search suffix.
+          - name: ndots
+            value: "1"
       nodeSelector:
         kubernetes.io/hostname: openmediavault
       securityContext:
@@ -38,6 +44,7 @@ spec:
             - |
               python3 - <<'PY'
               import base64
+              import ipaddress
               import os
               import socket
               import ssl
@@ -45,8 +52,16 @@ spec:
               import urllib.error
               import urllib.parse
               import urllib.request
+              from pathlib import Path
 
               url = os.environ["RESTIC_REPOSITORY"].removeprefix("rest:")
+              # The setup script supplies the live Service's IPs, never a saved IP.
+              expected_addresses = {
+                  str(ipaddress.ip_address(value))
+                  for value in os.environ["EXPECTED_RESTIC_IPS"].split(",")
+              }
+              print("pod resolver configuration:\n" +
+                    Path("/etc/resolv.conf").read_text(), flush=True)
               context = ssl.create_default_context(cafile="/ca/ca.crt")
               opener = urllib.request.build_opener(
                   urllib.request.ProxyHandler({}),
@@ -74,13 +89,21 @@ spec:
               last_addresses = None
               while time.monotonic() < deadline:
                   try:
-                      addresses = sorted({item[4][0] for item in socket.getaddrinfo(
-                          target.hostname, target.port or 443, type=socket.SOCK_STREAM,
-                      )})
+                      addresses = sorted({
+                          str(ipaddress.ip_address(item[4][0]))
+                          for item in socket.getaddrinfo(
+                              target.hostname, target.port or 443, type=socket.SOCK_STREAM,
+                          )
+                      })
                       if addresses != last_addresses:
                           print("repository DNS: " + target.hostname + " -> " +
                                 ", ".join(addresses), flush=True)
                           last_addresses = addresses
+                      if not addresses or set(addresses) != expected_addresses:
+                          raise SystemExit(
+                              "repository DNS does not match the Service IPs: expected " +
+                              ", ".join(sorted(expected_addresses))
+                          )
                       unauthenticated_status = status(
                           url + "config", False,
                           timeout=min(15, max(0.1, deadline - time.monotonic())),
