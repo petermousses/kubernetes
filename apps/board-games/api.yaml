@@ -24,6 +24,11 @@ metadata:
     app.kubernetes.io/component: api
 spec:
   replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   revisionHistoryLimit: 2
   selector:
     matchLabels:
@@ -78,8 +83,8 @@ spec:
             timeoutSeconds: 3
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 25m
+              memory: 64Mi
             limits:
               cpu: "1"
               memory: 512Mi
