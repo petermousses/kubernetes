@@ -64,12 +64,12 @@ stop after each namespace. after `jellyfin`, obtain separate approval for stage 
 
 | namespace | writable data to protect (read-only: no) | retained OMV mounts (read-only: yes) | namespace steps and verification |
 | --- | --- | --- | --- |
-| `vaultwarden` | data | — | separate live data from the nested backup repository; use a consistent database backup coordinated with attachments. restore and verify login and client sync. |
-| `crafty` | data | — | coordinate server saves and stopped writers as required. restore and verify configuration, worlds, and servers. |
-| `authentik` | `/data` and PostgreSQL data | — | coordinate database and application data backups. restore and verify sign-in and dependent apps. |
 | `immich` | library, model cache, PostgreSQL data | external photos | coordinate database and library recovery; retain the external photos binding read-only on OMV. restore and verify assets and jobs. |
+| `authentik` | `/data` and PostgreSQL data | — | coordinate database and application data backups. restore and verify sign-in and dependent apps. |
+| `crafty` | data | — | coordinate server saves and stopped writers as required. restore and verify configuration, worlds, and servers. |
+| `vaultwarden` | data | — | separate live data from the nested backup repository; use a consistent database backup coordinated with attachments. restore and verify login and client sync. |
 
-stop after each namespace. after `immich`, report completion of all three stages and obtain explicit approval before making other nodes available.
+stop after each namespace. after `vaultwarden`, report completion of all three stages and obtain explicit approval before making other nodes available.
 
 ## after stage 3 — node moves and database HA
 
