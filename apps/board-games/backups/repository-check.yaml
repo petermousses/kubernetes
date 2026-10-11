@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/managed-by: nas-backup-migration
 spec:
   backoffLimit: 0
-  activeDeadlineSeconds: 180
+  activeDeadlineSeconds: 300
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
@@ -39,8 +39,11 @@ spec:
               python3 - <<'PY'
               import base64
               import os
+              import socket
               import ssl
+              import time
               import urllib.error
+              import urllib.parse
               import urllib.request
 
               url = os.environ["RESTIC_REPOSITORY"].removeprefix("rest:")
@@ -53,16 +56,47 @@ spec:
                              os.environ["RESTIC_REST_PASSWORD"])
               auth = "Basic " + base64.b64encode(credentials.encode()).decode()
 
-              def status(target, authenticated):
+              def status(target, authenticated, timeout=15):
                   headers = {"Authorization": auth} if authenticated else {}
                   request = urllib.request.Request(target, headers=headers)
                   try:
-                      with opener.open(request, timeout=15) as response:
+                      with opener.open(request, timeout=timeout) as response:
                           return response.status
                   except urllib.error.HTTPError as error:
                       return error.code
 
-              if status(url + "config", False) != 401:
+              # Deployment readiness can precede Service/policy propagation.
+              # Retry transport errors only; certificate and access failures
+              # remain fatal, and credentials are never printed.
+              deadline = time.monotonic() + 60
+              last_error = "no connection established"
+              target = urllib.parse.urlsplit(url)
+              last_addresses = None
+              while time.monotonic() < deadline:
+                  try:
+                      addresses = sorted({item[4][0] for item in socket.getaddrinfo(
+                          target.hostname, target.port or 443, type=socket.SOCK_STREAM,
+                      )})
+                      if addresses != last_addresses:
+                          print("repository DNS: " + target.hostname + " -> " +
+                                ", ".join(addresses), flush=True)
+                          last_addresses = addresses
+                      unauthenticated_status = status(
+                          url + "config", False,
+                          timeout=min(15, max(0.1, deadline - time.monotonic())),
+                      )
+                      break
+                  except (urllib.error.URLError, OSError) as error:
+                      reason = getattr(error, "reason", error)
+                      if isinstance(reason, ssl.SSLError):
+                          raise SystemExit("TLS verification failed: " + str(reason))
+                      last_error = str(reason)
+                      print("waiting for repository endpoint: " + last_error, flush=True)
+                      time.sleep(min(2, max(0, deadline - time.monotonic())))
+              else:
+                  raise SystemExit("repository endpoint unavailable: " + last_error)
+
+              if unauthenticated_status != 401:
                   raise SystemExit("unauthenticated access was not rejected")
               forbidden = url.rsplit("/data-postgres-0/", 1)[0] + "/other-repository/config"
               if status(forbidden, True) not in (401, 403):
