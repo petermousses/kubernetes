@@ -36,28 +36,60 @@ spec:
           command: [python3, -u, -c]
           args:
             - |
+              import base64
               import hashlib
               import ipaddress
               import json
               import os
               from pathlib import Path
               import socket
+              import ssl
               import subprocess
+              import time
+              import urllib.error
               import urllib.parse
+              import urllib.request
 
               target = urllib.parse.urlsplit(os.environ["RESTIC_REPOSITORY"].removeprefix("rest:"))
-              addresses = {
-                  str(ipaddress.ip_address(item[4][0]))
-                  for item in socket.getaddrinfo(target.hostname, target.port, type=socket.SOCK_STREAM)
-              }
               expected_addresses = {
                   str(ipaddress.ip_address(value))
                   for value in os.environ["EXPECTED_RESTIC_IPS"].split(",")
               }
               print("pod resolver configuration:\n" + Path("/etc/resolv.conf").read_text())
-              print("repository DNS: " + target.hostname + " -> " + ", ".join(sorted(addresses)))
-              if not addresses or addresses != expected_addresses:
-                  raise SystemExit("repository DNS does not match the Restic Service")
+              opener = urllib.request.build_opener(
+                  urllib.request.ProxyHandler({}),
+                  urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile="/ca/ca.crt")),
+              )
+              credentials = os.environ["RESTIC_REST_USERNAME"] + ":" + os.environ["RESTIC_REST_PASSWORD"]
+              request = urllib.request.Request(
+                  os.environ["RESTIC_REPOSITORY"].removeprefix("rest:") + "config",
+                  headers={"Authorization": "Basic " + base64.b64encode(credentials.encode()).decode()},
+              )
+              deadline = time.monotonic() + 60
+              while time.monotonic() < deadline:
+                  try:
+                      addresses = {
+                          str(ipaddress.ip_address(item[4][0]))
+                          for item in socket.getaddrinfo(target.hostname, target.port, type=socket.SOCK_STREAM)
+                      }
+                      if not addresses or addresses != expected_addresses:
+                          raise SystemExit("repository DNS does not match the Restic Service")
+                      with opener.open(request, timeout=min(8, max(0.1, deadline - time.monotonic()))) as response:
+                          if response.status != 200:
+                              raise SystemExit("authenticated repository access failed")
+                      print("repository DNS: " + target.hostname + " -> " + ", ".join(sorted(addresses)))
+                      print("authenticated repository connection verified")
+                      break
+                  except urllib.error.HTTPError as error:
+                      raise SystemExit("authenticated repository access failed: HTTP " + str(error.code))
+                  except (urllib.error.URLError, OSError) as error:
+                      reason = getattr(error, "reason", error)
+                      if isinstance(reason, ssl.SSLError):
+                          raise SystemExit("TLS verification failed: " + str(reason))
+                      print("waiting for repository endpoint: " + str(reason))
+                      time.sleep(min(2, max(0, deadline - time.monotonic())))
+              else:
+                  raise SystemExit("repository endpoint did not become available")
 
               restic = ["restic", "--cacert", "/ca/ca.crt", "--no-cache"]
               subprocess.run(restic + ["check", "--read-data"], check=True, timeout=240)
