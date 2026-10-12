@@ -131,8 +131,8 @@ def apply_source_bundle(backup_id):
         setup.kube("apply", "-f", "-", stdin=json.dumps(resource))
 
 
-def inspect_artifacts(backup_id):
-    current = STAGING / "current"
+def inspect_artifacts(backup_id, current=None):
+    current = STAGING / "current" if current is None else current
     if not current.exists():
         return None
     setup.checked_directory(current)

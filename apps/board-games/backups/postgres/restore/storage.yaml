@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: board-games-postgres-restore-artifacts
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: board-games-backup-local
+  claimRef:
+    namespace: board-games
+    name: postgres-restore-artifacts
+  local:
+    path: /filesystem/k3s/data/board-games/restore-validation/data-postgres-0/initial/artifacts
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-restore-artifacts
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: board-games-backup-local
+  volumeName: board-games-postgres-restore-artifacts
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: board-games-postgres-restore-database
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: board-games-backup-local
+  claimRef:
+    namespace: board-games
+    name: postgres-restore-database
+  local:
+    path: /filesystem/k3s/data/board-games/restore-validation/data-postgres-0/initial/database
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-restore-database
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: board-games-backup-local
+  volumeName: board-games-postgres-restore-database
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: board-games-postgres-restore-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: board-games-backup-local
+  # VolSync creates this claim for the postgres-restore-initial destination.
+  claimRef:
+    namespace: board-games
+    name: volsync-dst-postgres-restore-initial-cache
+  local:
+    path: /filesystem/k3s/data/board-games/restore-validation/data-postgres-0/initial/cache
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
