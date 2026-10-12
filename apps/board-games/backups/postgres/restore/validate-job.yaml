@@ -41,7 +41,7 @@ spec:
               backup_directory="/backup/$BACKUP_SUBDIR"
               test "$(cat "$backup_directory/backup-id")" = "$BACKUP_ID"
               cd "$backup_directory"
-              sha256sum --check --status SHA256SUMS
+              sha256sum -c -s SHA256SUMS
               test -z "$(ls -A /database)"
               if grep -Fq -- "$BOOTSTRAP_USER" globals.sql; then
                 printf 'bootstrap role collides with the saved globals\n' >&2
@@ -51,8 +51,13 @@ spec:
               log_directory=/database/validation-logs
               mkdir -m 0700 "$log_directory" /tmp/pgsocket
               chmod u=rwx,go=,g-s "$log_directory"
-              initdb --pgdata="$PGDATA" --username="$BOOTSTRAP_USER" \
-                --auth-local=trust --auth-host=reject >"$log_directory/initdb.log" 2>&1
+              # The pinned Alpine image's account is UID 70; this Job uses 999.
+              # Its own helper supplies nss_wrapper for initdb's user lookup.
+              source /usr/local/bin/docker-entrypoint.sh
+              POSTGRES_USER="$BOOTSTRAP_USER" POSTGRES_PASSWORD="$PGPASSWORD" \
+                POSTGRES_INITDB_ARGS='' docker_init_database_dir \
+                --pgdata="$PGDATA" --auth-local=trust --auth-host=reject \
+                >"$log_directory/initdb.log" 2>&1
               cat >>"$PGDATA/postgresql.conf" <<'CONFIG'
               listen_addresses = ''
               unix_socket_directories = '/tmp/pgsocket'
@@ -114,7 +119,7 @@ spec:
               \gexec
               COMMIT;
               SQL
-              cmp -- row-counts.csv "$log_directory/row-counts.csv"
+              cmp row-counts.csv "$log_directory/row-counts.csv"
               psql -XqAt --no-password -v ON_ERROR_STOP=1 -v backup_id="$BACKUP_ID" \
                 >"$log_directory/result.pending.json" <<'SQL'
               SELECT json_build_object('result', 'passed', 'backup_id', :'backup_id',

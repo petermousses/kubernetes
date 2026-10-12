@@ -5,6 +5,7 @@ import base64
 import csv
 from datetime import datetime
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
@@ -31,6 +32,8 @@ ARTIFACTS = BASE / "artifacts"
 DATABASE = BASE / "database"
 DESTINATION = "postgres-restore-initial"
 JOB = "postgres-restore-validation-initial"
+# Exact script used by 81b0497 and d1d079f; permits the guarded portability retry.
+LEGACY_VALIDATION_SHA256 = "76a8a2957cb4188d2f8917f2de690e37fe6132bae94e47702e74309dedd43b39"
 
 
 def completed(resource, tag):
@@ -217,42 +220,66 @@ def validation_pods():
     ).stdout)["items"]
 
 
-def retry_unscheduled_validation(job, template):
-    # DeadlineExceeded also applies to a Pod that never left the scheduler.
-    # Replacing that immutable Job is safe only with an empty scratch volume
-    # and no remaining Pods. Never reset an initialized validation database.
+def retry_empty_validation(job, template):
+    # Retry only known scripts with an empty scratch volume and stopped Pods.
+    # Never reset an initialized validation database.
     status = job.get("status", {})
     if (not any(condition.get("type") == "Failed" and condition.get("status") == "True"
-                and condition.get("reason") == "DeadlineExceeded"
+                and condition.get("reason") in ("DeadlineExceeded", "BackoffLimitExceeded")
                 for condition in status.get("conditions", [])) or
             any(status.get(field, 0) for field in ("active", "ready", "terminating", "succeeded")) or
             job["spec"].get("backoffLimit") != 0 or
             job["spec"].get("activeDeadlineSeconds") != 600):
-        raise setup.SetupError("validation retry requires a terminal deadline failure; preserving its Job and data")
+        raise setup.SetupError("validation retry requires a terminal failure; preserving its Job and data")
     expected = json.loads(json.dumps(template["spec"]["template"]["spec"]))
+    args = job["spec"]["template"]["spec"]["containers"][0].get("args", [])
+    approved_hashes = {
+        LEGACY_VALIDATION_SHA256,
+        hashlib.sha256(expected["containers"][0]["args"][0].encode()).hexdigest(),
+    }
+    if (len(args) != 1 or not isinstance(args[0], str) or
+            hashlib.sha256(args[0].encode()).hexdigest() not in approved_hashes):
+        raise setup.SetupError("failed validation Job does not use an approved script")
+    expected["containers"][0].pop("args")
     memory = job["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["memory"]
     if memory not in ("128Mi", "256Mi"):
         raise setup.SetupError("failed validation Job has an unexpected memory request")
     expected["containers"][0]["resources"]["requests"]["memory"] = memory
     if not backup.contains_fields(job["spec"]["template"]["spec"], expected):
         raise setup.SetupError("failed validation Job differs from this backup generation")
-    if any(DATABASE.iterdir()) or validation_pods():
-        raise setup.SetupError("validation database is nonempty or its Pods remain; preserving the failed Job and data")
+    if any(DATABASE.iterdir()):
+        raise setup.SetupError("validation database is nonempty; preserving the failed Job and data")
+    uid = job["metadata"]["uid"]
+    if not re.fullmatch(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", uid):
+        raise setup.SetupError("unexpected failed validation Job UID")
+    failed_pods = validation_pods()
+    for pod in failed_pods:
+        statuses = pod.get("status", {}).get("containerStatuses", [])
+        if (pod.get("status", {}).get("phase") != "Failed" or not statuses or
+                any(not status.get("state", {}).get("terminated") for status in statuses) or
+                not any(owner.get("uid") == uid and owner.get("controller") is True
+                        for owner in pod["metadata"].get("ownerReferences", []))):
+            raise setup.SetupError("a validation Pod is not stopped or has unexpected ownership; preserving it")
     pods = json.loads(setup.kube("get", "pods", "-n", NS, "-o", "json", capture=True).stdout)["items"]
     if any(pod.get("status", {}).get("phase") not in ("Failed", "Succeeded") and
            any(volume.get("persistentVolumeClaim", {}).get("claimName") == "postgres-restore-database"
                for volume in pod["spec"].get("volumes", [])) for pod in pods):
         raise setup.SetupError("another Pod references the validation database; preserving its Job and data")
-    uid = job["metadata"]["uid"]
-    if not re.fullmatch(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", uid):
-        raise setup.SetupError("unexpected failed validation Job UID")
     events = json.loads(setup.kube("get", "events", "-n", NS, "-o", "json", capture=True).stdout)["items"]
     evidence = [event for event in events if
                 event.get("involvedObject", {}).get("uid") == uid or
                 event.get("involvedObject", {}).get("name", "").startswith(JOB + "-")]
-    prefix = setup.RECOVERY / ("initial-restore-unscheduled-" + uid)
+    prefix = setup.RECOVERY / ("initial-restore-failed-" + uid)
     setup.private_write(Path(str(prefix) + ".job.json"), json.dumps(job, indent=2) + "\n")
     setup.private_write(Path(str(prefix) + ".events.json"), json.dumps(evidence, indent=2) + "\n")
+    setup.private_write(Path(str(prefix) + ".pods.json"), json.dumps(failed_pods, indent=2) + "\n")
+    logs = []
+    for pod in failed_pods:
+        name = pod["metadata"]["name"]
+        result = setup.kube("logs", "-n", NS, "pod/" + name, "-c", "validate",
+                            capture=True, sensitive=True, check=False, timeout=30)
+        logs.append(name + ":\n" + result.stdout + result.stderr)
+    setup.private_write(Path(str(prefix) + ".log"), "\n".join(logs))
     # Compare both identity and revision when removing the failed Job.
     setup.kube(
         "delete", "--raw", f"/apis/batch/v1/namespaces/{NS}/jobs/{JOB}",
@@ -264,11 +291,11 @@ def retry_unscheduled_validation(job, template):
         }),
     )
     deadline = time.monotonic() + 60
-    while setup.get_object("job", JOB, NS):
+    while setup.get_object("job", JOB, NS) or validation_pods():
         if time.monotonic() >= deadline:
             raise setup.SetupError("failed validation Job deletion is still pending; no replacement was started")
         time.sleep(2)
-    print("failed validation Job and events saved privately; empty database and absent Pods verified before retry", flush=True)
+    print("failed validation Job, Pods, events, and logs saved privately; empty database and stopped Pods verified before retry", flush=True)
 
 
 def wait_for_validation_scheduling():
@@ -307,7 +334,7 @@ def validation_job(state, current):
         backup.managed(existing)
         if any(condition.get("type") == "Failed" and condition.get("status") == "True"
                for condition in existing.get("status", {}).get("conditions", [])):
-            retry_unscheduled_validation(existing, template)
+            retry_empty_validation(existing, template)
             existing = None
     if existing:
         if not backup.contains_fields(existing["spec"]["template"]["spec"], template["spec"]["template"]["spec"]):
