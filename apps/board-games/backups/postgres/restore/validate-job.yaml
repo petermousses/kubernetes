@@ -1,0 +1,187 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-restore-validation-initial
+  namespace: board-games
+  labels:
+    app.kubernetes.io/name: postgres-restore-validation
+    app.kubernetes.io/part-of: board-games
+    app.kubernetes.io/managed-by: nas-backup-migration
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres-restore-validation
+        app.kubernetes.io/part-of: board-games
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: validate
+          image: postgres@sha256:747d5ed1fdeeb124b880fbe3d7c6557d2c4064ae41d6b6297d417882effce4be
+          command: [/bin/bash, -euo, pipefail, -c]
+          args:
+            - |
+              umask 077
+              [[ "$BACKUP_ID" =~ ^initial-[0-9a-f]{32}$ ]]
+              [[ "$BOOTSTRAP_USER" =~ ^restore_check_[0-9a-f]{32}$ ]]
+              [[ "$BACKUP_SUBDIR" == current || "$BACKUP_SUBDIR" == data/current ]]
+              backup_directory="/backup/$BACKUP_SUBDIR"
+              test "$(cat "$backup_directory/backup-id")" = "$BACKUP_ID"
+              cd "$backup_directory"
+              sha256sum --check --status SHA256SUMS
+              test -z "$(ls -A /database)"
+              if grep -Fq -- "$BOOTSTRAP_USER" globals.sql; then
+                printf 'bootstrap role collides with the saved globals\n' >&2
+                exit 1
+              fi
+
+              log_directory=/database/validation-logs
+              mkdir -m 0700 "$log_directory" /tmp/pgsocket
+              chmod u=rwx,go=,g-s "$log_directory"
+              initdb --pgdata="$PGDATA" --username="$BOOTSTRAP_USER" \
+                --auth-local=trust --auth-host=reject >"$log_directory/initdb.log" 2>&1
+              cat >>"$PGDATA/postgresql.conf" <<'CONFIG'
+              listen_addresses = ''
+              unix_socket_directories = '/tmp/pgsocket'
+              unix_socket_permissions = 0700
+              shared_buffers = '64MB'
+              max_connections = 10
+              autovacuum = off
+              archive_mode = off
+              shared_preload_libraries = ''
+              max_worker_processes = 0
+              max_logical_replication_workers = 0
+              CONFIG
+              {
+                printf 'local all %s trust\n' "$BOOTSTRAP_USER"
+                # PostgreSQL uses SCRAM automatically for SCRAM-stored hashes.
+                # This also supports an older MD5 hash on the private Unix socket.
+                printf 'local all all md5\n'
+                printf 'host all all 0.0.0.0/0 reject\n'
+                printf 'host all all ::/0 reject\n'
+              } >"$PGDATA/pg_hba.conf"
+              export PGUSER="$BOOTSTRAP_USER"
+              trap 'pg_ctl --pgdata="$PGDATA" --mode=fast --wait --timeout=30 stop >/dev/null 2>&1 || true' EXIT
+              pg_ctl --pgdata="$PGDATA" --log="$log_directory/server.log" \
+                --wait --timeout=60 start
+              test -z "$(psql -XqAt --no-password -d postgres -c 'SHOW listen_addresses;')"
+              test "$(psql -XqAt --no-password -d postgres -c 'SELECT inet_server_addr() IS NULL;')" = t
+
+              # SQL and server logs can contain password hashes; keep them private.
+              if ! psql -Xq --no-password -v ON_ERROR_STOP=1 -d postgres \
+                -f globals.sql >"$log_directory/globals.log" 2>&1
+              then
+                printf 'globals restore failed; details retained in private validation logs\n' >&2
+                exit 1
+              fi
+              if ! pg_restore --no-password --exit-on-error --create --dbname=postgres \
+                database.dump >"$log_directory/restore.log" 2>&1
+              then
+                printf 'database restore failed; details retained in private validation logs\n' >&2
+                exit 1
+              fi
+              printf 'globals, database objects, and data restored without SQL errors\n'
+
+              # Exercise the saved application password against the restored hash.
+              export PGUSER=board_games PGDATABASE=board_games
+              test "$(psql -XqAt --no-password -v ON_ERROR_STOP=1 -c 'SELECT current_user;')" = board_games
+              printf 'saved application credentials authenticated on the private Unix socket\n'
+              psql -Xq --csv --no-password -v ON_ERROR_STOP=1 \
+                >"$log_directory/row-counts.csv" <<'SQL'
+              BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+              SELECT coalesce(string_agg(format(
+                'SELECT %L::text AS relation, count(*)::bigint AS rows FROM ONLY %I.%I',
+                format('%I.%I', n.nspname, c.relname), n.nspname, c.relname
+              ), ' UNION ALL ' ORDER BY n.nspname, c.relname),
+                'SELECT NULL::text AS relation, NULL::bigint AS rows WHERE false')
+                || ' ORDER BY relation;' AS query
+              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE c.relkind IN ('r', 'p')
+                AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
+              \gexec
+              COMMIT;
+              SQL
+              cmp -- row-counts.csv "$log_directory/row-counts.csv"
+              psql -XqAt --no-password -v ON_ERROR_STOP=1 -v backup_id="$BACKUP_ID" \
+                >"$log_directory/result.pending.json" <<'SQL'
+              SELECT json_build_object('result', 'passed', 'backup_id', :'backup_id',
+                'database', current_database(), 'role', current_user,
+                'server_version_num', current_setting('server_version_num'),
+                'restored_at', current_timestamp);
+              SQL
+              export PGUSER="$BOOTSTRAP_USER" PGDATABASE=postgres
+              pg_ctl --pgdata="$PGDATA" --mode=fast --wait --timeout=60 stop
+              trap - EXIT
+              mv -- "$log_directory/result.pending.json" /database/validation-result.json
+              sync -- /database/validation-result.json "$log_directory/row-counts.csv"
+              sync -- /database
+              printf 'isolated restore passed: %s\n' "$BACKUP_ID"
+              printf 'all restored table row counts match the dump snapshot\n'
+          env:
+            # BACKUP_ID, BOOTSTRAP_USER, and BACKUP_SUBDIR are injected by the runner.
+            - name: PGDATA
+              value: /database/pgdata
+            - name: PGHOST
+              value: /tmp/pgsocket
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "5"
+            - name: PGOPTIONS
+              value: -c statement_timeout=300000
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-restore-validation-auth
+                  key: PGPASSWORD
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: artifacts
+              mountPath: /backup
+              readOnly: true
+            - name: database
+              mountPath: /database
+            - name: temp
+              mountPath: /tmp
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: postgres-restore-artifacts
+            readOnly: true
+        - name: database
+          persistentVolumeClaim:
+            claimName: postgres-restore-database
+        - name: temp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Mi
