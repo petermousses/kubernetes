@@ -210,6 +210,91 @@ def restore_artifacts(state, expected_checksums):
     return current
 
 
+def validation_pods():
+    return json.loads(setup.kube(
+        "get", "pods", "-n", NS, "-l", "batch.kubernetes.io/job-name=" + JOB,
+        "-o", "json", capture=True,
+    ).stdout)["items"]
+
+
+def retry_unscheduled_validation(job, template):
+    # DeadlineExceeded also applies to a Pod that never left the scheduler.
+    # Replacing that immutable Job is safe only with an empty scratch volume
+    # and no remaining Pods. Never reset an initialized validation database.
+    status = job.get("status", {})
+    if (not any(condition.get("type") == "Failed" and condition.get("status") == "True"
+                and condition.get("reason") == "DeadlineExceeded"
+                for condition in status.get("conditions", [])) or
+            any(status.get(field, 0) for field in ("active", "ready", "terminating", "succeeded")) or
+            job["spec"].get("backoffLimit") != 0 or
+            job["spec"].get("activeDeadlineSeconds") != 600):
+        raise setup.SetupError("validation retry requires a terminal deadline failure; preserving its Job and data")
+    expected = json.loads(json.dumps(template["spec"]["template"]["spec"]))
+    memory = job["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["memory"]
+    if memory not in ("128Mi", "256Mi"):
+        raise setup.SetupError("failed validation Job has an unexpected memory request")
+    expected["containers"][0]["resources"]["requests"]["memory"] = memory
+    if not backup.contains_fields(job["spec"]["template"]["spec"], expected):
+        raise setup.SetupError("failed validation Job differs from this backup generation")
+    if any(DATABASE.iterdir()) or validation_pods():
+        raise setup.SetupError("validation database is nonempty or its Pods remain; preserving the failed Job and data")
+    pods = json.loads(setup.kube("get", "pods", "-n", NS, "-o", "json", capture=True).stdout)["items"]
+    if any(pod.get("status", {}).get("phase") not in ("Failed", "Succeeded") and
+           any(volume.get("persistentVolumeClaim", {}).get("claimName") == "postgres-restore-database"
+               for volume in pod["spec"].get("volumes", [])) for pod in pods):
+        raise setup.SetupError("another Pod references the validation database; preserving its Job and data")
+    uid = job["metadata"]["uid"]
+    if not re.fullmatch(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", uid):
+        raise setup.SetupError("unexpected failed validation Job UID")
+    events = json.loads(setup.kube("get", "events", "-n", NS, "-o", "json", capture=True).stdout)["items"]
+    evidence = [event for event in events if
+                event.get("involvedObject", {}).get("uid") == uid or
+                event.get("involvedObject", {}).get("name", "").startswith(JOB + "-")]
+    prefix = setup.RECOVERY / ("initial-restore-unscheduled-" + uid)
+    setup.private_write(Path(str(prefix) + ".job.json"), json.dumps(job, indent=2) + "\n")
+    setup.private_write(Path(str(prefix) + ".events.json"), json.dumps(evidence, indent=2) + "\n")
+    # Compare both identity and revision when removing the failed Job.
+    setup.kube(
+        "delete", "--raw", f"/apis/batch/v1/namespaces/{NS}/jobs/{JOB}",
+        "-f", "-", "--request-timeout=30s", capture=True,
+        stdin=json.dumps({
+            "apiVersion": "v1", "kind": "DeleteOptions",
+            "preconditions": {"uid": uid, "resourceVersion": job["metadata"]["resourceVersion"]},
+            "propagationPolicy": "Foreground",
+        }),
+    )
+    deadline = time.monotonic() + 60
+    while setup.get_object("job", JOB, NS):
+        if time.monotonic() >= deadline:
+            raise setup.SetupError("failed validation Job deletion is still pending; no replacement was started")
+        time.sleep(2)
+    print("failed validation Job and events saved privately; empty database and absent Pods verified before retry", flush=True)
+
+
+def wait_for_validation_scheduling():
+    deadline = time.monotonic() + 60
+    reason = "no validation Pod created"
+    while time.monotonic() < deadline:
+        job = setup.get_object("job", JOB, NS)
+        if not job:
+            raise setup.SetupError("validation Job disappeared while waiting for scheduling")
+        if any(condition.get("status") == "True" and condition.get("type") in ("Complete", "Failed")
+               for condition in job.get("status", {}).get("conditions", [])):
+            return
+        for pod in validation_pods():
+            if not any(owner.get("uid") == job["metadata"]["uid"]
+                       for owner in pod["metadata"].get("ownerReferences", [])):
+                raise setup.SetupError("validation Pod has unexpected ownership")
+            for condition in pod.get("status", {}).get("conditions", []):
+                if condition.get("type") == "PodScheduled":
+                    if condition.get("status") == "True":
+                        print("validation Pod scheduled on OMV", flush=True)
+                        return
+                    reason = condition.get("message") or condition.get("reason") or "Pod is not scheduled"
+        time.sleep(2)
+    raise setup.SetupError("validation Pod did not schedule within 60 seconds: " + reason)
+
+
 def validation_job(state, current):
     template = backup.read_template(MANIFESTS / "validate-job.yaml")
     template["spec"]["template"]["spec"]["containers"][0]["env"].extend([
@@ -220,6 +305,11 @@ def validation_job(state, current):
     existing = setup.get_object("job", JOB, NS)
     if existing:
         backup.managed(existing)
+        if any(condition.get("type") == "Failed" and condition.get("status") == "True"
+               for condition in existing.get("status", {}).get("conditions", [])):
+            retry_unscheduled_validation(existing, template)
+            existing = None
+    if existing:
         if not backup.contains_fields(existing["spec"]["template"]["spec"], template["spec"]["template"]["spec"]):
             raise setup.SetupError("existing validation Job differs; preserving its database")
     else:
@@ -227,9 +317,15 @@ def validation_job(state, current):
             raise setup.SetupError("validation database already contains data without its Job; preserving it")
         setup.kube("create", "-f", "-", stdin=json.dumps(template))
     try:
+        wait_for_validation_scheduling()
         setup.wait_for_job(JOB, timeout=630, description="isolated PostgreSQL restore validation")
     finally:
-        setup.kube("logs", "-n", NS, "job/" + JOB, check=False)
+        # A deadline failure can delete all Pods; do not wait for missing logs.
+        for pod in validation_pods():
+            if any(status.get("state", {}).get("running") or status.get("state", {}).get("terminated")
+                   for status in pod.get("status", {}).get("containerStatuses", [])):
+                setup.kube("logs", "-n", NS, "pod/" + pod["metadata"]["name"],
+                           "--pod-running-timeout=5s", check=False, timeout=30)
     result_path = DATABASE / "validation-result.json"
     attributes = result_path.lstat()
     if (not stat.S_ISREG(attributes.st_mode) or attributes.st_uid != 999 or
@@ -289,6 +385,11 @@ def diagnostics():
     setup.kube("get", "replicationdestination", DESTINATION, "-n", NS, "-o", "yaml", check=False)
     setup.kube("get", "pvc", "-n", NS, "-o", "wide", check=False)
     setup.kube("get", "pods", "-n", NS, "-o", "wide", check=False)
+    events = setup.kube("get", "events", "-n", NS, "-o", "json", capture=True, check=False)
+    if not events.returncode:
+        for event in json.loads(events.stdout).get("items", []):
+            if event.get("involvedObject", {}).get("name", "").startswith(JOB):
+                print(json.dumps({key: event.get(key) for key in ("reason", "message", "count")}))
     pods = setup.kube("get", "pods", "-n", NS, "-l",
                       "batch.kubernetes.io/job-name=volsync-dst-" + DESTINATION,
                       "-o", "name", capture=True, check=False).stdout.splitlines()
