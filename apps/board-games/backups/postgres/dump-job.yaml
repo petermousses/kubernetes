@@ -48,6 +48,26 @@ spec:
               # The staging root is setgid; keep this private artifact directory 0700.
               chmod u=rwx,go=,g-s "$backup_work"
 
+              # New Pods can start before their NetworkPolicy allow rules settle.
+              # Exercise the real TCP connection and credentials before dumping.
+              connection_deadline=$((SECONDS + 60))
+              until PGCONNECT_TIMEOUT=3 PGOPTIONS='-c statement_timeout=5000' \
+                timeout 8s psql -XqAt --no-password -v ON_ERROR_STOP=1 \
+                  -c 'SELECT 1;' >"$backup_work/connect-result" \
+                  2>"$backup_work/connect-error"
+              do
+                if (( SECONDS >= connection_deadline )); then
+                  cat "$backup_work/connect-error" >&2
+                  printf 'authenticated PostgreSQL connection did not become available\n' >&2
+                  exit 1
+                fi
+                printf 'waiting for authenticated PostgreSQL connection\n'
+                sleep 2
+              done
+              test "$(cat "$backup_work/connect-result")" = 1
+              rm -- "$backup_work/connect-result" "$backup_work/connect-error"
+              printf 'authenticated PostgreSQL connection verified\n'
+
               pg_dumpall --no-password --globals-only --file="$backup_work/globals.sql"
 
               # Keep the exporting session open until both readers finish.

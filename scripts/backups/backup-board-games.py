@@ -171,6 +171,58 @@ def inspect_artifacts(backup_id):
     return checksums
 
 
+def retry_failed_dump(job, template):
+    # An immutable failed Job needs replacement to pick up the connection retry.
+    # Keep its evidence, and refuse replacement if any writer or artifact remains.
+    expected = json.loads(json.dumps(template["spec"]["template"]["spec"]))
+    expected["containers"][0].pop("args")
+    if not contains_fields(job["spec"]["template"]["spec"], expected):
+        raise setup.SetupError("failed native dump Job differs from the approved backup generation")
+    source = setup.get_object("replicationsource", SOURCE, NS)
+    if (not source or not source["spec"].get("paused") or
+            source["spec"].get("trigger", {}).get("manual") != "controlled-by-backup-runner"):
+        raise setup.SetupError("failed dump retry requires the original paused VolSync source")
+    if any(STAGING.iterdir()):
+        raise setup.SetupError("staging contains artifacts; preserving the failed dump Job and data")
+    uid = job["metadata"]["uid"]
+    if not re.fullmatch(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", uid):
+        raise setup.SetupError("unexpected failed dump Job UID")
+    pods = json.loads(setup.kube(
+        "get", "pods", "-n", NS, "-l", "batch.kubernetes.io/job-name=" + DUMP_JOB,
+        "-o", "json", capture=True,
+    ).stdout)
+    for pod in pods["items"]:
+        if (pod.get("status", {}).get("phase") not in ("Failed", "Succeeded") or
+                not any(owner.get("uid") == uid
+                        for owner in pod["metadata"].get("ownerReferences", []))):
+            raise setup.SetupError("a dump Pod is still active or has unexpected ownership; preserving it")
+    prefix = setup.RECOVERY / ("initial-dump-failed-" + uid)
+    setup.private_write(Path(str(prefix) + ".job.json"), json.dumps(job, indent=2) + "\n")
+    logs = []
+    for pod in pods["items"]:
+        name = pod["metadata"]["name"]
+        result = setup.kube("logs", "-n", NS, "pod/" + name, "-c", "dump",
+                            capture=True, sensitive=True, check=False, timeout=30)
+        logs.append(name + ":\n" + result.stdout + result.stderr)
+    setup.private_write(Path(str(prefix) + ".log"), "\n".join(logs))
+    # UID and resourceVersion preconditions prevent deleting a replacement Job.
+    setup.kube(
+        "delete", "--raw", f"/apis/batch/v1/namespaces/{NS}/jobs/{DUMP_JOB}",
+        "-f", "-", "--request-timeout=30s", capture=True,
+        stdin=json.dumps({
+            "apiVersion": "v1", "kind": "DeleteOptions",
+            "preconditions": {"uid": uid, "resourceVersion": job["metadata"]["resourceVersion"]},
+            "propagationPolicy": "Foreground",
+        }),
+    )
+    deadline = time.monotonic() + 60
+    while setup.get_object("job", DUMP_JOB, NS):
+        if time.monotonic() >= deadline:
+            raise setup.SetupError("failed dump Job deletion is still pending; no replacement was started")
+        time.sleep(2)
+    print("failed dump evidence saved privately; empty staging and terminated dump Pods verified before retry", flush=True)
+
+
 def native_dump(backup_id):
     template = read_template(MANIFESTS / "dump-job.yaml")
     container = template["spec"]["template"]["spec"]["containers"][0]
@@ -187,6 +239,11 @@ def native_dump(backup_id):
     existing = setup.get_object("job", DUMP_JOB, NS)
     if existing:
         managed(existing)
+        if any(condition.get("type") == "Failed" and condition.get("status") == "True"
+               for condition in existing.get("status", {}).get("conditions", [])):
+            retry_failed_dump(existing, template)
+            existing = None
+    if existing:
         if not contains_fields(existing["spec"]["template"]["spec"], template["spec"]["template"]["spec"]):
             raise setup.SetupError("existing native dump Job differs from this backup generation")
     else:
@@ -253,9 +310,15 @@ def diagnostics():
     setup.kube("get", "replicationsource", SOURCE, "-n", NS, "-o", "yaml", check=False)
     setup.kube("get", "pvc", "-n", NS, "-o", "wide", check=False)
     setup.kube("get", "pods", "-n", NS, "-o", "wide", check=False)
+    setup.kube("get", "endpointslices", "-n", NS, "-l", "kubernetes.io/service-name=postgres",
+               "-o", "wide", check=False)
     setup.kube("get", "events", "-n", NS, "--sort-by=.metadata.creationTimestamp", check=False)
     # Secret values and native SQL/dump contents are never printed.
-    setup.kube("logs", "-n", NS, "job/volsync-src-postgres-backup", "--tail=60", check=False)
+    mover_pods = setup.kube("get", "pods", "-n", NS, "-l",
+                           "batch.kubernetes.io/job-name=volsync-src-postgres-backup",
+                           "-o", "name", capture=True, check=False).stdout.splitlines()
+    for pod in mover_pods:
+        setup.kube("logs", "-n", NS, pod, "--tail=60", "--pod-running-timeout=5s", check=False)
 
 
 def backup():
