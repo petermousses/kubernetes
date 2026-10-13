@@ -483,6 +483,57 @@ def cache_archive(source, destination):
     return contents
 
 
+def pending_without_reservation_risk(pod, writer):
+    """Recognize only zero-request Pods that cannot exclude the replacement writer."""
+    spec = pod["spec"]
+    namespace = pod["metadata"]["namespace"]
+    if namespace == NS or spec.get("resourceClaims") or spec.get("hostNetwork"):
+        return False
+    containers = spec.get("containers", []) + spec.get("initContainers", [])
+    requests = [spec.get("resources", {}).get("requests", {}), spec.get("overhead", {})]
+    requests.extend(container.get("resources", {}).get("requests", {}) for container in containers)
+    if any(setup.quantity(str(value)) != 0 for resources in requests for value in resources.values()):
+        return False
+    if any(port.get("hostPort", 0) for container in containers for port in container.get("ports", [])):
+        return False
+    # Required anti-affinity is symmetric: either Pod can exclude the other.
+    if writer.get("affinity", {}).get("podAntiAffinity", {}).get(
+            "requiredDuringSchedulingIgnoredDuringExecution"):
+        return False
+    for term in spec.get("affinity", {}).get("podAntiAffinity", {}).get(
+            "requiredDuringSchedulingIgnoredDuringExecution", []):
+        namespaces = term.get("namespaces") or [namespace]
+        if term.get("namespaceSelector") is not None or NS in namespaces:
+            return False
+    return True
+
+
+def check_scheduling_backlog(node, deployment):
+    pods = json.loads(setup.kube("get", "pods", "-A", "-o", "json", capture=True).stdout)["items"]
+    pending = [pod for pod in pods if pod.get("status", {}).get("phase") == "Pending"
+               and not pod["spec"].get("nodeName") and not pod["metadata"].get("deletionTimestamp")
+               and all(node["metadata"].get("labels", {}).get(key) == value
+                       for key, value in pod["spec"].get("nodeSelector", {}).items())]
+    writer = deployment["spec"]["template"]["spec"]
+    competing = [pod for pod in pending if not pending_without_reservation_risk(pod, writer)]
+    if competing:
+        names = [pod["metadata"]["namespace"] + "/" + pod["metadata"]["name"] for pod in competing]
+        print("pending Pods may compete for SearXNG's reservations: " + ", ".join(names), flush=True)
+        raise setup.SetupError("resolve the scheduling backlog before stopping SearXNG")
+    if pending:
+        # Even a zero-request Pod consumes a pod slot. Count assigned terminal Pods
+        # conservatively, and leave an extra slot for the replacement writer.
+        assigned = sum(pod["spec"].get("nodeName") == node["metadata"]["name"] for pod in pods)
+        capacity = setup.quantity(node["status"]["allocatable"]["pods"])
+        if assigned + len(pending) + 1 > capacity:
+            raise setup.SetupError("insufficient pod slots to safely ignore zero-request pending Pods: " +
+                                   "assigned=" + str(assigned) + " pending=" + str(len(pending)) +
+                                   " capacity=" + str(capacity))
+        names = [pod["metadata"]["namespace"] + "/" + pod["metadata"]["name"] for pod in pending]
+        print("pending Pods cannot take CPU/memory reservations or exclude SearXNG; " +
+              "pod-slot capacity verified: " + ", ".join(names), flush=True)
+
+
 def capture_cache(identifier):
     if inspect_artifacts("cache", identifier):
         return
@@ -495,25 +546,16 @@ def capture_cache(identifier):
     hpas = json.loads(setup.kube("get", "hpa", "-n", NS, "-o", "json", capture=True).stdout)["items"]
     if any(item["spec"].get("scaleTargetRef", {}).get("name") == "searxng" for item in hpas):
         raise setup.SetupError("an autoscaler may restart cache writers; no quiescence attempted")
-    # Do not release the app's reservations into an existing scheduling backlog.
+    # Do not release the app's reservations into a competing scheduling backlog.
     node = setup.get_object("node", "openmediavault")
-    pending_pods = json.loads(setup.kube("get", "pods", "-A", "--field-selector=status.phase=Pending",
-                                       "-o", "json", capture=True).stdout)["items"]
-    candidates = [pod for pod in pending_pods if not pod["spec"].get("nodeName")
-                  and not pod["metadata"].get("deletionTimestamp")
-                  and all(node["metadata"].get("labels", {}).get(key) == value
-                          for key, value in pod["spec"].get("nodeSelector", {}).items())]
-    if candidates:
-        names = [pod["metadata"]["namespace"] + "/" + pod["metadata"]["name"] for pod in candidates]
-        print("pending Pods may compete for SearXNG's reservations: " + ", ".join(names), flush=True)
-        raise setup.SetupError("resolve the scheduling backlog before stopping SearXNG")
+    deployment = setup.get_object("deployment", "searxng", NS)
+    if not deployment or deployment["spec"].get("replicas") != 1:
+        raise setup.SetupError("SearXNG replica count changed before quiescence")
+    check_scheduling_backlog(node, deployment)
     running_containers()  # Verify runtime inspection works before stopping the app.
     pods = active_claim_pods("searxng-cache")
     if len(pods) != 1 or not setup.ready(pods[0]):
         raise setup.SetupError("expected one ready cache writer before quiescence")
-    deployment = setup.get_object("deployment", "searxng", NS)
-    if deployment["spec"].get("replicas") != 1:
-        raise setup.SetupError("SearXNG replica count changed before quiescence")
     state = {"backup_id": identifier, "phase": "quiescing", "original_replicas": 1,
              "deployment_uid": deployment["metadata"]["uid"],
              "template_hash": template_hash(deployment["spec"]["template"]), "started_at": now()}
