@@ -118,7 +118,7 @@ def artifact_write(path, value):
         os.fchown(output.fileno(), 999, 999)
 
 
-def inspect_artifacts(component, identifier):
+def inspect_artifacts(component, identifier, *, directory_modes=(0o700,)):
     root = staging(component)
     setup.checked_directory(root)
     current = root / "current"
@@ -128,15 +128,21 @@ def inspect_artifacts(component, identifier):
         raise setup.SetupError("unexpected staging data exists beside the published backup: " + component)
     setup.checked_directory(current)
     attributes = current.stat()
-    if (attributes.st_uid, attributes.st_gid, stat.S_IMODE(attributes.st_mode)) != (999, 999, 0o700):
-        raise setup.SetupError("published backup directory ownership or mode changed: " + component)
+    mode = stat.S_IMODE(attributes.st_mode)
+    if (attributes.st_uid, attributes.st_gid) != (999, 999) or mode not in directory_modes:
+        raise setup.SetupError("published backup directory ownership or mode changed: " + component +
+                               "; observed uid=" + str(attributes.st_uid) + " gid=" + str(attributes.st_gid) +
+                               " mode=" + format(mode, "04o"))
     if {path.name for path in current.iterdir()} != ARTIFACTS[component]:
         raise setup.SetupError("published backup artifact set is incomplete: " + component)
     for path in current.iterdir():
         attributes = path.lstat()
         if (not stat.S_ISREG(attributes.st_mode) or attributes.st_nlink != 1 or
                 (attributes.st_uid, attributes.st_gid, stat.S_IMODE(attributes.st_mode)) != (999, 999, 0o600)):
-            raise setup.SetupError("published artifact ownership, mode, or file type changed: " + component)
+            raise setup.SetupError("published artifact ownership, mode, or file type changed: " + component +
+                                   "/" + path.name + "; observed uid=" + str(attributes.st_uid) +
+                                   " gid=" + str(attributes.st_gid) +
+                                   " mode=" + format(stat.S_IMODE(attributes.st_mode), "04o"))
     if (current / "backup-id").read_text().strip() != identifier:
         raise setup.SetupError("published artifacts belong to a different generation: " + component)
     metadata = json.loads((current / "metadata.json").read_text())
@@ -188,12 +194,20 @@ def new_pending(component, identifier):
     path = root / (".pending-" + identifier)
     path.mkdir(mode=0o700)
     os.chown(path, 999, 999)
+    # Linux mkdir inherits S_ISGID from the staging root despite mode=0700.
+    # Apply the exact private mode after ownership, which may also affect bits.
+    os.chmod(path, 0o700)
     sync_directory(root)
     return path
 
 
 def publish(component, identifier, pending):
     ensure_source_idle(component, identifier)
+    setup.checked_directory(pending)
+    attributes = pending.stat()
+    if not stat.S_ISDIR(attributes.st_mode) or (attributes.st_uid, attributes.st_gid) != (999, 999):
+        raise setup.SetupError("pending backup directory ownership changed")
+    os.chmod(pending, 0o700)
     if {path.name for path in pending.iterdir()} != ARTIFACTS[component] - {"SHA256SUMS"}:
         raise setup.SetupError("pending backup artifacts are incomplete: " + component)
     for path in pending.iterdir():
@@ -218,6 +232,51 @@ def publish(component, identifier, pending):
     sync_directory(staging(component))
     inspect_artifacts(component, identifier)
     print("consistent artifacts published and checksummed: searxng-" + component, flush=True)
+
+
+def repair_valkey_directory(identifier):
+    """Clear inherited setgid only after validating the completed initial dump."""
+    current = staging("valkey") / "current"
+    if not current.exists() and not current.is_symlink():
+        return
+    setup.checked_directory(current)
+    attributes = current.stat()
+    if (attributes.st_uid, attributes.st_gid, stat.S_IMODE(attributes.st_mode)) != (999, 999, 0o2700):
+        return  # The regular inspector will reject any other unexpected state.
+    ensure_source_idle("valkey", identifier)
+    job = setup.get_object("job", NATIVE_JOB, NS)
+    if not job:
+        raise setup.SetupError("completed dump Job is missing; preserving directory permissions")
+    managed(job)
+    containers = job["spec"]["template"]["spec"]["containers"]
+    if (job["metadata"].get("annotations", {}).get("backups.mousses.xyz/generation") != identifier or
+            len(containers) != 1 or containers[0].get("name") != "dump" or
+            containers[0].get("image") != setup.IMAGES["valkey"] or
+            not any(entry == {"name": "BACKUP_ID", "value": identifier}
+                    for entry in containers[0].get("env", [])) or
+            not any(item.get("type") == "Complete" and item.get("status") == "True"
+                    for item in job.get("status", {}).get("conditions", []))):
+        raise setup.SetupError("dump Job does not prove this generation completed; preserving permissions")
+    checksums = inspect_artifacts("valkey", identifier, directory_modes=(0o2700,))
+    descriptor = os.open(current, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino, opened.st_uid, opened.st_gid, stat.S_IMODE(opened.st_mode)) != (
+                attributes.st_dev, attributes.st_ino, 999, 999, 0o2700):
+            raise setup.SetupError("dump directory changed during permission validation")
+        # Persist the evidence before changing only this directory's mode.
+        save(setup.RECOVERY / "initial-valkey-directory-repair.json", {
+            "backup_id": identifier, "job_uid": job["metadata"]["uid"],
+            "path": str(current), "uid": 999, "gid": 999,
+            "original_mode": "2700", "target_mode": "0700", "checksums": checksums,
+            "verified_at": now(),
+        })
+        os.fchmod(descriptor, 0o700)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    inspect_artifacts("valkey", identifier)
+    print("verified existing Valkey dump; cleared inherited setgid bit (2700 -> 0700)", flush=True)
 
 
 def apply_sources(identifier):
@@ -623,6 +682,7 @@ def backup():
     if not isinstance(identifier, str) or not re.fullmatch(r"initial-[0-9a-f]{32}", identifier):
         raise setup.SetupError("saved initial backup generation is invalid")
     apply_sources(identifier)
+    repair_valkey_directory(identifier)
     capture_valkey(identifier)
     capture_cache(identifier)
     for component in ("valkey", "cache"):
