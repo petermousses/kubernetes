@@ -43,7 +43,7 @@ for **each namespace**, in table order:
 | namespace | writable data to protect (read-only: no) | retained OMV mounts (read-only: yes) | namespace steps and verification |
 | --- | --- | --- | --- |
 | `board-games` | PostgreSQL data | — | **backup onboarding complete:** native backup, isolated restore, application health, automatic daily execution, retention proof, and off-NAS credential recovery verified. existing live `data-postgres-0` binding retained. |
-| `searxng` | Valkey and search cache | — | **approved; backup endpoint verified, initial capture/upload prepared.** configure both claim backups; restore and verify Valkey state and search service health. |
+| `searxng` | Valkey and search cache | — | **approved; Valkey dump verified, cache capture awaits scheduling capacity.** configure both claim backups; restore and verify Valkey state and search service health. |
 | `monitoring` | Prometheus, Alertmanager, Grafana, Loki | — | use service-appropriate consistency procedures; restore and verify dashboards, alerts, and retained metrics/logs. |
 
 stop after each namespace. after `monitoring`, obtain separate approval for stage 2.
@@ -120,7 +120,7 @@ repository retention remains `within: 7d`, with VolSync pruning at most once per
 
 the initial CPU scheduling block is resolved. both board-games API and web resource adjustments rolled out successfully with two ready replicas and pinned running image digests. requests of `25m`/`64Mi` and `10m`/`16Mi` per replica release `180m` CPU and `160Mi` memory; existing limits are retained. original deployments are saved under `/root/k3s-backup-recovery/board-games/resource-adjustment/`. before this adjustment, OMV reserved `11985m` of `12000m` CPU and 99% of allocatable memory, versus `705m` measured CPU use. backup and restore jobs must fit the remaining CPU/memory budget and be sequenced to prevent overlap.
 
-### searxng — endpoint verified, initial backups prepared
+### searxng — Valkey dump verified, cache capture awaits scheduling capacity
 
 the relayed live inventory confirms `searxng-cache` and `searxng-valkey`, each 2 GiB, bound to their matching local PVs with `Retain`. their array paths are `/filesystem/k3s/data/searxng/cache` and `/filesystem/k3s/data/searxng/valkey`, on `/dev/md0` Btrfs with approximately 31.7 TiB free. SearXNG is ready as UID/GID 977; Valkey is ready as UID 999, GID 1000. both live bindings declare `ReadWriteOncePod` despite being local PVs; Kubernetes documents support only for CSI volumes. retain these live bindings and use separate RWO staging PVCs for backups. do not rely on RWOP enforcement for these local volumes or mount them in additional backup Pods. [Kubernetes access modes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes)
 
@@ -138,4 +138,8 @@ the two VolSync sources begin paused. only completed, checksummed generations ar
 
 **the relayed first attempt completed the Valkey native dump Job, then stopped at the published directory's ownership/mode check.** this happened before SearXNG quiescence or uploads. the helper omitted an explicit `chmod` after creating its private generation directory under the setgid staging root. Linux inherits that bit even when `mkdir` requests `0700`, so `2700` is the suspected live mode; the relayed error did not include the actual attributes. the corrected helper sets `0700` after ownership changes and before publication. its retry handles only an existing UID/GID 999 directory with mode `2700`: require a paused/idle source, the completed managed Job for the same generation/image, and all artifact checksums before clearing that directory's setgid bit. it saves repair evidence privately and reuses the existing dump. any other ownership/mode discrepancy remains an error and now reports the observed attributes. [Linux mkdir setgid inheritance](https://man7.org/linux/man-pages/man2/mkdir.2.html)
 
-**the corrected initial backup retry is prepared, not yet confirmed on OMV.** isolated restores, daily scheduling/retention proof, actual automatic completion, and independent credential storage remain pending. stop after completing this namespace and wait for explicit approval before starting `monitoring`.
+**the relayed retry confirmed and repaired the inherited setgid bit.** the staging root is UID/GID `999:999`, mode `2770`; the published Valkey generation was `999:999`, mode `2700`. the guarded repair verified the completed Job and artifact checksums, cleared only the directory's setgid bit to `0700`, and reused the existing dump.
+
+the next guard stopped before SearXNG quiescence or uploads because `monitoring/loki-gateway-5c65588fbb-2j2vn` is pending and may consume the reservations released while SearXNG is stopped. inspect its actual scheduling reason, resource requests, and gateway rollout state, alongside current node reservations and SearXNG usage, before selecting a capacity adjustment. this is read-only investigation of a dependency blocking the approved `searxng` work; the `monitoring` migration still requires separate approval. retain the guard while the backlog is unresolved.
+
+**cache capture and both initial uploads remain pending.** isolated restores, daily scheduling/retention proof, actual automatic completion, and independent credential storage also remain pending. stop after completing this namespace and wait for explicit approval before starting `monitoring`.
