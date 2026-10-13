@@ -1,0 +1,75 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: valkey-native-backup-initial
+  namespace: searxng
+  labels:
+    app.kubernetes.io/name: valkey-native-backup
+    app.kubernetes.io/part-of: searxng
+    app.kubernetes.io/managed-by: nas-backup-migration
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: valkey-native-backup
+        app.kubernetes.io/part-of: searxng
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dump
+          image: docker.io/valkey/valkey@sha256:d1cc70645bbcef743615463a2fa4616e841407545e18f560aed0c49671a90147
+          command: [/bin/sh, -ec]
+          args:
+            - |
+              umask 077
+              pending="/staging/.pending-$BACKUP_ID"
+              test -d "$pending"
+              test ! -e "$pending/dump.rdb"
+              deadline=$(($(date +%s) + 60))
+              printf '%s\n' 'waiting for Valkey connectivity'
+              until [ "$(valkey-cli -h "$VALKEY_HOST" --raw PING 2>/dev/null)" = PONG ]; do
+                test "$(date +%s)" -lt "$deadline"
+                sleep 2
+              done
+              valkey-cli -h "$VALKEY_HOST" --rdb "$pending/dump.rdb" >"$pending/transfer.log" 2>&1
+              test -s "$pending/dump.rdb"
+              valkey-check-rdb "$pending/dump.rdb" >"$pending/rdb-check.txt" 2>&1
+              printf '%s\n' 'native Valkey RDB transfer and file validation completed'
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: staging
+              mountPath: /staging
+            - name: temp
+              mountPath: /tmp
+      volumes:
+        - name: staging
+          persistentVolumeClaim:
+            claimName: valkey-backup-staging
+        - name: temp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi

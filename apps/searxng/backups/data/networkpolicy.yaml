@@ -1,0 +1,36 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-native-backup-to-valkey
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: valkey-native-backup
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey-native-backup-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey-native-backup
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: valkey
+      ports:
+        - protocol: TCP
+          port: 6379

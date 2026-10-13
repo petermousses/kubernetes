@@ -1,0 +1,107 @@
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: cache-backup
+  labels:
+    app.kubernetes.io/name: cache-backup
+    app.kubernetes.io/part-of: searxng
+spec:
+  sourcePVC: cache-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-searxng-cache
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: searxng-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: searxng
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: valkey-backup
+  labels:
+    app.kubernetes.io/name: valkey-backup
+    app.kubernetes.io/part-of: searxng
+spec:
+  sourcePVC: valkey-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-searxng-valkey
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: searxng-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: searxng
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
