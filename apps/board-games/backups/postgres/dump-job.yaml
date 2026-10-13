@@ -40,7 +40,7 @@ spec:
           args:
             - |
               umask 077
-              [[ "$BACKUP_ID" =~ ^initial-[0-9a-f]{32}$ ]]
+              [[ "$BACKUP_ID" =~ ^(initial|daily)-[0-9a-f]{32}$ ]]
               test ! -e /staging/current
               test ! -L /staging/current
               backup_work="$(mktemp -d /staging/.pending.XXXXXX)"

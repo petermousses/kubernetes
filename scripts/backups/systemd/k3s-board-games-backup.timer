@@ -1,0 +1,12 @@
+# managed by nas-backup-migration
+[Unit]
+Description=daily board-games backup at 02:15 Arizona time
+
+[Timer]
+OnCalendar=*-*-* 09:15:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=k3s-board-games-backup.service
+
+[Install]
+WantedBy=timers.target
