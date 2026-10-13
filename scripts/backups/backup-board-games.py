@@ -74,7 +74,8 @@ def run_check(template, fields, description):
     try:
         setup.wait_for_job(name, timeout=630, description=description)
     finally:
-        setup.kube("logs", "-n", NS, "job/" + name, check=False)
+        setup.kube("logs", "-n", NS, "job/" + name, "--pod-running-timeout=5s", check=False)
+    return name
 
 
 def managed(resource):
@@ -223,8 +224,14 @@ def retry_failed_dump(job, template):
     print("failed dump evidence saved privately; empty staging and terminated dump Pods verified before retry", flush=True)
 
 
-def native_dump(backup_id):
+def native_dump(backup_id, *, job_name=None):
+    job_name = job_name or DUMP_JOB
+    if (job_name != DUMP_JOB and
+            (not re.fullmatch(r"daily-[0-9a-f]{32}", backup_id) or
+             job_name != "postgres-backup-" + backup_id)):
+        raise setup.SetupError("unexpected daily dump Job name or generation")
     template = read_template(MANIFESTS / "dump-job.yaml")
+    template["metadata"]["name"] = job_name
     container = template["spec"]["template"]["spec"]["containers"][0]
     container["env"].append({"name": "BACKUP_ID", "value": backup_id})
     production = setup.get_object("pod", "postgres-0", NS)
@@ -236,11 +243,13 @@ def native_dump(backup_id):
                     volume.get("persistentVolumeClaim", {}).get("claimName") == "data-postgres-0"
                     for volume in production["spec"].get("volumes", []))):
         raise setup.SetupError("production PostgreSQL health, node, or pinned version differs from inventory")
-    existing = setup.get_object("job", DUMP_JOB, NS)
+    existing = setup.get_object("job", job_name, NS)
     if existing:
         managed(existing)
         if any(condition.get("type") == "Failed" and condition.get("status") == "True"
                for condition in existing.get("status", {}).get("conditions", [])):
+            if job_name != DUMP_JOB:
+                raise setup.SetupError("daily dump Job failed; preserving its Job, staging, and run state")
             retry_failed_dump(existing, template)
             existing = None
     if existing:
@@ -254,9 +263,9 @@ def native_dump(backup_id):
             raise setup.SetupError("refusing to write staging while the VolSync source is unpaused")
         setup.kube("create", "-f", "-", stdin=json.dumps(template))
     try:
-        setup.wait_for_job(DUMP_JOB, timeout=630, description="native PostgreSQL dump")
+        setup.wait_for_job(job_name, timeout=630, description="native PostgreSQL dump")
     finally:
-        setup.kube("logs", "-n", NS, "job/" + DUMP_JOB, check=False)
+        setup.kube("logs", "-n", NS, "job/" + job_name, "--pod-running-timeout=5s", check=False)
     checksums = inspect_artifacts(backup_id)
     if checksums is None:
         raise setup.SetupError("native dump Job completed without publishing its artifacts")
@@ -264,7 +273,8 @@ def native_dump(backup_id):
     return checksums
 
 
-def upload(backup_id):
+def upload(backup_id, *, result_path=None):
+    result_path = result_path or setup.RECOVERY / "initial-volsync-result.json"
     for attempt in range(5):
         source = setup.get_object("replicationsource", SOURCE, NS)
         if not source:
@@ -299,7 +309,7 @@ def upload(backup_id):
                 any(condition.get("type") == "Synchronizing" and condition.get("status") == "False"
                     and condition.get("reason") == "WaitingForManual"
                     for condition in status.get("conditions", []))):
-            setup.private_write(setup.RECOVERY / "initial-volsync-result.json", json.dumps(source, indent=2) + "\n")
+            setup.private_write(result_path, json.dumps(source, indent=2) + "\n")
             print("VolSync upload, retention, and cleanup completed", flush=True)
             return
         time.sleep(2)

@@ -1,0 +1,18 @@
+# managed by nas-backup-migration
+[Unit]
+Description=board-games native PostgreSQL and VolSync backup
+Wants=network-online.target
+After=network-online.target k3s.service
+Requires=k3s.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -u /usr/local/lib/k3s-backups/board-games/current/scripts/backups/daily-board-games.py
+TimeoutStartSec=40min
+NoNewPrivileges=true
+PrivateTmp=true
+Nice=10
