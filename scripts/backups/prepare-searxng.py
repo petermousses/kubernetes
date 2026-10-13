@@ -224,10 +224,10 @@ def resource_budget(node, pods):
     print("available reservations: " + str(available["cpu"] * 1000) + "m CPU, " +
           str(round(available["memory"] / 1024**2, 1)) + "Mi memory", flush=True)
     if any(available[key] < needed[key] for key in needed):
-        raise SetupError("insufficient reservations for the backup endpoint plus one worker; no resources applied")
+        raise SetupError("insufficient reservations for the backup endpoint plus one worker")
 
 
-def live_preflight():
+def live_preflight(*, check_resources=True):
     nodes = json.loads(kube("get", "nodes", "-o", "json", capture=True).stdout)["items"]
     if [node["metadata"]["name"] for node in nodes] != ["openmediavault"]:
         raise SetupError("additional nodes require the later approval gate")
@@ -279,7 +279,8 @@ def live_preflight():
             raise SetupError("production replica count changed: " + component)
         saved.extend(((claim_name + ".pvc.json", claim), (claim_name + ".pv.json", volume),
                       (component + "." + kind + ".json", workload)))
-    resource_budget(node, pods)
+    if check_resources:
+        resource_budget(node, pods)
     for filename, resource in saved:
         path = RECOVERY / filename
         if not path.exists() and not path.is_symlink():
@@ -380,9 +381,9 @@ def prepare_credentials():
     return secret_fields
 
 
-def wait_for_job(name):
+def wait_for_job(name, *, timeout=330):
     started = time.monotonic()
-    while time.monotonic() - started < 330:
+    while time.monotonic() - started < timeout:
         job = get_object("job", name, NAMESPACE)
         if not job:
             raise SetupError("repository check Job disappeared: " + name)
