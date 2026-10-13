@@ -1,0 +1,166 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: searxng-backup-local
+provisioner: kubernetes.io/no-provisioner
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: searxng-restic-repositories
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: searxng-backup-local
+  claimRef:
+    namespace: searxng
+    name: restic-repositories
+  local:
+    path: /filesystem/k3s/data/searxng/backups
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: restic-repositories
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: searxng-backup-local
+  volumeName: searxng-restic-repositories
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: searxng-cache-backup-staging
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: searxng-backup-local
+  claimRef:
+    namespace: searxng
+    name: cache-backup-staging
+  local:
+    path: /filesystem/k3s/data/searxng/backup-staging/searxng-cache
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cache-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: searxng-backup-local
+  volumeName: searxng-cache-backup-staging
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: searxng-cache-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: searxng-backup-local
+  claimRef:
+    namespace: searxng
+    name: volsync-src-cache-backup-cache
+  local:
+    path: /filesystem/k3s/data/searxng/backup-cache/searxng-cache/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: searxng-valkey-backup-staging
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: searxng-backup-local
+  claimRef:
+    namespace: searxng
+    name: valkey-backup-staging
+  local:
+    path: /filesystem/k3s/data/searxng/backup-staging/searxng-valkey
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valkey-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: searxng-backup-local
+  volumeName: searxng-valkey-backup-staging
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: searxng-valkey-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: searxng-backup-local
+  claimRef:
+    namespace: searxng
+    name: volsync-src-valkey-backup-cache
+  local:
+    path: /filesystem/k3s/data/searxng/backup-cache/searxng-valkey/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
