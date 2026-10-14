@@ -1,0 +1,195 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: searxng-valkey-restore-artifacts
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: searxng-backup-local
+  claimRef:
+    namespace: searxng
+    name: valkey-restore-artifacts
+  local:
+    path: /filesystem/k3s/data/searxng/restore-validation/searxng-valkey/initial/artifacts
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valkey-restore-artifacts
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: searxng-backup-local
+  volumeName: searxng-valkey-restore-artifacts
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: searxng-valkey-restore-data
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: searxng-backup-local
+  claimRef:
+    namespace: searxng
+    name: valkey-restore-data
+  local:
+    path: /filesystem/k3s/data/searxng/restore-validation/searxng-valkey/initial/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valkey-restore-data
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: searxng-backup-local
+  volumeName: searxng-valkey-restore-data
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: searxng-valkey-restore-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: searxng-backup-local
+  claimRef:
+    namespace: searxng
+    name: volsync-dst-valkey-restore-initial-cache
+  local:
+    path: /filesystem/k3s/data/searxng/restore-validation/searxng-valkey/initial/cache
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: searxng-cache-restore-artifacts
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: searxng-backup-local
+  claimRef:
+    namespace: searxng
+    name: cache-restore-artifacts
+  local:
+    path: /filesystem/k3s/data/searxng/restore-validation/searxng-cache/initial/artifacts
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cache-restore-artifacts
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: searxng-backup-local
+  volumeName: searxng-cache-restore-artifacts
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: searxng-cache-restore-data
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: searxng-backup-local
+  claimRef:
+    namespace: searxng
+    name: cache-restore-data
+  local:
+    path: /filesystem/k3s/data/searxng/restore-validation/searxng-cache/initial/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cache-restore-data
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: searxng-backup-local
+  volumeName: searxng-cache-restore-data
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: searxng-cache-restore-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: searxng-backup-local
+  claimRef:
+    namespace: searxng
+    name: volsync-dst-cache-restore-initial-cache
+  local:
+    path: /filesystem/k3s/data/searxng/restore-validation/searxng-cache/initial/cache
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]

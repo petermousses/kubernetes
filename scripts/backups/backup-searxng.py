@@ -118,14 +118,15 @@ def artifact_write(path, value):
         os.fchown(output.fileno(), 999, 999)
 
 
-def inspect_artifacts(component, identifier, *, directory_modes=(0o700,)):
-    root = staging(component)
-    setup.checked_directory(root)
-    current = root / "current"
-    if not current.exists() and not current.is_symlink():
-        return None
-    if {path.name for path in root.iterdir()} != {"current"}:
-        raise setup.SetupError("unexpected staging data exists beside the published backup: " + component)
+def inspect_artifacts(component, identifier, *, directory_modes=(0o700,), current=None):
+    if current is None:
+        root = staging(component)
+        setup.checked_directory(root)
+        current = root / "current"
+        if not current.exists() and not current.is_symlink():
+            return None
+        if {path.name for path in root.iterdir()} != {"current"}:
+            raise setup.SetupError("unexpected staging data exists beside the published backup: " + component)
     setup.checked_directory(current)
     attributes = current.stat()
     mode = stat.S_IMODE(attributes.st_mode)

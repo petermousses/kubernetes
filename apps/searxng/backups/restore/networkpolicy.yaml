@@ -1,0 +1,11 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: searxng-restore-validation-isolation
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: searxng-restore-validation
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress: []

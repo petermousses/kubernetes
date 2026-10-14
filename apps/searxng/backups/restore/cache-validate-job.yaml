@@ -1,0 +1,233 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cache-restore-validation-initial
+  namespace: searxng
+  labels:
+    app.kubernetes.io/name: searxng-restore-validation
+    app.kubernetes.io/part-of: searxng
+    app.kubernetes.io/managed-by: nas-backup-migration
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: searxng-restore-validation
+        app.kubernetes.io/part-of: searxng
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: validate
+          image: docker.io/searxng/searxng@sha256:7914267d4a3b91132aa888b889dbe0657bdb9e1af5a13eb6fbab99a94990c235
+          workingDir: /tmp
+          command: [/usr/local/searxng/.venv/bin/python, -u, -c]
+          args:
+            - |
+              import base64
+              import hashlib
+              import json
+              import os
+              from pathlib import Path, PurePosixPath
+              import re
+              import sqlite3
+              import stat
+              import tarfile
+              import tomllib
+              import traceback
+              from urllib.parse import quote
+
+              import yaml
+
+
+              def digest(path):
+                  attributes = path.lstat()
+                  if not stat.S_ISREG(attributes.st_mode) or attributes.st_nlink != 1:
+                      raise ValueError("expected an ordinary artifact file")
+                  checksum = hashlib.sha256()
+                  with path.open("rb") as source:
+                      while chunk := source.read(1024 * 1024):
+                          checksum.update(chunk)
+                  return checksum.hexdigest()
+
+
+              def validate(source, root, identifier, expected_checksums):
+                  if not re.fullmatch(r"initial-[0-9a-f]{32}", identifier):
+                      raise ValueError("invalid restore generation")
+                  if any(root.iterdir()):
+                      raise ValueError("scratch data already exists; preserving it")
+                  pending = root / (".pending-" + identifier)
+                  pending.mkdir(mode=0o700)
+                  pending.chmod(0o700)  # Clear inheritance from the setgid volume root.
+                  expected_names = {"cache.tar", "contents.json", "application-config.json",
+                                    "application-secret.json", "metadata.json", "backup-id"}
+                  checksums = {}
+                  for line in expected_checksums.splitlines():
+                      match = re.fullmatch(r"([0-9a-f]{64})  ([a-zA-Z0-9.-]+)", line)
+                      if not match or match[2] in checksums:
+                          raise ValueError("invalid artifact checksum manifest")
+                      checksums[match[2]] = match[1]
+                  if set(checksums) != expected_names or {p.name for p in source.iterdir()} != expected_names | {"SHA256SUMS"}:
+                      raise ValueError("unexpected recovered artifact set")
+                  if (source / "SHA256SUMS").read_text() != expected_checksums:
+                      raise ValueError("recovered checksum manifest differs")
+                  if any(digest(source / name) != checksum for name, checksum in checksums.items()):
+                      raise ValueError("recovered artifact checksum failed")
+                  if (source / "backup-id").read_text().strip() != identifier:
+                      raise ValueError("recovered generation differs")
+                  metadata = json.loads((source / "metadata.json").read_text())
+                  if metadata.get("backup_id") != identifier or metadata.get("claim") != "searxng-cache":
+                      raise ValueError("recovered metadata differs")
+                  inventory = json.loads((source / "contents.json").read_text())
+                  if not isinstance(inventory, list):
+                      raise ValueError("invalid cache inventory")
+                  entries = {}
+                  for entry in inventory:
+                      name = entry.get("path")
+                      if (not isinstance(name, str) or "\x00" in name or
+                              (name != "." and (PurePosixPath(name).is_absolute() or
+                                                str(PurePosixPath(name)) != name or ".." in PurePosixPath(name).parts)) or
+                              name in entries or entry.get("type") not in ("file", "directory")):
+                          raise ValueError("unsafe or duplicate inventory path")
+                      for field in ("uid", "gid", "mode", "mtime_ns"):
+                          if type(entry.get(field)) is not int:
+                              raise ValueError("invalid archive metadata")
+                      if not (0 <= entry["uid"] < 2**32 - 1 and 0 <= entry["gid"] < 2**32 - 1 and 0 <= entry["mode"] <= 0o7777):
+                          raise ValueError("invalid archive ownership or mode")
+                      if entry["type"] == "file" and (type(entry.get("bytes")) is not int or entry["bytes"] < 0 or
+                                                      not re.fullmatch(r"[0-9a-f]{64}", entry.get("sha256", ""))):
+                          raise ValueError("invalid file inventory")
+                      entries[name] = entry
+                  if "." not in entries or entries["."]["type"] != "directory":
+                      raise ValueError("cache archive has no root directory")
+                  for name in entries:
+                      if name != "." and entries.get(str(PurePosixPath(name).parent), {}).get("type") != "directory":
+                          raise ValueError("cache archive has an undeclared parent")
+                  tree = pending / "tree"
+                  tree.mkdir(mode=0o700)
+                  with tarfile.open(source / "cache.tar", "r:") as archive:
+                      members = archive.getmembers()
+                      if len(members) != len(entries) or {member.name for member in members} != set(entries):
+                          raise ValueError("archive paths differ from the saved inventory")
+                      for member in members:
+                          entry = entries[member.name]
+                          if ((member.isdir() != (entry["type"] == "directory")) or
+                                  (not member.isdir() and not member.isfile()) or
+                                  (member.uid, member.gid, stat.S_IMODE(member.mode)) != (entry["uid"], entry["gid"], entry["mode"]) or
+                                  abs(member.mtime - entry["mtime_ns"] / 1e9) > 1e-6 or
+                                  (member.isfile() and member.size != entry["bytes"])):
+                              raise ValueError("archive type, ownership, mode, size, or timestamp differs")
+                      for name, entry in sorted(entries.items(), key=lambda pair: len(PurePosixPath(pair[0]).parts)):
+                          if name != "." and entry["type"] == "directory":
+                              (tree / name).mkdir(mode=0o700)
+                      for member in members:
+                          if not member.isfile():
+                              continue
+                          entry = entries[member.name]
+                          target = tree / member.name
+                          checksum = hashlib.sha256()
+                          with archive.extractfile(member) as stream, target.open("xb") as output:
+                              target.chmod(0o600)
+                              while chunk := stream.read(1024 * 1024):
+                                  checksum.update(chunk)
+                                  output.write(chunk)
+                              output.flush()
+                              os.fsync(output.fileno())
+                          if target.stat().st_size != entry["bytes"] or checksum.hexdigest() != entry["sha256"]:
+                              raise ValueError("extracted cache file differs")
+                          os.utime(target, ns=(entry["mtime_ns"], entry["mtime_ns"]))
+                  secret = json.loads((source / "application-secret.json").read_text())
+                  config = json.loads((source / "application-config.json").read_text())
+                  for value, kind, name in ((secret, "Secret", "searxng-secret"), (config, "ConfigMap", "searxng-config")):
+                      if value.get("kind") != kind or value.get("metadata", {}).get("name") != name or value["metadata"].get("namespace") != "searxng":
+                          raise ValueError("recovered application configuration has the wrong identity")
+                  if not base64.b64decode(secret["data"]["SEARXNG_SECRET"], validate=True):
+                      raise ValueError("recovered application secret is empty")
+                  settings = yaml.safe_load(config["data"]["settings.yml"])
+                  if not isinstance(settings, dict):
+                      raise ValueError("recovered SearXNG settings are invalid")
+                  tomllib.loads(config["data"]["limiter.toml"])
+                  sqlite_count = 0
+                  for name, entry in entries.items():
+                      if entry["type"] != "file":
+                          continue
+                      path = tree / name
+                      with path.open("rb") as stream:
+                          is_sqlite = stream.read(16) == b"SQLite format 3\x00"
+                      if is_sqlite:
+                          connection = sqlite3.connect("file:" + quote(str(path), safe="/") + "?mode=ro", uri=True)
+                          try:
+                              if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                                  raise ValueError("restored SQLite integrity check failed")
+                          finally:
+                              connection.close()
+                          sqlite_count += 1
+                  result = {"result": "passed", "claim": "searxng-cache", "backup_id": identifier,
+                            "files": sum(e["type"] == "file" for e in entries.values()),
+                            "directories": sum(e["type"] == "directory" for e in entries.values()),
+                            "sqlite_databases": sqlite_count, "archive_metadata_verified": True,
+                            "scratch_ownership": "validator; original numeric ownership retained in archive",
+                            "application_config_verified": True}
+                  result_path = pending / "result.json"
+                  result_path.write_text(json.dumps(result, sort_keys=True) + "\n")
+                  result_path.chmod(0o600)
+                  pending.rename(root / "validated")
+                  return result
+
+
+              if __name__ == "__main__":
+                  os.umask(0o077)
+                  try:
+                      result = validate(Path(os.environ["ARTIFACT_DIRECTORY"]), Path("/restore"),
+                                        os.environ["BACKUP_ID"], os.environ["EXPECTED_SHA256SUMS"])
+                  except Exception:
+                      error_path = Path("/restore") / ("failure-" + os.environ["BACKUP_ID"] + ".log")
+                      descriptor = os.open(error_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                      with os.fdopen(descriptor, "w") as output:
+                          traceback.print_exc(file=output)
+                      raise SystemExit("cache restore validation failed; private scratch evidence preserved")
+                  print("cache extraction, file checksums, archive metadata, application configuration, and SQLite checks passed")
+                  print("RESTORE_VALIDATED_JSON=" + json.dumps(result, sort_keys=True))
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: artifacts
+              mountPath: /artifacts
+              readOnly: true
+            - name: restored
+              mountPath: /restore
+            - name: temp
+              mountPath: /tmp
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: cache-restore-artifacts
+            readOnly: true
+        - name: restored
+          persistentVolumeClaim:
+            claimName: cache-restore-data
+        - name: temp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
