@@ -1,0 +1,288 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: monitoring-backup-local
+provisioner: kubernetes.io/no-provisioner
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: monitoring-restic-repositories
+spec:
+  capacity:
+    storage: 1Ti
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: monitoring-backup-local
+  claimRef:
+    namespace: monitoring
+    name: restic-repositories
+  local:
+    path: /filesystem/k3s/data/monitoring/backups
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: restic-repositories
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: monitoring-backup-local
+  volumeName: monitoring-restic-repositories
+  resources:
+    requests:
+      storage: 1Ti
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: monitoring-prometheus-backup-staging
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: monitoring-backup-local
+  claimRef:
+    namespace: monitoring
+    name: prometheus-backup-staging
+  local:
+    path: /filesystem/k3s/data/monitoring/backup-staging/prometheus-kube-prometheus-stack-prometheus-db-prometheus-kube-prometheus-stack-prometheus-0
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: monitoring-backup-local
+  volumeName: monitoring-prometheus-backup-staging
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: monitoring-prometheus-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: monitoring-backup-local
+  claimRef:
+    namespace: monitoring
+    name: volsync-src-prometheus-backup-cache
+  local:
+    path: /filesystem/k3s/data/monitoring/backup-cache/prometheus-kube-prometheus-stack-prometheus-db-prometheus-kube-prometheus-stack-prometheus-0/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: monitoring-alertmanager-backup-staging
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: monitoring-backup-local
+  claimRef:
+    namespace: monitoring
+    name: alertmanager-backup-staging
+  local:
+    path: /filesystem/k3s/data/monitoring/backup-staging/alertmanager-kube-prometheus-stack-alertmanager-db-alertmanager-kube-prometheus-stack-alertmanager-0
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alertmanager-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: monitoring-backup-local
+  volumeName: monitoring-alertmanager-backup-staging
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: monitoring-alertmanager-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: monitoring-backup-local
+  claimRef:
+    namespace: monitoring
+    name: volsync-src-alertmanager-backup-cache
+  local:
+    path: /filesystem/k3s/data/monitoring/backup-cache/alertmanager-kube-prometheus-stack-alertmanager-db-alertmanager-kube-prometheus-stack-alertmanager-0/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: monitoring-grafana-backup-staging
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: monitoring-backup-local
+  claimRef:
+    namespace: monitoring
+    name: grafana-backup-staging
+  local:
+    path: /filesystem/k3s/data/monitoring/backup-staging/kube-prometheus-stack-grafana
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: monitoring-backup-local
+  volumeName: monitoring-grafana-backup-staging
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: monitoring-grafana-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: monitoring-backup-local
+  claimRef:
+    namespace: monitoring
+    name: volsync-src-grafana-backup-cache
+  local:
+    path: /filesystem/k3s/data/monitoring/backup-cache/kube-prometheus-stack-grafana/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: monitoring-loki-backup-staging
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: monitoring-backup-local
+  claimRef:
+    namespace: monitoring
+    name: loki-backup-staging
+  local:
+    path: /filesystem/k3s/data/monitoring/backup-staging/storage-loki-0
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: monitoring-backup-local
+  volumeName: monitoring-loki-backup-staging
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: monitoring-loki-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: monitoring-backup-local
+  claimRef:
+    namespace: monitoring
+    name: volsync-src-loki-backup-cache
+  local:
+    path: /filesystem/k3s/data/monitoring/backup-cache/storage-loki-0/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
