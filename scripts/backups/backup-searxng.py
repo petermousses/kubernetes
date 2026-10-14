@@ -324,15 +324,16 @@ def valkey_service_ip():
     return str(ipaddress.ip_address(service["spec"]["clusterIP"]))
 
 
-def capture_valkey(identifier):
+def capture_valkey(identifier, *, job_name=NATIVE_JOB):
     if inspect_artifacts("valkey", identifier):
         return
     job = read_template(MANIFESTS / "valkey-dump-job.yaml")
+    job["metadata"]["name"] = job_name
     job["metadata"].setdefault("annotations", {})["backups.mousses.xyz/generation"] = identifier
     container = job["spec"]["template"]["spec"]["containers"][0]
     container["env"] = [{"name": "BACKUP_ID", "value": identifier},
                         {"name": "VALKEY_HOST", "value": valkey_service_ip()}]
-    existing = setup.get_object("job", NATIVE_JOB, NS)
+    existing = setup.get_object("job", job_name, NS)
     pending = staging("valkey") / (".pending-" + identifier)
     if existing:
         managed(existing)
@@ -347,11 +348,12 @@ def capture_valkey(identifier):
         pending = new_pending("valkey", identifier)
         setup.kube("create", "-f", "-", stdin=json.dumps(job))
     try:
-        setup.wait_for_job(NATIVE_JOB)
+        setup.wait_for_job(job_name)
     except (setup.SetupError, subprocess.TimeoutExpired):
-        logs = setup.kube("logs", "-n", NS, "job/" + NATIVE_JOB, "--pod-running-timeout=5s",
+        logs = setup.kube("logs", "-n", NS, "job/" + job_name, "--pod-running-timeout=5s",
                           capture=True, sensitive=True, check=False, timeout=15)
-        setup.private_write(setup.RECOVERY / "initial-valkey-dump.log", logs.stdout + logs.stderr)
+        prefix = "initial" if job_name == NATIVE_JOB else identifier
+        setup.private_write(setup.RECOVERY / (prefix + "-valkey-dump.log"), logs.stdout + logs.stderr)
         raise
     if {path.name for path in pending.iterdir()} != {"dump.rdb", "transfer.log", "rdb-check.txt"}:
         raise setup.SetupError("native dump has partial or unexpected files; preserving them")
@@ -374,7 +376,7 @@ def capture_valkey(identifier):
 
 
 def check_quiescence_state(state, identifier=None):
-    if (not isinstance(state, dict) or not re.fullmatch(r"initial-[0-9a-f]{32}", state.get("backup_id", "")) or
+    if (not isinstance(state, dict) or not re.fullmatch(r"(?:initial|daily)-[0-9a-f]{32}", state.get("backup_id", "")) or
             (identifier is not None and state["backup_id"] != identifier) or
             state.get("original_replicas") != 1 or not state.get("deployment_uid") or
             not re.fullmatch(r"[0-9a-f]{64}", state.get("template_hash", "")) or
@@ -540,7 +542,9 @@ def capture_cache(identifier):
         return
     if QUIESCENCE.exists() or QUIESCENCE.is_symlink():
         previous = saved(QUIESCENCE)
-        check_quiescence_state(previous, identifier)
+        check_quiescence_state(previous)
+        if previous["backup_id"] != identifier and previous["phase"] != "resumed":
+            raise setup.SetupError("an earlier cache writer has not resumed; recover it before capturing")
         # A prior incomplete capture is preserved for inspection, never overwritten.
         if any(staging("cache").iterdir()):
             raise setup.SetupError("an interrupted cache capture is preserved; SearXNG is running")
@@ -571,10 +575,18 @@ def capture_cache(identifier):
         started = now()
         contents = cache_archive(setup.BASE / "cache", pending / "cache.tar")
         artifact_write(pending / "contents.json", json.dumps(contents, indent=2) + "\n")
-        secret = setup.save_secret("searxng-secret")
+        if identifier.startswith("daily-"):
+            secret = setup.get_object("secret", "searxng-secret", NS, sensitive=True)
+            if not secret or not secret.get("data", {}).get("SEARXNG_SECRET"):
+                raise setup.SetupError("the SearXNG recovery Secret is missing")
+            save(setup.RECOVERY / "latest-searxng-secret.secret.json", setup.portable(secret))
+        else:
+            secret = setup.save_secret("searxng-secret")
         config = setup.get_object("configmap", "searxng-config", NS, sensitive=True)
         if not config:
             raise setup.SetupError("SearXNG recovery ConfigMap disappeared")
+        if identifier.startswith("daily-"):
+            save(setup.RECOVERY / "latest-searxng-config.configmap.json", setup.portable(config))
         artifact_write(pending / "application-secret.json", json.dumps(setup.portable(secret), indent=2) + "\n")
         artifact_write(pending / "application-config.json", json.dumps(setup.portable(config), indent=2) + "\n")
         artifact_write(pending / "metadata.json", json.dumps({
@@ -598,6 +610,8 @@ def capture_cache(identifier):
 
 
 def upload_complete(source, identifier):
+    if not source:
+        return False
     status = source.get("status", {})
     return (not source["spec"].get("paused") and source["spec"].get("trigger") == {"manual": identifier} and
             status.get("lastManualSync") == identifier and status.get("lastSyncTime") and
@@ -606,7 +620,7 @@ def upload_complete(source, identifier):
                 item.get("reason") == "WaitingForManual" for item in status.get("conditions", [])))
 
 
-def upload(component, identifier):
+def upload(component, identifier, *, evidence_prefix="initial"):
     if not inspect_artifacts(component, identifier):
         raise setup.SetupError("cannot upload without published artifacts")
     for attempt in range(5):
@@ -636,7 +650,7 @@ def upload(component, identifier):
         if not source or source["spec"].get("trigger") != {"manual": identifier}:
             raise setup.SetupError("VolSync source or generation changed during upload")
         if upload_complete(source, identifier):
-            save(setup.RECOVERY / ("initial-" + component + "-volsync-result.json"), source)
+            save(setup.RECOVERY / (evidence_prefix + "-" + component + "-volsync-result.json"), source)
             print(component + " VolSync upload, retention, and cleanup completed", flush=True)
             return
         time.sleep(2)
@@ -646,7 +660,7 @@ def upload(component, identifier):
     raise setup.SetupError("VolSync did not complete within 630 seconds; published files are preserved")
 
 
-def verify_backup(component, identifier):
+def verify_backup(component, identifier, *, evidence_prefix="initial", retention_proof=False):
     checksums = inspect_artifacts(component, identifier)
     if not checksums:
         raise setup.SetupError("cannot verify without published artifacts")
@@ -661,6 +675,7 @@ def verify_backup(component, identifier):
         "EXPECTED_BACKUP_ID": identifier, "EXPECTED_SHA256SUMS": checksums,
         "EXPECTED_ARTIFACTS": json.dumps(sorted(ARTIFACTS[component])),
         "PROTECTED_CLAIM": "searxng-" + component,
+        "VERIFY_RETENTION_PROOF": "true" if retention_proof else "false",
     }.items()]
     created = json.loads(setup.kube("create", "-f", "-", "-o", "json", stdin=json.dumps(job), capture=True).stdout)
     name = created["metadata"]["name"]
@@ -677,7 +692,13 @@ def verify_backup(component, identifier):
             not re.fullmatch(r"[0-9a-f]{64}", results[0].get("snapshot", ""))):
         raise setup.SetupError("completed verification Job did not report the expected backup")
     result = {**results[0], "completed_at": now(), "checksums": checksums, "verification_job": name}
-    save(setup.RECOVERY / ("initial-" + component + "-backup-result.json"), result)
+    if retention_proof:
+        line = next((line for line in logs.splitlines() if line.startswith("scratch retention proof passed:")), None)
+        if not line:
+            raise setup.SetupError("the scratch retention proof did not complete")
+        result["retention_proof"] = line
+    save(setup.RECOVERY / (evidence_prefix + "-" + component + "-backup-result.json"), result)
+    return result
 
 
 def preflight():
