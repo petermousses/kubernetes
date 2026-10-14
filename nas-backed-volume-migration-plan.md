@@ -43,7 +43,7 @@ for **each namespace**, in table order:
 | namespace | writable data to protect (read-only: no) | retained OMV mounts (read-only: yes) | namespace steps and verification |
 | --- | --- | --- | --- |
 | `board-games` | PostgreSQL data | — | **backup onboarding complete:** native backup, isolated restore, application health, automatic daily execution, retention proof, and off-NAS credential recovery verified. existing live `data-postgres-0` binding retained. |
-| `searxng` | Valkey and search cache | — | **initial backups and isolated restores verified; daily scheduling prepared.** verify the daily sequence, retention, automatic execution, and independent recovery credentials. |
+| `searxng` | Valkey and search cache | — | **initial backups, isolated restores, daily sequence, and retention verified; timer enabled.** verify automatic execution and independent recovery credentials. |
 | `monitoring` | Prometheus, Alertmanager, Grafana, Loki | — | use service-appropriate consistency procedures; restore and verify dashboards, alerts, and retained metrics/logs. |
 
 stop after each namespace. after `monitoring`, obtain separate approval for stage 2.
@@ -120,7 +120,7 @@ repository retention remains `within: 7d`, with VolSync pruning at most once per
 
 the initial CPU scheduling block is resolved. both board-games API and web resource adjustments rolled out successfully with two ready replicas and pinned running image digests. requests of `25m`/`64Mi` and `10m`/`16Mi` per replica release `180m` CPU and `160Mi` memory; existing limits are retained. original deployments are saved under `/root/k3s-backup-recovery/board-games/resource-adjustment/`. before this adjustment, OMV reserved `11985m` of `12000m` CPU and 99% of allocatable memory, versus `705m` measured CPU use. backup and restore jobs must fit the remaining CPU/memory budget and be sequenced to prevent overlap.
 
-### searxng — initial backups and isolated restores verified, daily scheduling prepared
+### searxng — backups, isolated restores, and retention verified; daily timer enabled
 
 the relayed live inventory confirms `searxng-cache` and `searxng-valkey`, each 2 GiB, bound to their matching local PVs with `Retain`. their array paths are `/filesystem/k3s/data/searxng/cache` and `/filesystem/k3s/data/searxng/valkey`, on `/dev/md0` Btrfs with approximately 31.7 TiB free. SearXNG is ready as UID/GID 977; Valkey is ready as UID 999, GID 1000. both live bindings declare `ReadWriteOncePod` despite being local PVs; Kubernetes documents support only for CSI volumes. retain these live bindings and use separate RWO staging PVCs for backups. do not rely on RWOP enforcement for these local volumes or mount them in additional backup Pods. [Kubernetes access modes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes)
 
@@ -154,4 +154,8 @@ the prepared daily runner preserves the previous verified captures outside the u
 
 the prepared schedule is **03:00 Arizona / 10:00 UTC**, following board-games at 02:15. the daily service acquires board-games' existing operation lock to serialize worker use; it holds the searxng namespace lock throughout its own sequence. boot recovery and `ExecStopPost` restore an interrupted cache writer from its durable journal. the installer places code in a root-owned version directory, runs the daily sequence and scratch retention/pruning proof, then enables the persistent timer only after both repository verifications pass. [systemd timers](https://manpages.debian.org/bookworm/systemd/systemd.timer.5.en.html)
 
-**daily scheduling and retention proof are prepared, not yet confirmed on OMV.** actual automatic completion and independent credential storage also remain pending. stop after completing this namespace and wait for explicit approval before starting `monitoring`.
+**the relayed daily sequence and scratch retention proof passed on OMV.** generation `daily-736cd9ec488633b11e712259ac685474` produced Valkey snapshot `9176c768c5b458a51bee7c9b46285b5cc175c75ac210c4695f7b0e9652db5c44` and cache snapshot `fc7cf967913b713257b6cd9abf289096063f7e714f13aedd4acab0e2fa9e1fd7`. full repository data checks read four packs in each repository without errors, and all artifact hashes matched. the scratch proof expired the nine-day snapshot, retained the six-day and current snapshots, and reclaimed 264,542 bytes. SearXNG restarted ready after capture.
+
+the installer enabled the boot writer recovery service and persistent daily timer. its next reported trigger is **2026-10-15 03:00 Arizona / 10:00 UTC**; the timer has no previous trigger yet. the successful installation run was manual, so **actual automatic completion remains pending**.
+
+`scripts/backups/recovery-searxng.py` prepares an independent encrypted recovery copy using the existing Mac age recipient. under the namespace lock, it packages an explicit set of repository/application credentials, CA/TLS keys, configuration, and initial/daily backup and restore evidence, plus a checksum manifest. the latest daily generation selects its own saved upload and verification receipts. the verifier checks ciphertext SHA-256, decryption, every archived file hash, both repository identities, and the credential/evidence relationships in memory. the export and Mac copy are not yet confirmed. archives, identities, private contents, and receipts stay outside Git. **independent credential storage remains pending.** stop after completing this namespace and wait for explicit approval before starting `monitoring`.
