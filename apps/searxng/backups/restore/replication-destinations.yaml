@@ -1,0 +1,95 @@
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: valkey-restore-initial
+spec:
+  paused: true
+  trigger:
+    manual: controlled-by-restore-runner
+  restic:
+    destinationPVC: valkey-restore-artifacts
+    copyMethod: Direct
+    repository: restic-restore-searxng-valkey
+    customCA:
+      secretName: restic-restore-ca
+      key: ca.crt
+    # The runner injects restoreAsOf from this component's verified initial upload.
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: searxng-backup-local
+    cleanupCachePVC: false
+    enableFileDeletion: false
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: searxng
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: cache-restore-initial
+spec:
+  paused: true
+  trigger:
+    manual: controlled-by-restore-runner
+  restic:
+    destinationPVC: cache-restore-artifacts
+    copyMethod: Direct
+    repository: restic-restore-searxng-cache
+    customCA:
+      secretName: restic-restore-ca
+      key: ca.crt
+    # The runner injects restoreAsOf from this component's verified initial upload.
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: searxng-backup-local
+    cleanupCachePVC: false
+    enableFileDeletion: false
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: searxng
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
