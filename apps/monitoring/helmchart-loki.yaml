@@ -12,6 +12,11 @@ spec:
   failurePolicy: abort
   timeout: 15m
   valuesContent: |-
+    defaults:
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
     podSecurityContext:
       runAsNonRoot: true
       runAsUser: 10001
@@ -30,8 +35,18 @@ spec:
       seccompProfile:
         type: RuntimeDefault
     deploymentMode: Monolithic
+    memberlist:
+      service:
+        # Discover the first member before its readiness probe succeeds.
+        publishNotReadyAddresses: true
     gateway:
       replicas: 1
+      # Hard anti-affinity requires stopping the old gateway on one node.
+      deploymentStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 0
+          maxUnavailable: 1
       podSecurityContext:
         runAsNonRoot: true
         runAsUser: 101
