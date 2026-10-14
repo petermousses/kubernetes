@@ -44,7 +44,7 @@ for **each namespace**, in table order:
 | --- | --- | --- | --- |
 | `board-games` | PostgreSQL data | — | **backup onboarding complete:** native backup, isolated restore, application health, automatic daily execution, retention proof, and off-NAS credential recovery verified. existing live `data-postgres-0` binding retained. |
 | `searxng` | Valkey and search cache | — | **initial backups, isolated restores, daily sequence, retention, and off-NAS credential recovery verified; timer enabled. automatic execution verification deferred by the user.** |
-| `monitoring` | Prometheus, Alertmanager, Grafana, Loki | — | **approved; live inventory pending.** use service-appropriate consistency procedures; restore and verify dashboards, alerts, and retained metrics/logs. |
+| `monitoring` | Prometheus, Alertmanager, Grafana, Loki | — | **live inventory verified; existing Loki failure under investigation.** use service-appropriate consistency procedures; restore and verify dashboards, alerts, and retained metrics/logs. |
 
 stop after each namespace. after `monitoring`, obtain separate approval for stage 2.
 
@@ -164,8 +164,19 @@ the installer enabled the boot writer recovery service and persistent daily time
 
 **the relayed Mac verification passed at 2026-10-14 10:09:45 Arizona / 17:09:45 UTC.** the independently stored copy is under `/Users/petermousses/Backups/k3s-recovery/searxng/copy.E2BeFR/`. its encrypted checksum matches the NAS export; decryption with the existing private age identity, all 31 file hashes, both repository credential sets, and the initial/daily evidence relationships passed. the receipt matches the initial generation and both initial snapshots, plus daily generation `daily-736cd9ec488633b11e712259ac685474` and both daily snapshots recorded above. decrypted files were not written. archives, identities, private contents, and receipts stay outside Git. **independent credential storage is verified; actual automatic timer verification is deferred by the user. monitoring is approved to begin.**
 
-### monitoring — approved; live inventory pending
+### monitoring — live inventory verified; existing Loki failure under investigation
 
-the user approved starting this namespace on 2026-10-14. the repository declares four local PVs on OMV: `monitoring-prometheus` (20 GiB), `monitoring-alertmanager` (2 GiB), `monitoring-grafana` (5 GiB), and `monitoring-loki` (50 GiB), under `/filesystem/k3s/data/monitoring/`. confirm the actual mounted claims, bindings, data sizes, versions, and available worker reservations before preparing backups.
+the user approved starting this namespace on 2026-10-14. **the relayed read-only inventory passed on OMV.** all four live claims are `Bound`, RWO, and mapped to the expected static PVs with matching claim UIDs, `Retain`, and OMV node affinity. their paths under `/filesystem/k3s/data/monitoring/` resolve onto `/dev/md0` Btrfs, with approximately 31.67 TiB free.
 
-`scripts/backups/inventory-monitoring.py` prepares the read-only live inventory. it reports PVC/PV placement, filesystem metadata, container image digests and mounts, storage flags, configuration/Secret references, controller ownership, Prometheus/Alertmanager operator settings, pending Pods, network policies, and CPU/memory reservations. its execution on OMV is not yet confirmed. use the relayed results to select consistency and isolated restore procedures for each of the four services. after this namespace, obtain separate approval before stage 2.
+| component | live PVC | PV capacity | allocated bytes reported by `du` | writable mount and subdirectory | health at inventory |
+| --- | --- | --- | --- | --- | --- |
+| Prometheus | `prometheus-kube-prometheus-stack-prometheus-db-prometheus-kube-prometheus-stack-prometheus-0` | 20 GiB | 5,688,270,848 (5.30 GiB) | `/prometheus`, subPath `prometheus-db` | ready |
+| Alertmanager | `alertmanager-kube-prometheus-stack-alertmanager-db-alertmanager-kube-prometheus-stack-alertmanager-0` | 2 GiB | 0 allocated bytes reported; contents not assessed | `/alertmanager`, subPath `alertmanager-db` | ready |
+| Grafana | `kube-prometheus-stack-grafana` | 5 GiB | 2,658,304 (2.54 MiB) | `/var/lib/grafana`, entire claim | ready |
+| Loki | `storage-loki-0` | 50 GiB | 53,248 (52 KiB) | `/var/loki`, entire claim | main container in `CrashLoopBackOff` |
+
+Prometheus v3.14.0 and Alertmanager v0.34.0 are controlled through their operator custom resources; their data mounts use the subdirectories listed above. Prometheus's admin API is disabled and retention is seven days. Grafana v13.2.2 has a 2,576,384-byte `grafana.db` file. preserve configuration and Secret recovery dependencies alongside each service's persistent state; select the consistency and isolated restore procedures after resolving the baseline Loki failure.
+
+OMV reserves `11905m` of `12000m` CPU and `31030Mi` of approximately `31195.5Mi` memory, leaving **95m CPU and approximately 165.5 MiB** for additional requests. measured usage was `3600m` CPU and `20387Mi` memory. there are no namespace LimitRanges, ResourceQuotas, or PodDisruptionBudgets. the backup endpoint and one sequential worker must fit this reservation budget, and workers must coordinate with the existing namespaces.
+
+**Loki v3.7.8 was already unhealthy before backup setup:** `loki-0` is scheduled on OMV, but its main container has 3,806 restarts and is in `CrashLoopBackOff`; the rules sidecar remains ready. the cause requires the current and previous container logs and termination details. separately, the replacement `loki-gateway` Pod remains pending because hard pod anti-affinity conflicts with its one-replica rolling update on one node; the old gateway is ready. investigate and repair this baseline before claiming verified Loki backup/restore health. no monitoring backup resources have been applied. after this namespace, obtain separate approval before stage 2.
