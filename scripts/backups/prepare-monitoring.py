@@ -224,10 +224,12 @@ def portable(resource):
             **{key: resource[key] for key in ("spec", "data", "binaryData", "type") if key in resource}}
 
 
-def save_secret(name, *, refresh=False):
-    secret = get_object("secret", name, NAMESPACE, sensitive=True)
+def save_secret(name, *, refresh=False, resource=None):
+    secret = resource if resource is not None else get_object("secret", name, NAMESPACE, sensitive=True)
     if not secret:
         raise SetupError("required Secret is missing: " + name)
+    if secret.get("kind") != "Secret" or secret["metadata"].get("name") != name or secret["metadata"].get("namespace") != NAMESPACE:
+        raise SetupError("unexpected Secret identity: " + name)
     output = portable(secret)
     path = RECOVERY / (name + ".secret.json")
     if (path.exists() or path.is_symlink()) and not refresh:
@@ -297,26 +299,71 @@ def resource_budget(node, pods):
 
 
 def dependency_references(pods):
-    references = {"secret": set(), "configmap": set()}
+    references = {"secret": {}, "configmap": {}}
+
+    def add(kind, source, name_key, field, *, data_only=False):
+        name = source.get(name_key)
+        if not name:
+            return
+        optional = source.get("optional") is True
+        entry = references[kind].setdefault(name, {"optional": True, "references": []})
+        # A required reference wins even when another Pod permits absence.
+        entry["optional"] = entry["optional"] and optional
+        keys = [source["key"]] if "key" in source else [item["key"] for item in (source.get("items") or [])]
+        entry["references"].append({"pod": pod["metadata"]["name"], "field": field,
+                                    "optional": optional, "keys": keys, "data_only": data_only})
+
     for pod in pods:
         for volume in pod["spec"].get("volumes", []):
             for kind, field, name_key in (("secret", "secret", "secretName"), ("configmap", "configMap", "name")):
-                if volume.get(field, {}).get(name_key):
-                    references[kind].add(volume[field][name_key])
-            for projected in volume.get("projected", {}).get("sources", []):
+                add(kind, volume.get(field, {}), name_key, "volumes/" + volume["name"] + "/" + field)
+            for index, projected in enumerate(volume.get("projected", {}).get("sources", [])):
                 for kind, field in (("secret", "secret"), ("configmap", "configMap")):
-                    if projected.get(field, {}).get("name"):
-                        references[kind].add(projected[field]["name"])
-        for container in pod["spec"].get("containers", []) + pod["spec"].get("initContainers", []):
-            for item in container.get("envFrom", []):
-                for kind, field in (("secret", "secretRef"), ("configmap", "configMapRef")):
-                    if item.get(field, {}).get("name"):
-                        references[kind].add(item[field]["name"])
-            for item in container.get("env", []):
-                for kind, field in (("secret", "secretKeyRef"), ("configmap", "configMapKeyRef")):
-                    if item.get("valueFrom", {}).get(field, {}).get("name"):
-                        references[kind].add(item["valueFrom"][field]["name"])
+                    add(kind, projected.get(field, {}), "name",
+                        "volumes/" + volume["name"] + "/projected/" + str(index) + "/" + field)
+        for group in ("containers", "initContainers"):
+            for container in pod["spec"].get(group, []):
+                for index, item in enumerate(container.get("envFrom", [])):
+                    for kind, field in (("secret", "secretRef"), ("configmap", "configMapRef")):
+                        add(kind, item.get(field, {}), "name",
+                            group + "/" + container["name"] + "/envFrom/" + str(index) + "/" + field, data_only=True)
+                for item in container.get("env", []):
+                    for kind, field in (("secret", "secretKeyRef"), ("configmap", "configMapKeyRef")):
+                        add(kind, item.get("valueFrom", {}).get(field, {}), "name",
+                            group + "/" + container["name"] + "/env/" + item["name"] + "/" + field, data_only=True)
     return references
+
+
+def capture_dependencies(pods):
+    """Save present dependencies; record absent optional ones in the recovery index."""
+    references = dependency_references(pods)
+    for kind, entries in references.items():
+        for name, entry in sorted(entries.items()):
+            resource = get_object(kind, name, NAMESPACE, sensitive=True)
+            entry.update(present=resource is not None, saved_file=None)
+            if resource is None:
+                if not entry["optional"]:
+                    locations = ", ".join(item["pod"] + ":" + item["field"] for item in entry["references"] if not item["optional"])
+                    raise SetupError("required " + ("Secret" if kind == "secret" else "ConfigMap") +
+                                     " is missing: " + name + "; referenced by " + locations)
+                print("optional " + kind + " absent; recorded for recovery: " + name, flush=True)
+                continue
+            data_keys = set(resource.get("data", {}))
+            volume_keys = data_keys | set(resource.get("binaryData", {}))
+            for reference in entry["references"]:
+                available = data_keys if reference["data_only"] else volume_keys
+                if not reference["optional"] and not set(reference["keys"]).issubset(available):
+                    raise SetupError("required keys are missing from " + kind + "/" + name)
+            filename = name + "." + kind + ".json"
+            if kind == "secret":
+                save_secret(name, resource=resource)
+            else:
+                private_write(RECOVERY / filename, json.dumps(portable(resource), indent=2) + "\n")
+            entry.update(saved_file=filename, uid=resource["metadata"]["uid"],
+                         resource_version=resource["metadata"].get("resourceVersion"))
+    index = {"version": 1, "namespace": NAMESPACE, "resources": references}
+    private_write(RECOVERY / "dependency-inventory.json", json.dumps(index, indent=2) + "\n")
+    return index
 
 
 def live_preflight(*, check_resources=True):
@@ -397,14 +444,7 @@ def live_preflight(*, check_resources=True):
                 raise SetupError("saved original resource identity changed: " + filename)
         else:
             private_write(path, json.dumps(resource, indent=2) + "\n")
-    references = dependency_references(production)
-    for name in sorted(references["secret"]):
-        save_secret(name)
-    for name in sorted(references["configmap"]):
-        config = get_object("configmap", name, NAMESPACE, sensitive=True)
-        if not config:
-            raise SetupError("required ConfigMap is missing: " + name)
-        private_write(RECOVERY / (name + ".configmap.json"), json.dumps(portable(config), indent=2) + "\n")
+    capture_dependencies(production)
     for name in ("kube-prometheus-stack", "loki", "alloy"):
         chart = get_object("helmchart.helm.cattle.io", name, "kube-system", sensitive=True)
         if not chart:
