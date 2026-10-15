@@ -7,6 +7,7 @@ from decimal import Decimal
 import errno
 import hashlib
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -334,13 +335,77 @@ def ready(port):
     raise ValueError("isolated native recovery did not become ready")
 
 
+def metric_samples(metrics, name):
+    samples, seen = [], set()
+    decoder = json.JSONDecoder()
+    for line in metrics.splitlines():
+        if not line.startswith((name + "{", name + " ", name + "\t")):
+            continue
+        match = re.fullmatch(re.escape(name) + r"(?:\{([^{}]*)\})?[ \t]+(\S+)(?:[ \t]+[0-9]+)?", line)
+        require(match is not None, "invalid recovery metric sample")
+        labels, rest = {}, (match[1] or "").strip()
+        while rest:
+            key = re.match(r"([a-zA-Z_][a-zA-Z_0-9]*)=", rest)
+            require(key is not None and key[1] not in labels, "invalid or duplicate recovery metric label")
+            value, end = decoder.raw_decode(rest[key.end():])
+            require(isinstance(value, str), "recovery metric label is not a string")
+            labels[key[1]] = value
+            rest = rest[key.end() + end:].strip()
+            require(not rest or rest.startswith(","), "invalid recovery metric label separator")
+            if rest:
+                rest = rest[1:].strip()
+                require(bool(rest), "trailing recovery metric label separator")
+        identity = tuple(sorted(labels.items()))
+        require(identity not in seen, "duplicate recovery metric sample")
+        seen.add(identity)
+        value = float(match[2])
+        require(math.isfinite(value) and value >= 0, "invalid recovery counter value")
+        samples.append({"labels": labels, "value": value})
+    return samples
+
+
 def recovery_metrics(port, required, optional=()):
     metrics = request(port, "/metrics", raw=True)
     for name in (*required, *optional):
-        values = [float(match[1]) for match in re.finditer(
-            r"^" + re.escape(name) + r"(?:\{[^\n]*\})?\s+(\S+)(?:\s+\d+)?$", metrics, re.MULTILINE)]
-        require((values or name in optional) and all(value == 0 for value in values),
+        values = metric_samples(metrics, name)
+        require((values or name in optional) and all(sample["value"] == 0 for sample in values),
                 "native recovery reported corruption or discarded data")
+
+
+def loki_recovery_metrics(root=None):
+    metrics = request(3100, "/metrics", raw=True)
+    corruptions = metric_samples(metrics, "loki_ingester_wal_corruptions_total")
+    samples = metric_samples(metrics, "loki_ingester_wal_discarded_samples_total")
+    byte_samples = metric_samples(metrics, "loki_ingester_wal_discarded_bytes_total")
+    duplicates = metric_samples(metrics, "loki_ingester_wal_duplicate_entries_total")
+    require(len(duplicates) == 1 and not duplicates[0]["labels"], "missing Loki duplicate replay accounting")
+    for rows, label in ((corruptions, "type"), (samples, "reason"), (byte_samples, "reason")):
+        require(all(set(row["labels"]) == {label} and
+                    re.fullmatch(r"[a-z][a-z_0-9]{0,63}", row["labels"][label]) and row["value"].is_integer()
+                    for row in rows), "unsupported Loki recovery counter labels or values")
+    by_reason = {row["labels"]["reason"]: int(row["value"]) for row in samples}
+    bytes_by_reason = {row["labels"]["reason"]: int(row["value"]) for row in byte_samples}
+    report = {"wal_corruptions": sum(int(row["value"]) for row in corruptions),
+              "wal_replay_duplicate_samples": by_reason.get("duplicate", 0),
+              "wal_replay_duplicate_bytes": bytes_by_reason.get("duplicate", 0),
+              "wal_replay_discarded_samples_by_reason": by_reason,
+              "wal_replay_discarded_bytes_by_reason": bytes_by_reason,
+              "wal_duplicate_entries": duplicates[0]["value"]}
+    if root is not None:
+        write(root / "work/loki-recovery-metrics.json", report)
+    print("LOKI_RECOVERY_COUNTERS_JSON=" + json.dumps(report, sort_keys=True), flush=True)
+    # Loki 3.7.8 skips WAL entries already present in the restored checkpoint.
+    # stream.Push increments reason=duplicate; ingesterRecoverer.Push independently
+    # increments duplicate_entries_total for the same entries (revision 09e6ce2f).
+    require(report["wal_corruptions"] == 0 and
+            all(value == 0 for reason, value in by_reason.items() if reason != "duplicate") and
+            all(value == 0 for reason, value in bytes_by_reason.items() if reason != "duplicate") and
+            report["wal_replay_duplicate_samples"] == report["wal_duplicate_entries"] and
+            (report["wal_replay_duplicate_samples"] > 0 or report["wal_replay_duplicate_bytes"] == 0),
+            "Loki recovery counters show corruption, nonduplicate loss, or inconsistent duplicate accounting")
+    return {"recovery_error_counters": 0,
+            "wal_replay_duplicate_samples": report["wal_replay_duplicate_samples"],
+            "wal_replay_duplicate_bytes": report["wal_replay_duplicate_bytes"]}
 
 
 def native_check(root, source, component):
@@ -377,9 +442,7 @@ def native_check(root, source, component):
         result.update({"native_recovery_verified": True, "restored_silences": len(silences)})
     elif component == "loki":
         ready(3100)
-        # CounterVec children are absent until used; no child means no recorded error.
-        recovery_metrics(3100, (), ("loki_ingester_wal_corruptions_total", "loki_ingester_wal_discarded_samples_total",
-                                    "loki_ingester_wal_discarded_bytes_total"))
+        counters = loki_recovery_metrics(root)
         metadata = json.loads((source / "metadata.json").read_text())
         end = int(datetime.fromisoformat(metadata["completed_at"].replace("Z", "+00:00")).timestamp() * 10**9)
         response = request(3100, "/loki/api/v1/query_range?" + urlencode({
@@ -391,7 +454,7 @@ def native_check(root, source, component):
         values = [value for stream in response["data"]["result"] for value in stream.get("values", [])]
         require(values and all(end - 7 * 86400 * 10**9 <= int(value[0]) <= end for value in values),
                 "restored Loki returned no historical cluster logs")
-        result.update({"native_recovery_verified": True, "historical_log_entries": len(values), "recovery_error_counters": 0})
+        result.update({"native_recovery_verified": True, "historical_log_entries": len(values), **counters})
     elif component != "grafana":
         raise ValueError("unapproved validation component")
     result["validated_at"] = datetime.now(timezone.utc).isoformat()
