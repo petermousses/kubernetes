@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Restore monitoring's verified initial backups into isolated array-backed scratch PVCs."""
 
+import argparse
 import base64
 from contextlib import ExitStack
 from datetime import datetime
@@ -32,6 +33,8 @@ PYTHON = "/usr/local/searxng/.venv/bin/python"
 LABELS = {"app.kubernetes.io/managed-by": setup.MANAGER, "app.kubernetes.io/part-of": "monitoring-restore",
           "app.kubernetes.io/name": "monitoring-restore-validation"}
 PLACEHOLDER = "controlled-by-restore-runner"
+LEGACY_VALIDATOR_SHA256 = "bcd65b2cb28eeee5ca094d1ec82e26d52c4ba6a50d6fb1bee59362a8105d6c45"
+LOKI_RETRY_STATE = setup.RECOVERY / "initial-loki-duplicates-retry.json"
 SECURITY = {"runAsNonRoot": True, "runAsUser": 999, "runAsGroup": 999, "fsGroup": 999,
             "fsGroupChangePolicy": "OnRootMismatch", "seccompProfile": {"type": "RuntimeDefault"}}
 CONTAINER_SECURITY = {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
@@ -48,6 +51,22 @@ def destination_name(component):
 
 def job_name(component):
     return component + "-restore-validation-initial"
+
+
+def validation_target(component, *, retry=False):
+    if retry and component != "loki":
+        raise setup.SetupError("only the reviewed Loki retry has an alternate scratch target")
+    suffix = "-duplicates-v1" if retry else ""
+    return {"job": job_name(component) + suffix,
+            "claim": component + "-restore" + suffix + "-data",
+            "volume": "monitoring-" + component + "-restore" + suffix + "-data",
+            "path": str(base(component) / ("retry-duplicates-v1/data" if retry else "data"))}
+
+
+def checked_target(component, target):
+    if target != validation_target(component) and (component != "loki" or target != validation_target(component, retry=True)):
+        raise setup.SetupError("unexpected validation storage target")
+    return target
 
 
 def resource(kind, name, spec=None, *, namespace=NS, api="v1", **fields):
@@ -368,14 +387,67 @@ def validator_config():
     current = object_for(desired)
     if current:
         managed(current)
-        if current.get("data") != desired["data"] or current.get("immutable") is not True:
+        if current.get("data") != desired["data"] or current.get("immutable") is not True or current.get("binaryData"):
             raise setup.SetupError("validator ConfigMap differs from its immutable revision")
     else:
         setup.kube("create", "-f", "-", stdin=json.dumps(desired))
     return name
 
 
-def validation_job(component, state, current, code_name):
+def existing_validator(job, *, allow_legacy=True):
+    volumes = [volume for volume in job["spec"]["template"]["spec"].get("volumes", []) if volume["name"] == "code"]
+    if len(volumes) != 1:
+        raise setup.SetupError("existing validation Job has no unique code volume")
+    name = volumes[0].get("configMap", {}).get("name")
+    config = setup.get_object("configmap", name, NS, sensitive=True) if name else None
+    if not config:
+        raise setup.SetupError("existing validation code disappeared")
+    managed(config)
+    code = config.get("data", {}).get("validate.py")
+    if not isinstance(code, str):
+        raise setup.SetupError("existing validation code is invalid")
+    checksum = hashlib.sha256(code.encode()).hexdigest()
+    approved = {hashlib.sha256(Path(__file__).with_name("validate-monitoring-restore.py").read_bytes()).hexdigest()}
+    if allow_legacy:
+        approved.add(LEGACY_VALIDATOR_SHA256)
+    if (config.get("immutable") is not True or set(config.get("data", {})) != {"validate.py"} or config.get("binaryData") or
+            checksum not in approved or name != "restore-validator-" + checksum[:16]):
+        raise setup.SetupError("existing validation code is not an approved immutable revision")
+    return name
+
+
+def target_storage(component, target):
+    checked_target(component, target)
+    size = setup.PROTECTED[component]["size"]
+    volume = resource("PersistentVolume", target["volume"], {
+        "capacity": {"storage": size}, "accessModes": ["ReadWriteOnce"], "volumeMode": "Filesystem",
+        "persistentVolumeReclaimPolicy": "Retain", "storageClassName": "monitoring-backup-local",
+        "local": {"path": target["path"]}, "claimRef": {"namespace": NS, "name": target["claim"]},
+        "nodeAffinity": {"required": {"nodeSelectorTerms": [{"matchExpressions": [
+            {"key": "kubernetes.io/hostname", "operator": "In", "values": ["openmediavault"]}]}]}},
+    }, namespace=None)
+    claim = resource("PersistentVolumeClaim", target["claim"], {
+        "accessModes": ["ReadWriteOnce"], "volumeMode": "Filesystem", "storageClassName": "monitoring-backup-local",
+        "volumeName": target["volume"], "resources": {"requests": {"storage": size}},
+    })
+    return volume, claim
+
+
+def check_target_binding(component, target):
+    expected_volume, expected_claim = target_storage(component, target)
+    volume, claim = object_for(expected_volume), object_for(expected_claim)
+    if not volume or not claim:
+        raise setup.SetupError("validation scratch storage disappeared")
+    check_existing(expected_volume, volume, {})
+    check_existing(expected_claim, claim, {})
+    if (claim.get("status", {}).get("phase") != "Bound" or volume.get("status", {}).get("phase") != "Bound" or
+            volume["spec"].get("claimRef", {}).get("uid") != claim["metadata"]["uid"]):
+        raise setup.SetupError("validation scratch PVC binding differs")
+    setup.checked_directory(Path(target["path"]))
+
+
+def validation_job(component, state, current, code_name, *, target=None):
+    target = checked_target(component, target or validation_target(component))
     denied = []
     for name, port in (("restic", 8000), ("kube-prometheus-stack-prometheus", 9090),
                        ("kube-prometheus-stack-alertmanager", 9093), ("kube-prometheus-stack-grafana", 80), ("loki", 3100)):
@@ -399,7 +471,7 @@ def validation_job(component, state, current, code_name):
             "nodeSelector": {"kubernetes.io/hostname": "openmediavault"}, "securityContext": SECURITY,
             "terminationGracePeriodSeconds": 90, "containers": [tools], "volumes": [
                 {"name": "artifacts", "persistentVolumeClaim": {"claimName": component + "-restore-artifacts", "readOnly": True}},
-                {"name": "data", "persistentVolumeClaim": {"claimName": component + "-restore-data"}},
+                {"name": "data", "persistentVolumeClaim": {"claimName": target["claim"]}},
                 {"name": "code", "configMap": {"name": code_name, "defaultMode": 0o444}},
                 {"name": "temp", "emptyDir": {"sizeLimit": "64Mi"}},
             ]}
@@ -424,7 +496,7 @@ def validation_job(component, state, current, code_name):
                                    {"name": "data", "mountPath": "/validation", "subPath": "work"},
                                    {"name": "temp", "mountPath": "/tmp"}]}
         spec["initContainers"] = [extract, native]
-    return resource("Job", job_name(component), {"backoffLimit": 0, "activeDeadlineSeconds": 7200,
+    return resource("Job", target["job"], {"backoffLimit": 0, "activeDeadlineSeconds": 7200,
                     "template": {"metadata": {"labels": dict(LABELS)}, "spec": spec}}, api="batch/v1")
 
 
@@ -445,57 +517,84 @@ def same_template(actual, expected):
     return actual == expected
 
 
-def diagnostics(component):
-    name = job_name(component)
+def diagnostics(component, *, target=None, report=False):
+    target = checked_target(component, target or validation_target(component))
+    name = target["job"]
+    prefix = "initial-" + component + ("-duplicates-v1" if target != validation_target(component) else "")
     pods = json.loads(setup.kube("get", "pods", "-n", NS, "-l", "job-name=" + name, "-o", "json", capture=True).stdout)["items"]
-    backup.save(setup.RECOVERY / ("initial-" + component + "-restore-pods.json"), pods)
+    backup.save(setup.RECOVERY / (prefix + "-restore-pods.json"), pods)
     for pod in pods:
         for group in ("initContainers", "containers"):
             for container in pod["spec"].get(group, []):
                 logs = setup.kube("logs", "-n", NS, pod["metadata"]["name"], "-c", container["name"],
                                   capture=True, sensitive=True, check=False).stdout
-                setup.private_write(setup.RECOVERY / ("initial-" + component + "-" + container["name"] + "-restore.log"), logs)
+                setup.private_write(setup.RECOVERY / (prefix + "-" + container["name"] + "-restore.log"), logs)
+                if report and container["name"] == "validate":
+                    for line in logs.splitlines():
+                        if line.startswith(("LOKI_RECOVERY_COUNTERS_JSON=", "restore validation failed: ")):
+                            print(name + ": " + line, flush=True)
     return pods
 
 
-def recovery_log_errors(logs, validated_at):
+def log_timestamp(line):
+    match = re.search(r'\b(?:time|ts)="?([^\s"]+)', line)
+    if match:
+        try:
+            value = datetime.fromisoformat(match[1].replace("Z", "+00:00"))
+            return value if value.tzinfo is not None else None
+        except ValueError:
+            pass
+    return None
+
+
+def recovery_log_errors(logs, validated_at, *, component=None):
     cutoff = datetime.fromisoformat(validated_at.replace("Z", "+00:00"))
     if cutoff.tzinfo is None:
         raise setup.SetupError("validation completion timestamp has no timezone")
-    for line in logs.splitlines():
+    lines = logs.splitlines()
+    starts = [log_timestamp(line) for line in lines if 'msg="Starting Loki"' in line]
+    started = [log_timestamp(line) for line in lines if 'msg="Loki started"' in line]
+    bootstrap = (component == "loki" and len(starts) == len(started) == 1 and starts[0] is not None and
+                 started[0] is not None and 0 <= (started[0] - starts[0]).total_seconds() <= 30 and started[0] <= cutoff)
+    for line in lines:
         if not re.search(r'level="?(?:error|warn[^\n]*(?:load|corrupt|checksum|recover|silence|nflog))', line, re.IGNORECASE):
             continue
-        timestamp = re.search(r'\b(?:time|ts)="?([^\s"]+)', line)
-        if timestamp:
-            try:
-                observed = datetime.fromisoformat(timestamp[1].replace("Z", "+00:00"))
-                canceled = re.search(
-                    r'\b(?:err|error)="(?:context canceled|rpc error: code = Canceled desc = context canceled)"(?:\s|$)', line)
-                if (observed.tzinfo is not None and observed > cutoff and canceled and
-                        not re.search(r"corrupt|checksum|\bwal\b|recover|snapshot", line, re.IGNORECASE)):
-                    continue  # Ignore only recognized teardown cancellations, retaining other late errors.
-            except ValueError:
-                pass
+        observed = log_timestamp(line)
+        if (bootstrap and observed is not None and starts[0] <= observed <= started[0] and
+                re.search(r"\bcaller=ratestore.go:[0-9]+(?:\s|$)", line) and
+                'msg="error getting ingester clients"' in line and re.search(r'\berr="empty ring"(?:\s|$)', line) and
+                not re.search(r"corrupt|checksum|\bwal\b|recover|snapshot", line, re.IGNORECASE)):
+            continue  # The rate store can run before the standalone ingester first joins.
+        canceled = re.search(
+            r'\b(?:err|error)="(?:context canceled|rpc error: code = Canceled desc = context canceled)"(?:\s|$)', line)
+        if (observed is not None and observed > cutoff and canceled and
+                not re.search(r"corrupt|checksum|\bwal\b|recover|snapshot", line, re.IGNORECASE)):
+            continue  # Ignore only recognized teardown cancellations, retaining other late errors.
         return True
     return False
 
 
-def validation(component, state, current, code_name):
+def validation(component, state, current, code_name, *, target=None):
+    target = checked_target(component, target or validation_target(component))
+    data = Path(target["path"])
+    prefix = "initial-" + component + ("-duplicates-v1" if target != validation_target(component) else "")
     check_namespace()
-    check_binding(component, "data")
-    job = validation_job(component, state, current, code_name)
-    job["metadata"]["annotations"] = {"backups.mousses.xyz/generation": state["backup_id"],
-                                         "backups.mousses.xyz/snapshot": state["components"][component]["snapshot"]}
-    existing = object_for(job)
+    check_target_binding(component, target)
+    existing = setup.get_object("job", target["job"], NS)
     if existing:
         managed(existing)
+        code_name = existing_validator(existing, allow_legacy=target == validation_target(component))
+    job = validation_job(component, state, current, code_name, target=target)
+    job["metadata"]["annotations"] = {"backups.mousses.xyz/generation": state["backup_id"],
+                                         "backups.mousses.xyz/snapshot": state["components"][component]["snapshot"]}
+    if existing:
         if (existing["metadata"].get("annotations") != job["metadata"]["annotations"] or
                 existing["spec"].get("backoffLimit") != 0 or existing["spec"].get("activeDeadlineSeconds") != 7200 or
                 not same_template(existing["spec"]["template"]["spec"], job["spec"]["template"]["spec"])):
             raise setup.SetupError("existing restore Job differs; preserving it")
     else:
         idle()
-        if any((base(component) / "data").iterdir()):
+        if any(data.iterdir()):
             raise setup.SetupError("scratch data has no matching validation Job; preserving it")
         available = re.search(r"^MemAvailable:\s+(\d+) kB$", Path("/proc/meminfo").read_text(), re.MULTILINE)
         if not available or int(available[1]) < 4 * 1024**2:
@@ -518,7 +617,7 @@ def validation(component, state, current, code_name):
                 last_message = time.monotonic()
             time.sleep(5)
     finally:
-        pods = diagnostics(component)
+        pods = diagnostics(component, target=target, report=True)
     idle()
     if len(pods) != 1 or pods[0].get("status", {}).get("phase") != "Succeeded":
         raise setup.SetupError("expected one successful isolated restore Pod")
@@ -529,15 +628,15 @@ def validation(component, state, current, code_name):
             if (status.get("restartCount") != 0 or not status.get("state", {}).get("terminated") or
                     not status.get("imageID", "").endswith(container["image"].split("@", 1)[1])):
                 raise setup.SetupError("restore container restarted or its image identity differs")
-    logs = setup.private_read(setup.RECOVERY / ("initial-" + component + "-validate-restore.log"))
+    logs = setup.private_read(setup.RECOVERY / (prefix + "-validate-restore.log"))
     results = [json.loads(line.removeprefix("RESTORE_VALIDATED_JSON=")) for line in logs.splitlines()
                if line.startswith("RESTORE_VALIDATED_JSON=")]
     if len(results) != 1:
         raise setup.SetupError("restore Job did not report exactly one validation result")
     result = results[0]
     if component != "grafana":
-        logs = setup.private_read(setup.RECOVERY / ("initial-" + component + "-server-restore.log"))
-        if recovery_log_errors(logs, result.get("validated_at", "")):
+        logs = setup.private_read(setup.RECOVERY / (prefix + "-server-restore.log"))
+        if recovery_log_errors(logs, result.get("validated_at", ""), component=component):
             raise setup.SetupError("native recovery reported an error; inspect the private server log: " + component)
     metadata = json.loads((current / "metadata.json").read_text())
     if (result.get("result") != "passed" or result.get("backup_id") != state["backup_id"] or
@@ -545,10 +644,12 @@ def validation(component, state, current, code_name):
             not all(result.get(key) is True for key in ("archive_metadata_verified", "file_checksums_verified", "application_config_verified")) or
             (component != "grafana" and result.get("native_recovery_verified") is not True) or
             (component in ("prometheus", "loki") and result.get("recovery_error_counters") != 0) or
+            (component == "loki" and any(type(result.get(key, 0)) is not int or result.get(key, 0) < 0
+                                        for key in ("wal_replay_duplicate_samples", "wal_replay_duplicate_bytes"))) or
             any(result.get(key) != metadata.get(key) for key in ("files", "file_bytes")) or
             (component == "grafana" and (result.get("sqlite_integrity") != "ok" or not result.get("table_counts")))):
         raise setup.SetupError("restore validation evidence is incomplete")
-    evidence = base(component) / "data/result.json"
+    evidence = data / "result.json"
     attributes = evidence.lstat()
     if (not stat.S_ISREG(attributes.st_mode) or attributes.st_nlink != 1 or
             (attributes.st_uid, attributes.st_gid, stat.S_IMODE(attributes.st_mode)) != (999, 999, 0o600) or
@@ -556,14 +657,124 @@ def validation(component, state, current, code_name):
         raise setup.SetupError("scratch evidence differs from the completed restore Job")
     backup.save(setup.RECOVERY / ("initial-" + component + "-restore-result.json"), {
         **result, "snapshot": state["components"][component]["snapshot"], "completed_at": backup.now(),
-        "job": job_name(component), "pod_uid": pods[0]["metadata"]["uid"],
+        "job": target["job"], "pod_uid": pods[0]["metadata"]["uid"],
     })
     print("isolated restore verified: " + component, flush=True)
     print(json.dumps({key: value for key, value in result.items() if key not in ("table_counts",)}, sort_keys=True), flush=True)
 
 
-def restore():
+def other_restores_verified(state):
+    for component in COMPONENTS:
+        if component == "loki":
+            continue
+        receipt = backup.saved(setup.RECOVERY / ("initial-" + component + "-restore-result.json"))
+        job = setup.get_object("job", job_name(component), NS)
+        if (receipt.get("result") != "passed" or receipt.get("backup_id") != state["backup_id"] or
+                receipt.get("claim") != setup.PROTECTED[component]["claim"] or
+                receipt.get("snapshot") != state["components"][component]["snapshot"] or
+                receipt.get("job") != job_name(component) or not job or not any(
+                    condition.get("type") == "Complete" and condition.get("status") == "True"
+                    for condition in job.get("status", {}).get("conditions", []))):
+            raise setup.SetupError("Loki-only retry requires the other three verified restores")
+
+
+def prepare_loki_retry(state, current):
+    component = "loki"
+    idle()
+    check_target_binding(component, validation_target(component))
+    old = setup.get_object("job", job_name(component), NS)
+    if not old:
+        raise setup.SetupError("the original failed Loki validation Job must be retained")
+    managed(old)
+    old_code = existing_validator(old)
+    if old_code != "restore-validator-" + LEGACY_VALIDATOR_SHA256[:16]:
+        raise setup.SetupError("the failed Loki Job does not use the reviewed initial validator")
+    expected = validation_job(component, state, current, old_code)
+    annotations = {"backups.mousses.xyz/generation": state["backup_id"],
+                   "backups.mousses.xyz/snapshot": state["components"][component]["snapshot"]}
+    status = old.get("status", {})
+    if (old["metadata"].get("annotations") != annotations or old["spec"].get("backoffLimit") != 0 or
+            old["spec"].get("activeDeadlineSeconds") != 7200 or not old["metadata"].get("uid") or
+            any(status.get(key, 0) for key in ("active", "ready", "terminating", "succeeded")) or not any(
+                condition.get("type") == "Failed" and condition.get("status") == "True" and
+                condition.get("reason") == "BackoffLimitExceeded" for condition in status.get("conditions", [])) or
+            not same_template(old["spec"]["template"]["spec"], expected["spec"]["template"]["spec"])):
+        raise setup.SetupError("original Loki failure identity, generation, or Job specification differs")
+    pods = diagnostics(component)
+    if len(pods) != 1:
+        raise setup.SetupError("expected one retained failed Loki Pod")
+    pod = pods[0]
+    statuses = {item["name"]: item for group in ("initContainerStatuses", "containerStatuses")
+                for item in pod.get("status", {}).get(group, [])}
+    expected_exits = {"extract": 0, "server": 0, "validate": 1}
+    if (pod.get("status", {}).get("phase") != "Failed" or pod["spec"].get("ephemeralContainers") or
+            set(statuses) != set(expected_exits) or any(
+                statuses[name].get("restartCount") != 0 or
+                statuses[name].get("state", {}).get("terminated", {}).get("exitCode") != exit_code
+                for name, exit_code in expected_exits.items()) or not any(
+                    owner.get("uid") == old["metadata"]["uid"] and owner.get("controller") is True and owner.get("kind") == "Job"
+                    for owner in pod["metadata"].get("ownerReferences", []))):
+        raise setup.SetupError("original Loki validation containers are not stopped with the expected failure")
+    for group in ("initContainers", "containers"):
+        for container in expected["spec"]["template"]["spec"].get(group, []):
+            if not statuses[container["name"]].get("imageID", "").endswith(container["image"].split("@", 1)[1]):
+                raise setup.SetupError("original Loki validation image identity differs")
+    checker_log = setup.private_read(setup.RECOVERY / "initial-loki-validate-restore.log")
+    server_log = setup.private_read(setup.RECOVERY / "initial-loki-server-restore.log")
+    if ("restore validation failed: native recovery reported corruption or discarded data;" not in checker_log or
+            not re.search(r'msg="recovered WAL checkpoint recovery finished"[^\n]*errors=false', server_log) or
+            not re.search(r'msg="WAL segment recovery finished"[^\n]*errors=false', server_log)):
+        raise setup.SetupError("original Loki failure differs from the reviewed replay-counter check")
+    old_data = Path(validation_target(component)["path"])
+    extracted = old_data / "extracted.json"
+    backup.digest_file(extracted)
+    result = json.loads(extracted.read_text())
+    metadata = json.loads((current / "metadata.json").read_text())
+    if (result.get("result") != "passed" or result.get("backup_id") != state["backup_id"] or
+            result.get("component") != component or result.get("claim") != setup.PROTECTED[component]["claim"] or
+            any(result.get(key) != metadata.get(key) for key in ("files", "file_bytes")) or
+            not all(result.get(key) is True for key in ("archive_metadata_verified", "file_checksums_verified", "application_config_verified"))):
+        raise setup.SetupError("original Loki extraction evidence differs")
+    target = validation_target(component, retry=True)
+    retry = {"backup_id": state["backup_id"], "failed_job_uid": old["metadata"]["uid"],
+             "failed_pod_uid": pod["metadata"]["uid"], "target": target,
+             "validator_sha256": hashlib.sha256(Path(__file__).with_name("validate-monitoring-restore.py").read_bytes()).hexdigest()}
+    if LOKI_RETRY_STATE.exists() or LOKI_RETRY_STATE.is_symlink():
+        if backup.saved(LOKI_RETRY_STATE) != retry:
+            raise setup.SetupError("saved Loki retry identity changed; preserving scratch data")
+    else:
+        backup.save(LOKI_RETRY_STATE, retry)
+    backup.save(setup.RECOVERY / "initial-loki-counter-failure-job.json", old)
+    resources = target_storage(component, target)
+    existing = [object_for(item) for item in resources]
+    for item, actual in zip(resources, existing):
+        if actual:
+            check_existing(item, actual, state)
+    path = Path(target["path"])
+    setup.checked_directory(path)
+    if path.exists():
+        attributes = path.stat()
+        if ((any(path.iterdir()) and not all(existing)) or
+                (attributes.st_uid, attributes.st_gid, stat.S_IMODE(attributes.st_mode)) != (999, 999, 0o2770)):
+            raise setup.SetupError("new Loki retry directory has unexpected data or permissions; preserving it")
+    else:
+        path.mkdir(parents=True, mode=0o2770)
+        os.chown(path, 999, 999)
+        os.chmod(path, 0o2770)
+    for item, actual in zip(resources, existing):
+        if not actual:
+            setup.kube("create", "-f", "-", stdin=json.dumps(item))
+    setup.kube("wait", "-n", NS, "pvc/" + target["claim"], "--for=jsonpath={.status.phase}=Bound", "--timeout=60s")
+    check_target_binding(component, target)
+    print("original failed Loki Job/data retained; fresh retry PVC verified on the array: " + target["path"], flush=True)
+    return target
+
+
+def restore(*, retry_loki=False):
     state, before = restore_state()
+    retry_loki = retry_loki or LOKI_RETRY_STATE.exists()
+    if retry_loki:
+        other_restores_verified(state)
     prepare_namespace()
     credentials = backup.saved(setup.RECOVERY / "credentials.json")["repositories"]
     for component in COMPONENTS:
@@ -575,7 +786,8 @@ def restore():
     code_name = validator_config()
     for component in COMPONENTS:
         current = restore_artifacts(component, state)
-        validation(component, state, current, code_name)
+        target = prepare_loki_retry(state, current) if component == "loki" and retry_loki else None
+        validation(component, state, current, code_name, target=target)
     check_namespace()
     after = setup.live_preflight(check_resources=False)
     for component in COMPONENTS:
@@ -591,6 +803,9 @@ def restore():
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--retry-loki-duplicates", action="store_true", help="retain the failed initial Loki Job and use a fresh scratch PVC")
+    arguments = parser.parse_args()
     if os.geteuid() != 0:
         raise setup.SetupError("run with sudo python3 on OMV")
     os.umask(0o077)
@@ -602,7 +817,7 @@ def main():
         locks.enter_context(setup.operation_lock(setup.RECOVERY / ".setup.lock", create=True))
         locks.enter_context(setup.operation_lock(setup.COORDINATION_LOCK, create=False))
         print("monitoring restore worker serialized with board-games and SearXNG", flush=True)
-        restore()
+        restore(retry_loki=arguments.retry_loki_duplicates)
 
 
 if __name__ == "__main__":
