@@ -335,12 +335,26 @@ def contains_fields(actual, expected):
 
 def apply_sources(identifier):
     rendered = setup.kube("kustomize", str(MANIFESTS), capture=True).stdout
-    resources = json.loads(setup.kube("create", "--dry-run=client", "-f", "-", "-o", "json",
-                                     stdin=rendered, capture=True).stdout)
-    resources = resources.get("items", [resources])
+    output = setup.kube("create", "--dry-run=client", "-f", "-", "-o", "json",
+                        stdin=rendered, capture=True).stdout.lstrip()
+    # kubectl prints one JSON document per object for a multi-document input.
+    # Parse the complete stream before creating any source; also accept a List.
+    decoder, resources = json.JSONDecoder(), []
+    while output:
+        resource, end = decoder.raw_decode(output)
+        if not isinstance(resource, dict):
+            raise setup.SetupError("unexpected JSON value in the data backup bundle")
+        resources.extend(resource.get("items", [resource]))
+        output = output[end:].lstrip()
+    expected_names = {component + "-backup" for component in COMPONENTS}
+    if (len(resources) != len(expected_names) or
+            any(not isinstance(resource, dict) or resource.get("kind") != "ReplicationSource" or
+                resource.get("apiVersion") != "volsync.backube/v1alpha1" or
+                not isinstance(resource.get("metadata"), dict) or
+                resource["metadata"].get("namespace") != NS for resource in resources) or
+            {resource["metadata"].get("name") for resource in resources} != expected_names):
+        raise setup.SetupError("expected exactly the four approved monitoring ReplicationSources")
     for resource in resources:
-        if resource["kind"] != "ReplicationSource":
-            raise setup.SetupError("unexpected resource in the data backup bundle")
         name = resource["metadata"]["name"]
         existing = setup.get_object("replicationsource", name, NS)
         if existing:
