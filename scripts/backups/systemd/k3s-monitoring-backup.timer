@@ -1,0 +1,12 @@
+# managed by nas-backup-migration
+[Unit]
+Description=daily monitoring backup at 03:45 Arizona time
+
+[Timer]
+OnCalendar=*-*-* 10:45:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=k3s-monitoring-backup.service
+
+[Install]
+WantedBy=timers.target

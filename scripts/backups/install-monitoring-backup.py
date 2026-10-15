@@ -81,12 +81,12 @@ def check_units():
             raise setup.SetupError("downloaded unit is missing its management marker: " + name)
 
 
-def install_runtime(revision):
+def install_runtime(revision, *, files=FILES):
     root_directory(INSTALL, create=True)
     destination = INSTALL / revision
     if destination.exists() or destination.is_symlink():
         root_directory(destination)
-        for filename in FILES:
+        for filename in files:
             target = destination / filename
             root_directory(target.parent)
             regular_root_file(target)
@@ -95,7 +95,7 @@ def install_runtime(revision):
     else:
         temporary = Path(tempfile.mkdtemp(prefix=".pending-", dir=INSTALL))
         try:
-            for filename in FILES:
+            for filename in files:
                 target = temporary / filename
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes((ROOT / filename).read_bytes())
