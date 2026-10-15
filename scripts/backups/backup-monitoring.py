@@ -376,8 +376,9 @@ def ensure_source_idle(component, identifier):
         raise setup.SetupError("staging is not idle and paused: " + component)
 
 
-def inspect_artifacts(component, identifier):
-    root, current = staging(component), staging(component) / "current"
+def inspect_artifacts(component, identifier, *, current=None):
+    root = current.parent if current is not None else staging(component)
+    current = current if current is not None else root / "current"
     setup.checked_directory(root)
     if not current.exists() and not current.is_symlink():
         return None
