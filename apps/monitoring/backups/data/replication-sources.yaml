@@ -1,0 +1,215 @@
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: prometheus-backup
+  labels:
+    app.kubernetes.io/name: prometheus-backup
+    app.kubernetes.io/part-of: monitoring
+spec:
+  sourcePVC: prometheus-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-prometheus-kube-prometheus-stack-prometheus-db-prometheus-kube-prometheus-stack-prometheus-0
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: monitoring-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: monitoring
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: alertmanager-backup
+  labels:
+    app.kubernetes.io/name: alertmanager-backup
+    app.kubernetes.io/part-of: monitoring
+spec:
+  sourcePVC: alertmanager-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-alertmanager-kube-prometheus-stack-alertmanager-db-alertmanager-kube-prometheus-stack-alertmanager-0
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: monitoring-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: monitoring
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: grafana-backup
+  labels:
+    app.kubernetes.io/name: grafana-backup
+    app.kubernetes.io/part-of: monitoring
+spec:
+  sourcePVC: grafana-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-kube-prometheus-stack-grafana
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: monitoring-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: monitoring
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: loki-backup
+  labels:
+    app.kubernetes.io/name: loki-backup
+    app.kubernetes.io/part-of: monitoring
+spec:
+  sourcePVC: loki-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-storage-loki-0
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: monitoring-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: monitoring
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
