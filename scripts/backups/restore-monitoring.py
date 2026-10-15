@@ -34,7 +34,9 @@ LABELS = {"app.kubernetes.io/managed-by": setup.MANAGER, "app.kubernetes.io/part
           "app.kubernetes.io/name": "monitoring-restore-validation"}
 PLACEHOLDER = "controlled-by-restore-runner"
 LEGACY_VALIDATOR_SHA256 = "bcd65b2cb28eeee5ca094d1ec82e26d52c4ba6a50d6fb1bee59362a8105d6c45"
+DUPLICATES_VALIDATOR_SHA256 = "3ad8b2687c4bb83a03102940b6ebbb1a6f3014177a1924db19e687cdcff6109b"
 LOKI_RETRY_STATE = setup.RECOVERY / "initial-loki-duplicates-retry.json"
+LOKI_LOOPBACK_STATE = setup.RECOVERY / "initial-loki-loopback-retry.json"
 SECURITY = {"runAsNonRoot": True, "runAsUser": 999, "runAsGroup": 999, "fsGroup": 999,
             "fsGroupChangePolicy": "OnRootMismatch", "seccompProfile": {"type": "RuntimeDefault"}}
 CONTAINER_SECURITY = {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
@@ -53,20 +55,30 @@ def job_name(component):
     return component + "-restore-validation-initial"
 
 
-def validation_target(component, *, retry=False):
-    if retry and component != "loki":
+def validation_target(component, *, retry=False, loopback=False):
+    if (retry or loopback) and component != "loki":
         raise setup.SetupError("only the reviewed Loki retry has an alternate scratch target")
-    suffix = "-duplicates-v1" if retry else ""
+    if retry and loopback:
+        raise setup.SetupError("choose one reviewed Loki retry target")
+    suffix = "-loopback-v1" if loopback else "-duplicates-v1" if retry else ""
     return {"job": job_name(component) + suffix,
             "claim": component + "-restore" + suffix + "-data",
             "volume": "monitoring-" + component + "-restore" + suffix + "-data",
-            "path": str(base(component) / ("retry-duplicates-v1/data" if retry else "data"))}
+            "path": str(base(component) / ("retry" + suffix + "/data" if suffix else "data"))}
 
 
 def checked_target(component, target):
-    if target != validation_target(component) and (component != "loki" or target != validation_target(component, retry=True)):
+    approved = [validation_target(component)]
+    if component == "loki":
+        approved.extend((validation_target(component, retry=True), validation_target(component, loopback=True)))
+    if target not in approved:
         raise setup.SetupError("unexpected validation storage target")
     return target
+
+
+def diagnostic_prefix(component, target):
+    checked_target(component, target)
+    return "initial-" + component + target["job"].removeprefix(job_name(component))
 
 
 def resource(kind, name, spec=None, *, namespace=NS, api="v1", **fields):
@@ -409,7 +421,7 @@ def existing_validator(job, *, allow_legacy=True):
     checksum = hashlib.sha256(code.encode()).hexdigest()
     approved = {hashlib.sha256(Path(__file__).with_name("validate-monitoring-restore.py").read_bytes()).hexdigest()}
     if allow_legacy:
-        approved.add(LEGACY_VALIDATOR_SHA256)
+        approved.update((LEGACY_VALIDATOR_SHA256, DUPLICATES_VALIDATOR_SHA256))
     if (config.get("immutable") is not True or set(config.get("data", {})) != {"validate.py"} or config.get("binaryData") or
             checksum not in approved or name != "restore-validator-" + checksum[:16]):
         raise setup.SetupError("existing validation code is not an approved immutable revision")
@@ -520,7 +532,7 @@ def same_template(actual, expected):
 def diagnostics(component, *, target=None, report=False):
     target = checked_target(component, target or validation_target(component))
     name = target["job"]
-    prefix = "initial-" + component + ("-duplicates-v1" if target != validation_target(component) else "")
+    prefix = diagnostic_prefix(component, target)
     pods = json.loads(setup.kube("get", "pods", "-n", NS, "-l", "job-name=" + name, "-o", "json", capture=True).stdout)["items"]
     backup.save(setup.RECOVERY / (prefix + "-restore-pods.json"), pods)
     for pod in pods:
@@ -577,7 +589,7 @@ def recovery_log_errors(logs, validated_at, *, component=None):
 def validation(component, state, current, code_name, *, target=None):
     target = checked_target(component, target or validation_target(component))
     data = Path(target["path"])
-    prefix = "initial-" + component + ("-duplicates-v1" if target != validation_target(component) else "")
+    prefix = diagnostic_prefix(component, target)
     check_namespace()
     check_target_binding(component, target)
     existing = setup.get_object("job", target["job"], NS)
@@ -646,6 +658,8 @@ def validation(component, state, current, code_name, *, target=None):
             (component in ("prometheus", "loki") and result.get("recovery_error_counters") != 0) or
             (component == "loki" and any(type(result.get(key, 0)) is not int or result.get(key, 0) < 0
                                         for key in ("wal_replay_duplicate_samples", "wal_replay_duplicate_bytes"))) or
+            (component == "loki" and target == validation_target(component, loopback=True) and
+             result.get("loopback_routes_verified") is not True) or
             any(result.get(key) != metadata.get(key) for key in ("files", "file_bytes")) or
             (component == "grafana" and (result.get("sqlite_integrity") != "ok" or not result.get("table_counts")))):
         raise setup.SetupError("restore validation evidence is incomplete")
@@ -678,18 +692,18 @@ def other_restores_verified(state):
             raise setup.SetupError("Loki-only retry requires the other three verified restores")
 
 
-def prepare_loki_retry(state, current):
+def failed_loki_attempt(state, current, target, validator_sha256):
     component = "loki"
     idle()
-    check_target_binding(component, validation_target(component))
-    old = setup.get_object("job", job_name(component), NS)
+    check_target_binding(component, target)
+    old = setup.get_object("job", target["job"], NS)
     if not old:
         raise setup.SetupError("the original failed Loki validation Job must be retained")
     managed(old)
     old_code = existing_validator(old)
-    if old_code != "restore-validator-" + LEGACY_VALIDATOR_SHA256[:16]:
-        raise setup.SetupError("the failed Loki Job does not use the reviewed initial validator")
-    expected = validation_job(component, state, current, old_code)
+    if old_code != "restore-validator-" + validator_sha256[:16]:
+        raise setup.SetupError("the failed Loki Job does not use the reviewed validator")
+    expected = validation_job(component, state, current, old_code, target=target)
     annotations = {"backups.mousses.xyz/generation": state["backup_id"],
                    "backups.mousses.xyz/snapshot": state["components"][component]["snapshot"]}
     status = old.get("status", {})
@@ -700,7 +714,7 @@ def prepare_loki_retry(state, current):
                 condition.get("reason") == "BackoffLimitExceeded" for condition in status.get("conditions", [])) or
             not same_template(old["spec"]["template"]["spec"], expected["spec"]["template"]["spec"])):
         raise setup.SetupError("original Loki failure identity, generation, or Job specification differs")
-    pods = diagnostics(component)
+    pods = diagnostics(component, target=target)
     if len(pods) != 1:
         raise setup.SetupError("expected one retained failed Loki Pod")
     pod = pods[0]
@@ -719,13 +733,10 @@ def prepare_loki_retry(state, current):
         for container in expected["spec"]["template"]["spec"].get(group, []):
             if not statuses[container["name"]].get("imageID", "").endswith(container["image"].split("@", 1)[1]):
                 raise setup.SetupError("original Loki validation image identity differs")
-    checker_log = setup.private_read(setup.RECOVERY / "initial-loki-validate-restore.log")
-    server_log = setup.private_read(setup.RECOVERY / "initial-loki-server-restore.log")
-    if ("restore validation failed: native recovery reported corruption or discarded data;" not in checker_log or
-            not re.search(r'msg="recovered WAL checkpoint recovery finished"[^\n]*errors=false', server_log) or
-            not re.search(r'msg="WAL segment recovery finished"[^\n]*errors=false', server_log)):
-        raise setup.SetupError("original Loki failure differs from the reviewed replay-counter check")
-    old_data = Path(validation_target(component)["path"])
+    prefix = diagnostic_prefix(component, target)
+    checker_log = setup.private_read(setup.RECOVERY / (prefix + "-validate-restore.log"))
+    server_log = setup.private_read(setup.RECOVERY / (prefix + "-server-restore.log"))
+    old_data = Path(target["path"])
     extracted = old_data / "extracted.json"
     backup.digest_file(extracted)
     result = json.loads(extracted.read_text())
@@ -735,16 +746,33 @@ def prepare_loki_retry(state, current):
             any(result.get(key) != metadata.get(key) for key in ("files", "file_bytes")) or
             not all(result.get(key) is True for key in ("archive_metadata_verified", "file_checksums_verified", "application_config_verified"))):
         raise setup.SetupError("original Loki extraction evidence differs")
-    target = validation_target(component, retry=True)
-    retry = {"backup_id": state["backup_id"], "failed_job_uid": old["metadata"]["uid"],
-             "failed_pod_uid": pod["metadata"]["uid"], "target": target,
-             "validator_sha256": hashlib.sha256(Path(__file__).with_name("validate-monitoring-restore.py").read_bytes()).hexdigest()}
-    if LOKI_RETRY_STATE.exists() or LOKI_RETRY_STATE.is_symlink():
-        if backup.saved(LOKI_RETRY_STATE) != retry:
+    return old, pod, checker_log, server_log
+
+
+def original_loki_failure(state, current):
+    failed = failed_loki_attempt(state, current, validation_target("loki"), LEGACY_VALIDATOR_SHA256)
+    if ("restore validation failed: native recovery reported corruption or discarded data;" not in failed[2] or
+            not re.search(r'msg="recovered WAL checkpoint recovery finished"[^\n]*errors=false', failed[3]) or
+            not re.search(r'msg="WAL segment recovery finished"[^\n]*errors=false', failed[3])):
+        raise setup.SetupError("original Loki failure differs from the reviewed replay-counter check")
+    return failed
+
+
+def retry_identity(state, old, pod, target, validator_sha256):
+    return {"backup_id": state["backup_id"], "failed_job_uid": old["metadata"]["uid"],
+            "failed_pod_uid": pod["metadata"]["uid"], "target": target, "validator_sha256": validator_sha256}
+
+
+def prepare_retry_storage(state, target, retry_state, retry):
+    component = "loki"
+    if (target, retry_state) not in ((validation_target(component, retry=True), LOKI_RETRY_STATE),
+                                    (validation_target(component, loopback=True), LOKI_LOOPBACK_STATE)):
+        raise setup.SetupError("unapproved Loki retry storage identity")
+    if retry_state.exists() or retry_state.is_symlink():
+        if backup.saved(retry_state) != retry:
             raise setup.SetupError("saved Loki retry identity changed; preserving scratch data")
     else:
-        backup.save(LOKI_RETRY_STATE, retry)
-    backup.save(setup.RECOVERY / "initial-loki-counter-failure-job.json", old)
+        backup.save(retry_state, retry)
     resources = target_storage(component, target)
     existing = [object_for(item) for item in resources]
     for item, actual in zip(resources, existing):
@@ -766,14 +794,58 @@ def prepare_loki_retry(state, current):
             setup.kube("create", "-f", "-", stdin=json.dumps(item))
     setup.kube("wait", "-n", NS, "pvc/" + target["claim"], "--for=jsonpath={.status.phase}=Bound", "--timeout=60s")
     check_target_binding(component, target)
-    print("original failed Loki Job/data retained; fresh retry PVC verified on the array: " + target["path"], flush=True)
+    print("failed Loki Jobs/data retained; fresh retry PVC verified on the array: " + target["path"], flush=True)
     return target
 
 
-def restore(*, retry_loki=False):
+def prepare_loki_retry(state, current):
+    old, pod, _, _ = original_loki_failure(state, current)
+    target = validation_target("loki", retry=True)
+    checksum = hashlib.sha256(Path(__file__).with_name("validate-monitoring-restore.py").read_bytes()).hexdigest()
+    retry = retry_identity(state, old, pod, target, checksum)
+    backup.save(setup.RECOVERY / "initial-loki-counter-failure-job.json", old)
+    return prepare_retry_storage(state, target, LOKI_RETRY_STATE, retry)
+
+
+def prepare_loki_loopback_retry(state, current):
+    original, original_pod, _, _ = original_loki_failure(state, current)
+    previous_target = validation_target("loki", retry=True)
+    previous = backup.saved(LOKI_RETRY_STATE)
+    if previous != retry_identity(state, original, original_pod, previous_target, DUPLICATES_VALIDATOR_SHA256):
+        raise setup.SetupError("saved duplicate retry identity differs; preserving both attempts")
+    old, pod, checker_log, server_log = failed_loki_attempt(state, current, previous_target, DUPLICATES_VALIDATOR_SHA256)
+    reports = [json.loads(line.removeprefix("LOKI_RECOVERY_COUNTERS_JSON=")) for line in checker_log.splitlines()
+               if line.startswith("LOKI_RECOVERY_COUNTERS_JSON=")]
+    if len(reports) != 1 or "restore validation failed: TimeoutError;" not in checker_log:
+        raise setup.SetupError("failed Loki retry does not match the reviewed query timeout")
+    report = reports[0]
+    recorded = Path(previous_target["path"]) / "work/loki-recovery-metrics.json"
+    backup.digest_file(recorded)
+    if (json.loads(recorded.read_text()) != report or report.get("wal_corruptions") != 0 or
+            report.get("wal_replay_duplicate_samples") != report.get("wal_duplicate_entries") or
+            any(value != 0 for key in ("wal_replay_discarded_samples_by_reason", "wal_replay_discarded_bytes_by_reason")
+                for reason, value in report.get(key, {}).items() if reason != "duplicate")):
+        raise setup.SetupError("failed Loki retry recovery counters differ from the verified duplicate accounting")
+    address = str(ipaddress.ip_address(pod["status"]["podIP"]))
+    if (ipaddress.ip_address(address).is_loopback or not any(
+            re.search(r"\bcaller=scheduler_processor.go:(?:259|304)\b", line) and
+            "frontend=" + address + ":9095" in line and
+            "dial tcp " + address + ":9095: connect: connection refused" in line
+            for line in server_log.splitlines())):
+        raise setup.SetupError("failed Loki retry does not show the reviewed frontend callback mismatch")
+    target = validation_target("loki", loopback=True)
+    checksum = hashlib.sha256(Path(__file__).with_name("validate-monitoring-restore.py").read_bytes()).hexdigest()
+    retry = retry_identity(state, old, pod, target, checksum)
+    retry["previous_attempt"] = previous
+    backup.save(setup.RECOVERY / "initial-loki-loopback-failure-job.json", old)
+    return prepare_retry_storage(state, target, LOKI_LOOPBACK_STATE, retry)
+
+
+def restore(*, retry_loki=False, retry_loki_loopback=False):
     state, before = restore_state()
     retry_loki = retry_loki or LOKI_RETRY_STATE.exists()
-    if retry_loki:
+    retry_loki_loopback = retry_loki_loopback or LOKI_LOOPBACK_STATE.exists()
+    if retry_loki or retry_loki_loopback:
         other_restores_verified(state)
     prepare_namespace()
     credentials = backup.saved(setup.RECOVERY / "credentials.json")["repositories"]
@@ -786,7 +858,12 @@ def restore(*, retry_loki=False):
     code_name = validator_config()
     for component in COMPONENTS:
         current = restore_artifacts(component, state)
-        target = prepare_loki_retry(state, current) if component == "loki" and retry_loki else None
+        target = None
+        if component == "loki":
+            if retry_loki_loopback:
+                target = prepare_loki_loopback_retry(state, current)
+            elif retry_loki:
+                target = prepare_loki_retry(state, current)
         validation(component, state, current, code_name, target=target)
     check_namespace()
     after = setup.live_preflight(check_resources=False)
@@ -804,7 +881,9 @@ def restore(*, retry_loki=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--retry-loki-duplicates", action="store_true", help="retain the failed initial Loki Job and use a fresh scratch PVC")
+    retries = parser.add_mutually_exclusive_group()
+    retries.add_argument("--retry-loki-duplicates", action="store_true", help="retain the failed initial Loki Job and use a fresh scratch PVC")
+    retries.add_argument("--retry-loki-loopback", action="store_true", help="retain both failed Loki Jobs and correct the frontend loopback callback")
     arguments = parser.parse_args()
     if os.geteuid() != 0:
         raise setup.SetupError("run with sudo python3 on OMV")
@@ -817,7 +896,7 @@ def main():
         locks.enter_context(setup.operation_lock(setup.RECOVERY / ".setup.lock", create=True))
         locks.enter_context(setup.operation_lock(setup.COORDINATION_LOCK, create=False))
         print("monitoring restore worker serialized with board-games and SearXNG", flush=True)
-        restore(retry_loki=arguments.retry_loki_duplicates)
+        restore(retry_loki=arguments.retry_loki_duplicates, retry_loki_loopback=arguments.retry_loki_loopback)
 
 
 if __name__ == "__main__":

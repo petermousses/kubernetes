@@ -206,10 +206,11 @@ def loki_config(config):
         "server": {"http_listen_address": "127.0.0.1", "http_listen_port": 3100,
                    "grpc_listen_address": "127.0.0.1", "grpc_listen_port": 9095},
         "memberlist": {"bind_addr": ["127.0.0.1"], "join_members": []},
-        "common": {"path_prefix": "/var/loki", "replication_factor": 1,
+        "common": {"path_prefix": "/var/loki", "replication_factor": 1, "instance_addr": "127.0.0.1",
                    "ring": {"instance_addr": "127.0.0.1", "kvstore": {"store": "inmemory"}},
                    "storage": {"filesystem": {"chunks_directory": "/var/loki/chunks",
                                                "rules_directory": "/validation/empty-rules"}}},
+        "frontend": {"address": "127.0.0.1"},
         "schema_config": schema,
         "storage_config": {"tsdb_shipper": {"active_index_directory": "/var/loki/tsdb-shipper-active",
                                              "cache_location": "/var/loki/tsdb-shipper-cache"}},
@@ -408,6 +409,16 @@ def loki_recovery_metrics(root=None):
             "wal_replay_duplicate_bytes": report["wal_replay_duplicate_bytes"]}
 
 
+def loki_loopback_routes():
+    effective = yaml.load(request(3100, "/config", raw=True), Loader=UniqueLoader)
+    server, frontend = effective.get("server", {}), effective.get("frontend", {})
+    require(server.get("http_listen_address") == server.get("grpc_listen_address") == "127.0.0.1" and
+            server.get("http_listen_port") == 3100 and server.get("grpc_listen_port") == 9095 and
+            frontend.get("address") == "127.0.0.1" and frontend.get("port", 0) in (0, 9095),
+            "Loki effective frontend callback address differs from its loopback listener")
+    return {"loopback_routes_verified": True}
+
+
 def native_check(root, source, component):
     result = json.loads((root / "extracted.json").read_text())
     if component == "prometheus":
@@ -442,6 +453,7 @@ def native_check(root, source, component):
         result.update({"native_recovery_verified": True, "restored_silences": len(silences)})
     elif component == "loki":
         ready(3100)
+        routes = loki_loopback_routes()
         counters = loki_recovery_metrics(root)
         metadata = json.loads((source / "metadata.json").read_text())
         end = int(datetime.fromisoformat(metadata["completed_at"].replace("Z", "+00:00")).timestamp() * 10**9)
@@ -454,7 +466,7 @@ def native_check(root, source, component):
         values = [value for stream in response["data"]["result"] for value in stream.get("values", [])]
         require(values and all(end - 7 * 86400 * 10**9 <= int(value[0]) <= end for value in values),
                 "restored Loki returned no historical cluster logs")
-        result.update({"native_recovery_verified": True, "historical_log_entries": len(values), **counters})
+        result.update({"native_recovery_verified": True, "historical_log_entries": len(values), **routes, **counters})
     elif component != "grafana":
         raise ValueError("unapproved validation component")
     result["validated_at"] = datetime.now(timezone.utc).isoformat()
