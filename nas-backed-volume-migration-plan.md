@@ -164,7 +164,7 @@ the installer enabled the boot writer recovery service and persistent daily time
 
 **the relayed Mac verification passed at 2026-10-14 10:09:45 Arizona / 17:09:45 UTC.** the independently stored copy is under `/Users/petermousses/Backups/k3s-recovery/searxng/copy.E2BeFR/`. its encrypted checksum matches the NAS export; decryption with the existing private age identity, all 31 file hashes, both repository credential sets, and the initial/daily evidence relationships passed. the receipt matches the initial generation and both initial snapshots, plus daily generation `daily-736cd9ec488633b11e712259ac685474` and both daily snapshots recorded above. decrypted files were not written. archives, identities, private contents, and receipts stay outside Git. **independent credential storage is verified; actual automatic timer verification is deferred by the user. monitoring is approved to begin.**
 
-### monitoring — initial backups verified; isolated restores next
+### monitoring — initial backups and three isolated restores verified
 
 the user approved starting this namespace on 2026-10-14. **the relayed read-only inventory passed on OMV.** all four live claims are `Bound`, RWO, and mapped to the expected static PVs with matching claim UIDs, `Retain`, and OMV node affinity. their paths under `/filesystem/k3s/data/monitoring/` resolve onto `/dev/md0` Btrfs, with approximately 31.67 TiB free.
 
@@ -236,4 +236,15 @@ each component gets separate array-backed artifacts, cache, and data paths under
 
 `scripts/backups/validate-monitoring-restore.py` checks Prometheus native WAL/head/block recovery and historical metrics, Alertmanager native state loading, Grafana SQLite integrity/table counts, and Loki native WAL/index/chunk recovery and historical cluster logs. Prometheus/Loki recovery error counters must be zero; readiness alone does not prove recovery without discarded data. native checks use the production image digests and disabled external actions; original configuration and Secret dependencies are checked as recovery artifacts. three Jobs use restartable init sidecars, supported by K3s's Kubernetes v1.33, so the native process stops when its checker completes. effective requests remain 50m CPU/128 MiB per worker; require at least 4 GiB physical available memory before launching validation. [native sidecars and Job completion](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/), [Prometheus storage](https://prometheus.io/docs/prometheus/latest/storage/), [Grafana backup](https://grafana.com/docs/grafana/latest/administration/back-up-grafana/)
 
-**isolated restore execution on OMV, daily scheduling/retention verification, and independent credential storage remain pending.** after completing monitoring, obtain separate approval before stage 2.
+**the relayed OMV restore run verified Prometheus, Alertmanager, and Grafana on 2026-10-15.** all six artifacts for each component passed restored checksums; extracted file contents, archived numeric metadata, and recovery configuration passed validation.
+
+| component | isolated restore result |
+| --- | --- |
+| Prometheus | passed at 15:53:49 UTC; 131 files / 5,720,469,141 bytes, native recovery, 19 historical `up` series, and zero recovery error counters |
+| Alertmanager | passed at 15:54:16 UTC; two zero-byte state files loaded, zero silences, native recovery verified |
+| Grafana | passed at 15:54:42 UTC; 2,576,384-byte SQLite database, integrity check `ok`, 92 table counts recorded privately |
+| Loki | all six artifacts restored and checksummed; `loki-restore-validation-initial` Job failed; native recovery and historical log validation remain unverified |
+
+the runner retained Loki's failed Job, scratch data, and private diagnostics. inspect its extraction/checker/native-server logs and container termination states before choosing a correction or retry. the output does not establish the cause of failure or demonstrate backup corruption. the aggregate four-component restore verification has not passed.
+
+**Loki isolated restore validation, daily scheduling/retention verification, and independent credential storage remain pending.** after completing monitoring, obtain separate approval before stage 2.
