@@ -3,7 +3,7 @@
 Description=resume monitoring writers after an interrupted backup
 After=k3s.service
 Requires=k3s.service
-Before=k3s-monitoring-backup-initial.service
+Before=k3s-monitoring-backup-initial.service k3s-monitoring-backup.service
 StartLimitIntervalSec=0
 
 [Service]

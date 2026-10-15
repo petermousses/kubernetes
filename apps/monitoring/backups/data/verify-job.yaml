@@ -37,6 +37,7 @@ spec:
           args:
             - |
               import base64
+              from datetime import datetime, timedelta, timezone
               import hashlib
               import ipaddress
               import json
@@ -45,6 +46,7 @@ spec:
               import socket
               import ssl
               import subprocess
+              import tempfile
               import time
               import urllib.error
               import urllib.parse
@@ -155,6 +157,51 @@ spec:
                   "claim": os.environ["PROTECTED_CLAIM"], "snapshot": snapshot,
               }, sort_keys=True))
 
+              if os.environ.get("VERIFY_RETENTION_PROOF") == "true":
+                  # Exercise expiry and space reclamation in an ephemeral local
+                  # repository, using the same binary and keep-within policy.
+                  with tempfile.TemporaryDirectory(prefix="monitoring-retention-", dir="/tmp") as folder:
+                      root = Path(folder)
+                      source = root / "source"
+                      source.mkdir(mode=0o700)
+                      environment = os.environ.copy()
+                      environment["RESTIC_PASSWORD"] = base64.b64encode(os.urandom(32)).decode()
+                      environment["TZ"] = "UTC"
+                      local = ["restic", "--repo", str(root / "repository"), "--no-cache"]
+
+                      def scratch(*arguments):
+                          return subprocess.run(local + list(arguments), env=environment,
+                                                text=True, capture_output=True, check=True, timeout=90).stdout
+
+                      scratch("init")
+                      now = datetime.now(timezone.utc).replace(microsecond=0)
+                      ids, hashes = [], []
+                      for age in (9, 6, 0):
+                          data = os.urandom(256 * 1024)
+                          (source / "probe").write_bytes(data)
+                          hashes.append(hashlib.sha256(data).hexdigest())
+                          output = scratch("backup", "--json", "--host", "retention-proof", "--time",
+                                           (now - timedelta(days=age)).strftime("%Y-%m-%d %H:%M:%S"), str(source))
+                          ids.append(next(json.loads(line)["snapshot_id"] for line in output.splitlines()
+                                          if json.loads(line).get("message_type") == "summary"))
+                      repository = root / "repository"
+                      before = sum(path.stat().st_size for path in repository.rglob("*") if path.is_file())
+                      scratch("forget", "--host", "retention-proof", "--keep-within", "7d")
+                      kept = {entry["id"] for entry in json.loads(scratch("snapshots", "--json"))}
+                      if kept != set(ids[1:]):
+                          raise SystemExit("scratch retention proof failed: unexpected retained snapshots")
+                      scratch("prune")
+                      scratch("check", "--read-data")
+                      for identifier, digest in zip(ids[1:], hashes[1:]):
+                          restored = subprocess.run(local + ["dump", identifier, str(source / "probe")],
+                                                    env=environment, capture_output=True, check=True, timeout=90).stdout
+                          if hashlib.sha256(restored).hexdigest() != digest:
+                              raise SystemExit("scratch retention proof failed: retained data could not be recovered")
+                      after = sum(path.stat().st_size for path in repository.rglob("*") if path.is_file())
+                      if after >= before:
+                          raise SystemExit("scratch retention proof failed: prune did not reclaim space")
+                      print("scratch retention proof passed: 9-day snapshot expired; 6-day and current retained; "
+                            + str(before - after) + " bytes reclaimed")
           envFrom:
             - secretRef:
                 name: restic-prometheus-kube-prometheus-stack-prometheus-db-prometheus-kube-prometheus-stack-prometheus-0

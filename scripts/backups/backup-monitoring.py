@@ -56,6 +56,18 @@ def valid_id(identifier):
     return isinstance(identifier, str) and re.fullmatch(r"initial-[0-9a-f]{32}", identifier)
 
 
+def valid_generation(identifier):
+    return isinstance(identifier, str) and re.fullmatch(r"(?:initial|daily)-[0-9a-f]{32}", identifier)
+
+
+def evidence_name(identifier, prefix):
+    if not valid_generation(identifier) or (prefix != "initial" and prefix != identifier):
+        raise setup.SetupError("invalid backup evidence generation or prefix")
+    if prefix == "initial" and not valid_id(identifier):
+        raise setup.SetupError("daily backups must not replace initial verification evidence")
+    return prefix
+
+
 def staging(component):
     return setup.BASE / "backup-staging" / setup.PROTECTED[component]["claim"]
 
@@ -150,7 +162,7 @@ def guarded_patch(kind, name, resource, operations):
 
 
 def check_journal(state, component):
-    if (state.get("component") != component or not valid_id(state.get("backup_id")) or
+    if (state.get("component") != component or not valid_generation(state.get("backup_id")) or
             state.get("original_replicas") != 1 or not state.get("workload_uid") or
             not state.get("claim_uid") or not state.get("volume_uid") or
             not re.fullmatch(r"[0-9a-f]{64}", state.get("controller_hash", "")) or
@@ -383,7 +395,13 @@ def inspect_artifacts(component, identifier, *, current=None):
     if not current.exists() and not current.is_symlink():
         return None
     setup.checked_directory(current)
-    if {item.name for item in root.iterdir()} != {"current"}:
+    historical = (current.name == identifier and valid_generation(identifier) and
+                  root == setup.BASE / "backup-staging-history" / setup.PROTECTED[component]["claim"])
+    if historical:
+        attributes = root.stat()
+        if attributes.st_uid != 0 or stat.S_IMODE(attributes.st_mode) != 0o700:
+            raise setup.SetupError("staging history must be private and root-owned")
+    elif {item.name for item in root.iterdir()} != {"current"}:
         raise setup.SetupError("additional staging data is preserved: " + component)
     attributes = current.stat()
     if (attributes.st_uid, attributes.st_gid, stat.S_IMODE(attributes.st_mode)) != (999, 999, 0o700):
@@ -574,6 +592,8 @@ def archive_volume(component, state, destination):
 
 
 def capture(component, identifier):
+    if not valid_generation(identifier):
+        raise setup.SetupError("invalid capture generation")
     if inspect_artifacts(component, identifier):
         print("verified existing stopped-writer capture: " + component, flush=True)
         return
@@ -671,7 +691,8 @@ def upload_complete(source, identifier):
                 item.get("reason") == "WaitingForManual" for item in status.get("conditions", [])))
 
 
-def upload(component, identifier):
+def upload(component, identifier, *, evidence_prefix="initial"):
+    evidence_name(identifier, evidence_prefix)
     if not inspect_artifacts(component, identifier):
         raise setup.SetupError("cannot upload without complete published artifacts")
     worker_budget()
@@ -689,7 +710,7 @@ def upload(component, identifier):
         if not source or source["spec"].get("trigger") != {"manual": identifier}:
             raise setup.SetupError("upload generation changed while synchronizing")
         if upload_complete(source, identifier):
-            save(setup.RECOVERY / ("initial-" + component + "-volsync-result.json"), source)
+            save(setup.RECOVERY / (evidence_prefix + "-" + component + "-volsync-result.json"), source)
             print(component + " VolSync upload, retention, and cleanup completed", flush=True)
             return
         if time.monotonic() - last_message >= 60:
@@ -699,8 +720,11 @@ def upload(component, identifier):
     raise setup.SetupError("upload did not complete within two hours; published capture retained")
 
 
-def verify_backup(component, identifier):
+def verify_backup(component, identifier, *, evidence_prefix="initial", retention_proof=False):
+    evidence_name(identifier, evidence_prefix)
     checksums = inspect_artifacts(component, identifier)
+    if not checksums:
+        raise setup.SetupError("cannot verify without published artifacts")
     worker_budget()
     service = setup.get_object("service", "restic", NS)
     ips = service["spec"].get("clusterIPs") or [service["spec"].get("clusterIP")]
@@ -712,6 +736,7 @@ def verify_backup(component, identifier):
         "EXPECTED_BACKUP_ID": identifier, "EXPECTED_SHA256SUMS": checksums,
         "EXPECTED_ARTIFACTS": json.dumps(sorted(ARTIFACTS)),
         "PROTECTED_CLAIM": setup.PROTECTED[component]["claim"],
+        "VERIFY_RETENTION_PROOF": "true" if retention_proof else "false",
     }.items()]
     created = json.loads(setup.kube("create", "-f", "-", "-o", "json", stdin=json.dumps(job), capture=True).stdout)
     name = created["metadata"]["name"]
@@ -728,7 +753,13 @@ def verify_backup(component, identifier):
             not re.fullmatch(r"[0-9a-f]{64}", results[0].get("snapshot", ""))):
         raise setup.SetupError("verification Job did not report this claim and generation")
     result = {**results[0], "completed_at": now(), "checksums": checksums, "verification_job": name}
-    save(setup.RECOVERY / ("initial-" + component + "-backup-result.json"), result)
+    if retention_proof:
+        proofs = [line for line in logs.splitlines() if line.startswith("scratch retention proof passed:")]
+        if len(proofs) != 1:
+            raise setup.SetupError("scratch retention proof did not complete exactly once")
+        result["retention_proof"] = proofs[0]
+    save(setup.RECOVERY / (evidence_prefix + "-" + component + "-backup-result.json"), result)
+    return result
 
 
 def service_health(component):
