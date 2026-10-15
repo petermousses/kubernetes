@@ -62,6 +62,31 @@ data:
           models:
             default: [qwen3.8-27b]
             fetch: true
+          tokenConfig:
+            qwen3.8-27b:
+              prompt: 0.544
+              completion: 3.263
+              context: 220000
+            gemma-4-e4b-it:
+              prompt: 0.02
+              completion: 0.1
+              context: 220000
+            gemma-4-12b-it:
+              prompt: 0.1
+              completion: 0.3
+              context: 220000
+            gemma-4-26b-a4b-it:
+              prompt: 0.14
+              completion: 0.4
+              context: 220000
+            qwen3.6-35b-a3b:
+              prompt: 0.24
+              completion: 1.8
+              context: 220000
+            glm-5.3-flash-abliterated:
+              prompt: 0.15
+              completion: 0.5
+              context: 220000
           titleConvo: true
           titleModel: qwen3.8-27b
           modelDisplayLabel: Local AI
