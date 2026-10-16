@@ -32,6 +32,110 @@ Before the first deployment, create the uncommitted `litellm-env` Secret:
 The deploy script is intentionally idempotent. Rerunning the pinned migration
 is safer than guessing whether a manifest edit requires it.
 
+## inference reliability policy
+
+redqueen inference has no total, first-token, loading, or streaming-idle
+deadline. healthy work may take arbitrarily long. connection establishment
+(10s), connection-pool acquisition (10s), upstream request writes (30s), and
+incoming uploads (60s) remain bounded. a slow generation is not proof of a
+dead backend.
+
+the gateway makes one upstream attempt. caller retry, fallback and timeout
+overrides cannot change this policy. router cooldowns are disabled: a capacity
+503 must not poison the model's next request. LiteLLM 1.104.2's image and
+embedding providers can restore SDK retries despite `max_retries: 0`; the
+supported custom client and deployment callback enforce zero retries at that
+boundary. the startup wrapper checks the exact LiteLLM/OpenAI/HTTPX versions
+before starting the upstream CLI. see the pinned [provider source](https://github.com/BerriAI/litellm/blob/v1.104.2/litellm/llms/openai/openai.py)
+and [callback interface](https://github.com/BerriAI/litellm/blob/v1.104.2/litellm/integrations/custom_logger.py).
+
+the application limits active requests to four before reading their bodies;
+Traefik's admission limit of 16 runs before upload buffering. uploads are
+limited to 44 MiB, upstream JSON to 64 MiB, upstream error bodies to 64 KiB,
+and individual SSE frames to 256 KiB. JSON is scanned before decoding and
+limited to depth 64 and 250,000 structural markers, excluding quoted contents.
+compressed upstream responses are
+rejected; local backends return uncompressed JSON/SSE. non-streaming JSON
+waits for completion. streaming requests emit SSE comment heartbeats every
+15s, including before the first token. if an error occurs after a heartbeat
+has committed HTTP 200, its structured error arrives in the stream; the status
+cannot be changed afterward. client disconnects cancel pending upstream work.
+
+application failures use `error.message/type/param/code`, stable string codes
+and `x-request-id`; backend messages are never reflected. transient backend
+429/503 responses preserve `Retry-After`. Traefik can itself reject an upload
+or a concurrent request before LiteLLM runs; those ingress 413/429 bodies
+remain Traefik's native format. global Traefik configuration is unchanged;
+its 60s request-read timeout limits uploads, not inference duration.
+
+clients must also disable their own inference deadlines and retries:
+
+```python
+import os
+import httpx
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://api.ai.omv.mousses.xyz/v1",
+    api_key=os.environ["LITELLM_API_KEY"],
+    timeout=httpx.Timeout(None, connect=10, write=30, pool=10),
+    max_retries=0,
+)
+result = client.chat.completions.create(
+    model="glm-5.3-flash-abliterated",
+    messages=[{"role": "user", "content": "say hello in one sentence"}],
+    max_tokens=32,
+)
+```
+
+plain `timeout=None` also disables OpenAI SDK timeouts, including connection
+timeouts. HTTPX's explicit timeout object above retains connection/write
+bounds while allowing unlimited inference reads. curl has no total timeout
+unless you supply `--max-time`; use `--connect-timeout 10` and omit `--max-time`.
+the existing `validate_inference.py` is a diagnostic tool with its own bounded
+`--timeout`, not a setting for production inference.
+
+### operator rollout and verification
+
+the gateway has one replica and uses `Recreate`. stop submitting work and wait
+for active gateway requests to finish before rollout; the Kubernetes grace
+period is not an unlimited drain. on the NAS, after merging these changes:
+
+```sh
+git switch develop
+git pull --ff-only
+bash apps/litellm/tests/deploy-test.sh
+bash apps/litellm/tests/reliability-test.sh
+kubectl -n litellm exec -i deployment/litellm -c litellm -- \
+  python - --idle-only < apps/litellm/verify_reliability.py
+./apps/litellm/deploy.sh
+kubectl -n litellm rollout status deployment/litellm --timeout=10m
+kubectl -n litellm get pods -o wide
+kubectl -n litellm exec -i deployment/litellm -c litellm -- python - \
+  < apps/litellm/verify_reliability.py
+```
+
+the contract suite runs the pinned deployment image with networking disabled;
+its fake backends use container loopback only. `CONTAINER_RUNTIME=podman` is
+also supported. the operator verifier uses the existing in-pod credential and
+prints only versions, policy and HTTP status/code/request IDs. it does not
+print credentials, prompts or generated content. optionally perform one real
+chat smoke, which may load a model and evict idle models:
+
+```sh
+kubectl -n litellm exec -i deployment/litellm -c litellm -- \
+  python - --model glm-5.3-flash-abliterated \
+  < apps/litellm/verify_reliability.py
+```
+
+paste the status output for live acceptance. local fixtures do not prove NAS
+rollout, public ingress behavior, or recovery after a real machine reboot.
+
+the idle check counts its own request; it aborts when other requests remain.
+keep callers stopped between that check and rollout. do not use LiteLLM's
+`/health/drain` as an unlimited waiting room: that endpoint also marks
+liveness failed, allowing Kubernetes to terminate a still-busy pod.
+
 ## Admin UI through Traefik and Authentik
 
 The Admin UI uses the separate host `admin.ai.omv.mousses.xyz`; the public

@@ -15,7 +15,7 @@ data:
           model: openai/qwen3.8-27b
           api_base: http://qwen-redqueen:8081/v1
           api_key: os.environ/QWEN_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           # Alibaba Model Studio international list rate, USD-converted; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.000000544
@@ -30,7 +30,7 @@ data:
           model: openai/gemma-4-e4b-it
           api_base: http://qwen-redqueen:8081/v1
           api_key: os.environ/QWEN_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           # DeepInfra hosted Gemma 4 E4B list rate; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.00000002
@@ -42,7 +42,7 @@ data:
           model: openai/gemma-4-12b-it
           api_base: http://qwen-redqueen:8081/v1
           api_key: os.environ/QWEN_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           # SiliconFlow hosted Gemma 4 12B list rate; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.0000001
@@ -54,7 +54,7 @@ data:
           model: openai/gemma-4-26b-a4b-it
           api_base: http://qwen-redqueen:8081/v1
           api_key: os.environ/QWEN_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           # SiliconFlow hosted Gemma 4 26B-A4B list rate; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.00000014
@@ -66,7 +66,7 @@ data:
           model: openai/qwen3.6-35b-a3b
           api_base: http://qwen-redqueen:8081/v1
           api_key: os.environ/QWEN_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           # SiliconFlow hosted Qwen3.6 35B-A3B list rate; see AI_INFERENCE_PLAN.md.
           input_cost_per_token: 0.00000024
@@ -78,7 +78,7 @@ data:
           model: openai/glm-5.3-flash-abliterated
           api_base: http://qwen-redqueen:8081/v1
           api_key: os.environ/QWEN_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           # Z.AI base GLM-5.3-Flash API rate; the ablated derivative has no hosted API price.
           input_cost_per_token: 0.00000015
@@ -93,7 +93,7 @@ data:
           model: openai/embeddinggemma-2
           api_base: http://qwen-redqueen:8081/v1
           api_key: os.environ/QWEN_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           mode: embedding
           # Google Gemini Embedding 2 Standard online text-input rate; proxy benchmark, see AI_INFERENCE_PLAN.md.
@@ -103,19 +103,19 @@ data:
           model: openai/qwen-image-2.1
           api_base: http://qwen-image-redqueen:8190/v1
           api_key: os.environ/QWEN_IMAGE_API_KEY
-          timeout: 900
+          max_retries: 0
       - model_name: qwen-image-2.1-uncensored
         litellm_params:
           model: openai/qwen-image-2.1-uncensored
           api_base: http://qwen-image-redqueen:8190/v1
           api_key: os.environ/QWEN_IMAGE_API_KEY
-          timeout: 900
+          max_retries: 0
       - model_name: jevk5-4b-v0.3
         litellm_params:
           model: openai/jevk5-4b-v0.3
           api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
           api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           mode: evaluation
       - model_name: clm-v0.1-8b
@@ -123,7 +123,7 @@ data:
           model: openai/clm-v0.1-8b
           api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
           api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           mode: evaluation
       - model_name: clef-flash-bf16
@@ -131,7 +131,7 @@ data:
           model: openai/clef-flash-bf16
           api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
           api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           mode: evaluation
       - model_name: clef-flash-q8
@@ -139,7 +139,7 @@ data:
           model: openai/clef-flash-q8
           api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
           api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           mode: evaluation
       - model_name: clef-flash-q4
@@ -147,7 +147,7 @@ data:
           model: openai/clef-flash-q4
           api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
           api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           mode: evaluation
       - model_name: clef-flash
@@ -155,7 +155,7 @@ data:
           model: openai/clef-flash-bf16
           api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
           api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           mode: evaluation
       - model_name: clef-q4
@@ -163,18 +163,28 @@ data:
           model: openai/clef-q4
           api_base: os.environ/REDQUEEN_DECISIONS_API_BASE
           api_key: os.environ/REDQUEEN_DECISIONS_API_KEY
-          timeout: 900
+          max_retries: 0
         model_info:
           mode: evaluation
+
+    router_settings:
+      num_retries: 0
+      max_fallbacks: 0
+      fallbacks: []
+      context_window_fallbacks: []
+      content_policy_fallbacks: []
+      disable_cooldowns: true
 
     litellm_settings:
       callbacks:
         - prometheus
         - redqueen_costs.cost_registry
+        - redqueen_callbacks.reliability
       json_logs: true
       key_alias_pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
       redact_messages_in_exceptions: true
-      request_timeout: 900
+      num_retries: 0
+      sse_keepalive_ping_interval_seconds: 15
       set_verbose: false
       turn_off_message_logging: true
 

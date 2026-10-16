@@ -1,6 +1,12 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: litellm
+configMapGenerator:
+  - name: redqueen-gateway-policy
+    files:
+      - redqueen_reliability.py
+      - redqueen_gateway.py
+      - redqueen_callbacks.py
 resources:
   - namespace.yaml
   - storage-class.yaml

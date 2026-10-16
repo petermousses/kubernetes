@@ -15,6 +15,7 @@ spec:
       match: Host(`api.ai.omv.mousses.xyz`) && (Method(`GET`) || Method(`POST`)) && (Path(`/v1/responses`) || PathPrefix(`/v1/responses/`))
       middlewares:
         - name: security-headers
+        - name: inference-admission
         - name: request-limits
       services:
         - name: litellm
@@ -23,6 +24,7 @@ spec:
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/chat/completions`)
       middlewares:
         - name: security-headers
+        - name: inference-admission
         - name: request-limits
       services:
         - name: litellm
@@ -31,6 +33,7 @@ spec:
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/chat/completions/input_tokens`)
       middlewares:
         - name: security-headers
+        - name: inference-admission
         - name: request-limits
       services:
         - name: litellm
@@ -39,6 +42,7 @@ spec:
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/embeddings`)
       middlewares:
         - name: security-headers
+        - name: inference-admission
         - name: request-limits
       services:
         - name: litellm
@@ -47,6 +51,7 @@ spec:
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`GET`) && (Path(`/v1/models`) || PathPrefix(`/v1/models/`))
       middlewares:
         - name: security-headers
+        - name: inference-admission
         - name: request-limits
       services:
         - name: litellm
@@ -55,6 +60,7 @@ spec:
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/systemone`)
       middlewares:
         - name: security-headers
+        - name: inference-admission
         - name: request-limits
       services:
         - name: litellm
@@ -63,6 +69,7 @@ spec:
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/decisions`)
       middlewares:
         - name: security-headers
+        - name: inference-admission
         - name: request-limits
       services:
         - name: litellm
@@ -71,6 +78,7 @@ spec:
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/images/generations`)
       middlewares:
         - name: security-headers
+        - name: inference-admission
         - name: request-limits
       services:
         - name: litellm
@@ -79,6 +87,7 @@ spec:
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/images/edits`)
       middlewares:
         - name: security-headers
+        - name: inference-admission
         - name: request-limits
       services:
         - name: litellm
@@ -87,6 +96,7 @@ spec:
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/typesafe/v1/systemone`)
       middlewares:
         - name: security-headers
+        - name: inference-admission
         - name: request-limits
       services:
         - name: litellm
@@ -95,6 +105,7 @@ spec:
       match: Host(`api.ai.omv.mousses.xyz`) && Method(`GET`) && Path(`/typesafe/v1/models`)
       middlewares:
         - name: security-headers
+        - name: inference-admission
         - name: request-limits
       services:
         - name: litellm

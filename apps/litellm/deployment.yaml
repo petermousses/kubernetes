@@ -98,6 +98,9 @@ spec:
           # ghcr.io/berriai/litellm:v1.104.2; pinned GHCR OCI index digest.
           image: ghcr.io/berriai/litellm@sha256:3d88bd757134a00e8c00237b85a021ab1f6d54abb9c1df750f411dbe7256a500
           imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /etc/litellm/redqueen_gateway.py
           args:
             - --config
             - /etc/litellm/config.yaml
@@ -212,6 +215,18 @@ spec:
               mountPath: /etc/litellm/redqueen_costs.py
               subPath: redqueen_costs.py
               readOnly: true
+            - name: policy
+              mountPath: /etc/litellm/redqueen_reliability.py
+              subPath: redqueen_reliability.py
+              readOnly: true
+            - name: policy
+              mountPath: /etc/litellm/redqueen_gateway.py
+              subPath: redqueen_gateway.py
+              readOnly: true
+            - name: policy
+              mountPath: /etc/litellm/redqueen_callbacks.py
+              subPath: redqueen_callbacks.py
+              readOnly: true
             - name: cache
               mountPath: /app/cache
             - name: migrations
@@ -219,6 +234,9 @@ spec:
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: policy
+          configMap:
+            name: redqueen-gateway-policy
         - name: config
           configMap:
             name: litellm-config
