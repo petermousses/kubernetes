@@ -691,6 +691,59 @@ def upload_complete(source, identifier):
                 item.get("reason") == "WaitingForManual" for item in status.get("conditions", [])))
 
 
+def failed_upload_lock(component, source, not_before):
+    name = "volsync-src-" + component + "-backup"
+    job = setup.get_object("job", name, NS)
+    if (not job or job.get("status", {}).get("succeeded", 0) > 0 or not any(
+            item.get("kind") == "ReplicationSource" and item.get("controller") is True and
+            item.get("uid") == source["metadata"]["uid"]
+            for item in job["metadata"].get("ownerReferences", []))):
+        return None
+    pods = json.loads(setup.kube("get", "pods", "-n", NS, "-l", "batch.kubernetes.io/job-name=" + name,
+                                 "-o", "json", capture=True, sensitive=True).stdout)["items"]
+    for pod in pods:
+        if not any(owner.get("kind") == "Job" and owner.get("controller") is True and
+                   owner.get("uid") == job["metadata"]["uid"]
+                   for owner in pod["metadata"].get("ownerReferences", [])):
+            continue
+        failed = [item.get("state", {}).get("terminated", {})
+                  for item in pod.get("status", {}).get("containerStatuses", []) if item.get("name") == "restic"]
+        if not any(item.get("exitCode") == 11 and item.get("finishedAt") and
+                   datetime.fromisoformat(item["finishedAt"]) >= datetime.fromisoformat(not_before) for item in failed):
+            continue
+        logs = setup.kube("logs", "-n", NS, pod["metadata"]["name"], "-c", "restic", "--tail=100",
+                          capture=True, sensitive=True, check=False, timeout=15)
+        if not logs.returncode and "repository is already locked" in logs.stdout:
+            return {"job": job, "pod": pod, "mover_logs": logs.stdout}
+    return None
+
+
+def stop_failed_upload(component, identifier, source_uid, evidence_prefix, reason, diagnostics=None):
+    path = setup.RECOVERY / (evidence_prefix + "-" + component + "-upload-failure.json")
+    evidence = {"backup_id": identifier, "component": component, "failed_at": now(), "reason": reason,
+                "source_uid": source_uid, "diagnostics": diagnostics or {}}
+    save(path, evidence)
+    for attempt in range(5):
+        source = setup.get_object("replicationsource", component + "-backup", NS)
+        if (not source or source["metadata"].get("uid") != source_uid or
+                source["metadata"].get("labels", {}).get("app.kubernetes.io/managed-by") != setup.MANAGER or
+                source["spec"].get("trigger") != {"manual": identifier}):
+            raise setup.SetupError(reason + "; source identity changed, pause not confirmed; private evidence: " + str(path))
+        evidence["source"] = source
+        save(path, evidence)
+        if source["spec"].get("paused") is True:
+            break
+        try:
+            guarded_patch("replicationsource", component + "-backup", source,
+                          [{"op": "add", "path": "/spec/paused", "value": True}])
+            break
+        except setup.SetupError:
+            if attempt == 4:
+                raise setup.SetupError(reason + "; could not pause uploader; private evidence: " + str(path))
+            time.sleep(0.2)
+    raise setup.SetupError(reason + "; uploader paused, published capture retained; private evidence: " + str(path))
+
+
 def upload(component, identifier, *, evidence_prefix="initial"):
     evidence_name(identifier, evidence_prefix)
     if not inspect_artifacts(component, identifier):
@@ -699,6 +752,8 @@ def upload(component, identifier, *, evidence_prefix="initial"):
     source = setup.get_object("replicationsource", component + "-backup", NS)
     if not source or source["spec"].get("trigger", {}).get("manual") not in (PLACEHOLDER, identifier):
         raise setup.SetupError("upload source generation changed")
+    source_uid = source["metadata"]["uid"]
+    started_at = now()
     if source["spec"].get("paused"):
         ensure_source_idle(component, identifier)
         guarded_patch("replicationsource", component + "-backup", source,
@@ -707,17 +762,26 @@ def upload(component, identifier, *, evidence_prefix="initial"):
     deadline, last_message = time.monotonic() + 7200, 0
     while time.monotonic() < deadline:
         source = setup.get_object("replicationsource", component + "-backup", NS)
-        if not source or source["spec"].get("trigger") != {"manual": identifier}:
+        if (not source or source["metadata"].get("uid") != source_uid or
+                source["spec"].get("trigger") != {"manual": identifier}):
             raise setup.SetupError("upload generation changed while synchronizing")
         if upload_complete(source, identifier):
             save(setup.RECOVERY / (evidence_prefix + "-" + component + "-volsync-result.json"), source)
             print(component + " VolSync upload, retention, and cleanup completed", flush=True)
             return
+        failure = failed_upload_lock(component, source, started_at)
+        if failure:
+            stop_failed_upload(component, identifier, source_uid, evidence_prefix,
+                               "repository lock blocked " + component + " upload/retention", failure)
+        if source["spec"].get("paused"):
+            stop_failed_upload(component, identifier, source_uid, evidence_prefix,
+                               "uploader was paused before completion")
         if time.monotonic() - last_message >= 60:
             print("waiting for " + component + " VolSync upload and cleanup", flush=True)
             last_message = time.monotonic()
         time.sleep(5)
-    raise setup.SetupError("upload did not complete within two hours; published capture retained")
+    stop_failed_upload(component, identifier, source_uid, evidence_prefix,
+                       "upload did not complete within two hours")
 
 
 def verify_backup(component, identifier, *, evidence_prefix="initial", retention_proof=False):
