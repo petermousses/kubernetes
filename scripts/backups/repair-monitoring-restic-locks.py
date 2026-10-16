@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repair the two identified Prometheus restore locks without discarding backups."""
+"""Repair the three identified Prometheus restore locks without discarding backups."""
 
 from contextlib import ExitStack
 import hashlib
@@ -25,12 +25,18 @@ GENERATION = "daily-7a82a14ce1b9511bdd5c8c89e82d8811"
 INITIAL = "initial-6f62df260568e7a5b67cf6e19177a5f1"
 RESTORE_NS = "monitoring-restore-validation"
 DESTINATION = "prometheus-restore-initial"
-JOB_PREFIX = "prometheus-restic-lock-repair-"
+JOB_PREFIX = "prometheus-restic-lock-repair-v2-"
+JOB_RECORD = "prometheus-restic-lock-repair-v2-job.json"
 LOCKS = {
-    "76d80c23": {"hostname": "volsync-dst-prometheus-restore-initial-4vrpd", "pid": 58,
-                 "time": "2026-10-15T15:47:54+00:00", "uid": 999, "gid": 999},
-    "b475b721": {"hostname": "volsync-dst-prometheus-restore-initial-x29bf", "pid": 55,
-                 "time": "2026-10-15T15:45:51+00:00", "uid": 999, "gid": 999},
+    "76d80c23d4c58d6deafc50065b29ac6838e1c60c0fd0ce73d36bdfb9bb1e98df": {
+        "hostname": "volsync-dst-prometheus-restore-initial-4vrpd", "pid": 58,
+        "time": "2026-10-15T15:47:54.308138194Z", "uid": 999, "gid": 999},
+    "b475b721814cd43dbc057b772106751820e27055d2a183cb54828fa08c1921a4": {
+        "hostname": "volsync-dst-prometheus-restore-initial-x29bf", "pid": 55,
+        "time": "2026-10-15T15:45:51.426468029Z", "uid": 999, "gid": 999},
+    "c07febb32965bb815241c675027e76aaaaa4d6c6ff1f43fe2fb9c6cbe93163d7": {
+        "hostname": "volsync-dst-prometheus-restore-initial-h6n8d", "pid": 57,
+        "time": "2026-10-15T15:46:34.961307611Z", "uid": 999, "gid": 999},
 }
 
 REPAIR_CODE = r'''
@@ -51,6 +57,15 @@ def identifiers(kind):
         raise SystemExit("unexpected repository identifier inventory")
     return sorted(values)
 
+def created_at(value):
+    # Python 3.9 in the mover cannot directly parse RFC3339Nano ending in Z.
+    # Keep the full timestamp for identity; normalize only the age calculation.
+    match = re.fullmatch(r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]{1,9}))?Z", value)
+    if not match:
+        raise SystemExit("invalid restore lock timestamp; no locks changed")
+    fraction = (match[2] or "").ljust(6, "0")[:6]
+    return datetime.fromisoformat(match[1] + "." + fraction + "+00:00")
+
 before = identifiers("snapshots")
 if os.environ["EXPECTED_INITIAL_SNAPSHOT"] not in before:
     raise SystemExit("the verified initial snapshot is missing; no locks changed")
@@ -59,19 +74,16 @@ inventory = [{"id": value, "lock": json.loads(command("cat", "lock", value))} fo
 print("RESTIC_LOCK_INVENTORY_JSON=" + json.dumps(inventory, sort_keys=True), flush=True)
 seen = set()
 for item in inventory:
-    matches = [prefix for prefix in policy if item["id"].startswith(prefix)]
-    if len(matches) != 1 or matches[0] in seen:
+    if item["id"] not in policy or item["id"] in seen:
         raise SystemExit("unknown repository lock; no locks changed")
-    prefix = matches[0]
-    expected, lock = policy[prefix], item["lock"]
-    created = datetime.fromisoformat(lock["time"])
-    expected_time = datetime.fromisoformat(expected["time"])
-    if (created.tzinfo is None or lock.get("hostname") != expected["hostname"] or
+    expected, lock = policy[item["id"]], item["lock"]
+    created = created_at(lock["time"])
+    if (lock["time"] != expected["time"] or lock.get("hostname") != expected["hostname"] or
             lock.get("pid") != expected["pid"] or lock.get("uid") != expected["uid"] or lock.get("gid") != expected["gid"] or
-            lock.get("exclusive") is not False or abs((created - expected_time).total_seconds()) >= 1 or
+            lock.get("exclusive") is not False or
             (datetime.now(timezone.utc) - created).total_seconds() < 3600):
         raise SystemExit("restore lock identity or age differs; no locks changed")
-    seen.add(prefix)
+    seen.add(item["id"])
 
 # Re-read immediately before the default, stale-only unlock. An empty or partial
 # approved inventory also permits recovery after an interrupted earlier repair.
@@ -189,7 +201,7 @@ def job_template(initial_snapshot):
 
 
 def recorded_job(expected):
-    record_path = setup.RECOVERY / "prometheus-restic-lock-repair-job.json"
+    record_path = setup.RECOVERY / JOB_RECORD
     if not record_path.exists() and not record_path.is_symlink():
         return None
     record = native.saved(record_path)
@@ -209,7 +221,7 @@ def terminal(job, types=("Complete", "Failed", "FailureTarget")):
 
 
 def run_job(expected, *, reattach_only=False):
-    record_path = setup.RECOVERY / "prometheus-restic-lock-repair-job.json"
+    record_path = setup.RECOVERY / JOB_RECORD
     current = recorded_job(expected)
     if current and terminal(current, ("Failed", "FailureTarget")) and not reattach_only:
         print("previous failed repair Job retained: " + current["metadata"]["name"], flush=True)
