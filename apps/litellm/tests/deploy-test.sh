@@ -213,31 +213,9 @@ if grep -Fxq 'kind: Ingress' "${app_root}/ingress.yaml"; then
   exit 1
 fi
 
-readonly public_host='Host(`api.ai.omv.mousses.xyz`)'
-readonly -a public_api_rules=(
-  "${public_host} && (Method(\`GET\`) || Method(\`POST\`)) && (Path(\`/v1/responses\`) || PathPrefix(\`/v1/responses/\`))"
-  "${public_host} && Method(\`POST\`) && Path(\`/v1/chat/completions\`)"
-  "${public_host} && Method(\`POST\`) && Path(\`/v1/chat/completions/input_tokens\`)"
-  "${public_host} && Method(\`POST\`) && Path(\`/v1/embeddings\`)"
-  "${public_host} && Method(\`GET\`) && (Path(\`/v1/models\`) || PathPrefix(\`/v1/models/\`))"
-  "${public_host} && Method(\`POST\`) && Path(\`/v1/systemone\`)"
-  "${public_host} && Method(\`POST\`) && Path(\`/v1/decisions\`)"
-  "${public_host} && Method(\`POST\`) && Path(\`/v1/images/generations\`)"
-  "${public_host} && Method(\`POST\`) && Path(\`/v1/images/edits\`)"
-  "${public_host} && Method(\`POST\`) && Path(\`/typesafe/v1/systemone\`)"
-  "${public_host} && Method(\`GET\`) && Path(\`/typesafe/v1/models\`)"
-)
-for public_api_rule in "${public_api_rules[@]}"; do
-  if ! grep -Fq -- "match: ${public_api_rule}" "${app_root}/ingress.yaml"; then
-    printf 'public API IngressRoute is missing its rule: %s\n' \
-      "${public_api_rule}" >&2
-    exit 1
-  fi
-done
-
 public_rule_count="$(grep -Ec '^[[:space:]]+match: ' "${app_root}/ingress.yaml")"
-if [[ "${public_rule_count}" -ne "${#public_api_rules[@]}" ]]; then
-  printf 'public API IngressRoute must contain only the approved exact route rules\n' >&2
+if [[ "${public_rule_count}" -ne 1 ]]; then
+  printf 'public API admission must use one shared Traefik router\n' >&2
   exit 1
 fi
 if grep -Fq 'PathPrefix(`/v1/responses`)' "${app_root}/ingress.yaml" \
@@ -245,6 +223,17 @@ if grep -Fq 'PathPrefix(`/v1/responses`)' "${app_root}/ingress.yaml" \
   printf 'route-family prefixes must end in / to prevent prefix confusion\n' >&2
   exit 1
 fi
+
+for approved_path in \
+  '/v1/responses/' '/v1/chat/completions' '/v1/chat/completions/input_tokens' \
+  '/v1/embeddings' '/v1/models/' '/v1/systemone' '/v1/decisions' \
+  '/v1/images/generations' '/v1/images/edits' \
+  '/typesafe/v1/systemone' '/typesafe/v1/models'; do
+  if ! grep -Fq -- "${approved_path}" "${app_root}/ingress.yaml"; then
+    printf 'public API IngressRoute is missing approved path: %s\n' "${approved_path}" >&2
+    exit 1
+  fi
+done
 
 for required_line in \
   'apiVersion: traefik.io/v1alpha1' \
@@ -267,8 +256,8 @@ for repeated_line in \
   '        - name: litellm' \
   '          port: http'; do
   repeated_line_count="$(grep -Fxc "${repeated_line}" "${app_root}/ingress.yaml")"
-  if [[ "${repeated_line_count}" -ne "${#public_api_rules[@]}" ]]; then
-    printf 'each public route must contain required configuration: %s\n' \
+  if [[ "${repeated_line_count}" -ne 1 ]]; then
+    printf 'the shared public route must contain required configuration: %s\n' \
       "${repeated_line}" >&2
     exit 1
   fi
