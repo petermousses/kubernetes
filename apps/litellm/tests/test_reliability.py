@@ -4,6 +4,7 @@ import contextlib
 import importlib.metadata
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import unittest
@@ -17,14 +18,14 @@ from aiohttp import web
 import httpx
 import litellm
 import yaml
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from litellm.proxy import proxy_server
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.types_utils.utils import get_instance_fn
 from redqueen_reliability import (
-    INFERENCE_TIMEOUT, JSONStructure, LimitedStream, RedqueenErrors, enforce_policy,
-    reliability, safe_failure, safe_retry_after,
+    INFERENCE_TIMEOUT, JSONStructure, LimitedStream, REQUEST_STATE, RedqueenErrors,
+    enforce_policy, is_redqueen, reliability, safe_failure, safe_retry_after,
 )
 
 
@@ -102,7 +103,7 @@ class GatewayContracts(unittest.IsolatedAsyncioTestCase):
                            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
             response = web.StreamResponse(headers={"content-type": "application/json", "x-request-id": "backend-contract-id"})
             await response.prepare(request)
-            body = b"{invalid" if self.mode == "invalid-json" else b'{"x":' + b'[' * 65 + b'0' + b']' * 65 + b'}' if self.mode == "structural" else json.dumps(payload).encode()
+            body = b"{invalid" if self.mode == "invalid-json" else b'{"x":' + b'[' * 65 + b'0' + b']' * 65 + b'}' if self.mode == "structural" else '{"x":1}'.encode("utf-16") if self.mode == "utf16" else json.dumps(payload).encode()
             await response.write(body[:11]); await asyncio.sleep(0); await response.write(body[11:])
             await response.write_eof()
             return response
@@ -383,10 +384,40 @@ class GatewayContracts(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.attempts, 0)
 
     async def test_malformed_request_options_are_400_before_backend(self):
-        for field, value in (("extra_headers", "not-an-object"), ("extra_headers", {"x-unsafe": []}), ("extra_body", [])):
+        for field, value in (
+            ("extra_headers", "not-an-object"), ("extra_headers", {"x-unsafe": []}),
+            ("extra_headers", {"Bad Name": "value"}), ("extra_headers", {"x-test": "café"}),
+            ("extra_headers", {"x-test": "bad\r\nsecret: value"}),
+            ("extra_headers", {"x-test": "bad\x00value"}),
+            ("extra_headers", {"x-test": " leading"}), ("extra_body", []),
+        ):
             response = await self.client.post("/v1/chat/completions", json=self.body(**{field: value}))
             self.assertEqual(response.status_code, 400, response.text)
         self.assertEqual(self.attempts, 0)
+
+    async def test_caller_request_id_is_replaced_without_duplicate_headers(self):
+        response = await self.client.post("/v1/chat/completions", headers={"x-request-id": "request-contract"}, json=self.body(extra_headers={"X-Request-ID": "caller-id", "x-request-id": "duplicate-id"}))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.requests[-1].headers.getall("x-request-id", []), ["request-contract"])
+
+    async def test_request_json_encoding_is_strict_utf8_before_backend(self):
+        invalid = [
+            json.dumps(self.body()).encode("utf-16"),
+            b'{"model":"qwen3.8-27b","messages":[],"value":"\\ud800"}',
+            b'{"model":"qwen3.8-27b","messages":[],"value":NaN}',
+            b'{"model":"qwen3.8-27b","messages":[],"value":"x\xff"}',
+        ]
+        for body in invalid:
+            response = await self.client.post("/v1/chat/completions", content=body)
+            self.assertEqual(response.status_code, 400, response.text)
+        self.assertEqual(self.attempts, 0)
+
+    async def test_upstream_utf16_json_is_502(self):
+        self.mode = "utf16"
+        response = await self.client.post("/v1/chat/completions", json=self.body())
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertEqual(response.json()["error"]["code"], "invalid_upstream_response")
+        self.assertEqual(self.attempts, 1)
 
     async def test_upload_cap_is_413_without_backend_attempt(self):
         with patch("redqueen_reliability.MAX_REQUEST_BYTES", 32):
@@ -433,9 +464,39 @@ class PolicyTests(unittest.TestCase):
     def test_ingress_admission_precedes_buffering_on_every_route(self):
         root = Path(__file__).resolve().parents[1]
         ingress = yaml.safe_load((root / "ingress.yaml").read_text())
-        for route in ingress["spec"]["routes"]:
-            names = [middleware["name"] for middleware in route["middlewares"]]
-            self.assertLess(names.index("inference-admission"), names.index("request-limits"))
+        routes = ingress["spec"]["routes"]
+        self.assertEqual(len(routes), 1, "the 16 request limit must share one Traefik router")
+        names = [middleware["name"] for middleware in routes[0]["middlewares"]]
+        self.assertLess(names.index("inference-admission"), names.index("request-limits"))
+        expression = re.sub(r"(Host|Method|PathPrefix|Path)\(`([^`]*)`\)", r"\1('\2')", routes[0]["match"])
+        expression = expression.replace("&&", " and ").replace("||", " or ")
+        self.assertNotIn("PathPrefix(`/v1/responses`)", routes[0]["match"])
+
+        def matches(host, method, path):
+            namespace = {
+                "Host": lambda expected: host == expected,
+                "Method": lambda expected: method == expected,
+                "Path": lambda expected: path == expected,
+                "PathPrefix": lambda expected: path.startswith(expected),
+            }
+            return eval(expression, {"__builtins__": {}}, namespace)
+
+        for method, path in (
+            ("GET", "/v1/responses"), ("POST", "/v1/responses/resp/cancel"),
+            ("POST", "/v1/chat/completions"), ("POST", "/v1/chat/completions/input_tokens"),
+            ("POST", "/v1/images/edits"), ("GET", "/v1/models/qwen3.8-27b"),
+            ("POST", "/typesafe/v1/systemone"), ("GET", "/typesafe/v1/models"),
+        ):
+            self.assertTrue(matches("api.ai.omv.mousses.xyz", method, path), (method, path))
+        for host, method, path in (
+            ("other.example", "POST", "/v1/chat/completions"),
+            ("api.ai.omv.mousses.xyz", "GET", "/v1/chat/completions"),
+            ("api.ai.omv.mousses.xyz", "POST", "/v1/models"),
+            ("api.ai.omv.mousses.xyz", "PUT", "/v1/images/edits"),
+            ("api.ai.omv.mousses.xyz", "GET", "/v1/responsesx"),
+            ("api.ai.omv.mousses.xyz", "POST", "/typesafe/v1/models"),
+        ):
+            self.assertFalse(matches(host, method, path), (host, method, path))
         policies = list(yaml.safe_load_all((root / "request-limits.yaml").read_text()))
         self.assertEqual(policies[0]["spec"]["inFlightReq"]["amount"], 16)
 
@@ -463,6 +524,28 @@ class ByteLimitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["error"]["code"], "internal_error")
         self.assertNotIn("secret", response.text)
         self.assertNotIn("secret", "".join(logs.output))
+
+    async def test_bodyless_response_cancel_is_admitted_and_keeps_redqueen_error_code(self):
+        app = FastAPI()
+
+        @app.post("/v1/responses/{response_id}/cancel")
+        async def cancel(request: Request):
+            state = REQUEST_STATE.get()
+            self.assertTrue(state["redqueen_route"])
+            self.assertTrue(is_redqueen({}))
+            request_id = state["request_id"]
+            upstream = httpx.Response(503, headers={"retry-after": "1"}, json={"error": {"code": "capacity_unavailable"}})
+            exception = httpx.HTTPStatusError("capacity", request=httpx.Request("POST", "http://upstream/cancel"), response=upstream)
+            status, error, headers = safe_failure(exception, request_id)
+            return JSONResponse({"error": error}, status_code=status, headers=headers)
+
+        from fastapi.responses import JSONResponse
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=RedqueenErrors(app)), base_url="http://fixture") as client:
+            for content in (b"", b"{}"):
+                response = await client.post("/v1/responses/resp_contract/cancel", content=content)
+                self.assertEqual(response.status_code, 503, response.text)
+                self.assertEqual(response.json()["error"]["code"], "capacity_unavailable")
+                self.assertEqual(response.headers.get("retry-after"), "1")
 
     async def test_admission_rejects_before_reading_or_parsing_upload(self):
         entered, release = asyncio.Event(), asyncio.Event()

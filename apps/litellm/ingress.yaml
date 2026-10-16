@@ -12,97 +12,20 @@ spec:
     - websecure
   routes:
     - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && (Method(`GET`) || Method(`POST`)) && (Path(`/v1/responses`) || PathPrefix(`/v1/responses/`))
-      middlewares:
-        - name: security-headers
-        - name: inference-admission
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/chat/completions`)
-      middlewares:
-        - name: security-headers
-        - name: inference-admission
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/chat/completions/input_tokens`)
-      middlewares:
-        - name: security-headers
-        - name: inference-admission
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/embeddings`)
-      middlewares:
-        - name: security-headers
-        - name: inference-admission
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`GET`) && (Path(`/v1/models`) || PathPrefix(`/v1/models/`))
-      middlewares:
-        - name: security-headers
-        - name: inference-admission
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/systemone`)
-      middlewares:
-        - name: security-headers
-        - name: inference-admission
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/decisions`)
-      middlewares:
-        - name: security-headers
-        - name: inference-admission
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/images/generations`)
-      middlewares:
-        - name: security-headers
-        - name: inference-admission
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/v1/images/edits`)
-      middlewares:
-        - name: security-headers
-        - name: inference-admission
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`POST`) && Path(`/typesafe/v1/systemone`)
-      middlewares:
-        - name: security-headers
-        - name: inference-admission
-        - name: request-limits
-      services:
-        - name: litellm
-          port: http
-    - kind: Rule
-      match: Host(`api.ai.omv.mousses.xyz`) && Method(`GET`) && Path(`/typesafe/v1/models`)
+      match: >-
+        Host(`api.ai.omv.mousses.xyz`) && (
+          ((Method(`GET`) || Method(`POST`)) &&
+            (Path(`/v1/responses`) || PathPrefix(`/v1/responses/`))) ||
+          (Method(`POST`) &&
+            (Path(`/v1/chat/completions`) ||
+             Path(`/v1/chat/completions/input_tokens`) ||
+             Path(`/v1/embeddings`) || Path(`/v1/systemone`) ||
+             Path(`/v1/decisions`) || Path(`/v1/images/generations`) ||
+             Path(`/v1/images/edits`) || Path(`/typesafe/v1/systemone`))) ||
+          (Method(`GET`) &&
+            (Path(`/v1/models`) || PathPrefix(`/v1/models/`) ||
+             Path(`/typesafe/v1/models`)))
+        )
       middlewares:
         - name: security-headers
         - name: inference-admission

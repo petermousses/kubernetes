@@ -50,7 +50,8 @@ before starting the upstream CLI. see the pinned [provider source](https://githu
 and [callback interface](https://github.com/BerriAI/litellm/blob/v1.104.2/litellm/integrations/custom_logger.py).
 
 the application limits active requests to four before reading their bodies;
-Traefik's admission limit of 16 runs before upload buffering. uploads are
+all approved public paths use one Traefik router, so its shared admission limit
+of 16 runs before upload buffering. uploads are
 limited to 44 MiB, upstream JSON to 64 MiB, upstream error bodies to 64 KiB,
 and individual SSE frames to 256 KiB. JSON is scanned before decoding and
 limited to depth 64 and 250,000 structural markers, excluding quoted contents.

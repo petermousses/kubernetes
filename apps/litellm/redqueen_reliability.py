@@ -61,7 +61,34 @@ ERROR_DEFAULTS = {
 }
 SAFE_TOKEN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 JSON_TOKENS = re.compile(rb'\\.|["{}\[\],:]|\\$')
+HEADER_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+RESPONSE_CANCEL = re.compile(r"^/v1/responses/[^/]+/cancel$")
 LOGGER = logging.getLogger("redqueen.gateway")
+
+
+class JSONEncodingError(ValueError):
+    """Invalid UTF-8 JSON encoding or Unicode scalar values."""
+
+
+def decode_json(body):
+    if not isinstance(body, (bytes, bytearray)) or b"\0" in body:
+        raise JSONEncodingError("JSON must use UTF-8 encoding")
+    try:
+        value = json.loads(bytes(body).decode("utf-8-sig"), parse_constant=lambda _: (_ for _ in ()).throw(ValueError("invalid JSON number")))
+    except (UnicodeDecodeError, ValueError, RecursionError) as error:
+        raise JSONEncodingError("body must be valid UTF-8 JSON") from error
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            if any(0xD800 <= ord(char) <= 0xDFFF for char in item):
+                raise JSONEncodingError("JSON contains an invalid Unicode surrogate")
+        elif isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+    return value
 
 
 def safe_retry_after(value):
@@ -88,6 +115,8 @@ class JSONStructure:
         self.in_string = self.escape_next = False
 
     def feed(self, chunk):
+        if b"\0" in chunk:
+            raise JSONEncodingError("JSON must use UTF-8 encoding")
         offset = 1 if self.escape_next and chunk else 0
         if chunk:
             self.escape_next = False
@@ -114,7 +143,7 @@ class JSONStructure:
 
 def is_redqueen(data):
     state = REQUEST_STATE.get()
-    if state is not None and state.get("path", "").startswith("/typesafe/"):
+    if state is not None and (state.get("path", "").startswith("/typesafe/") or state.get("redqueen_route")):
         return True
     model = data.get("model", "")
     return isinstance(model, str) and model.removeprefix("openai/") in MODELS
@@ -128,6 +157,9 @@ def enforce_policy(data):
     extra_headers = data.get("extra_headers") or {}
     if any(not isinstance(k, str) or not isinstance(v, str) for k, v in extra_headers.items()):
         raise HTTPException(status_code=400, detail="invalid request headers")
+    for name, value in extra_headers.items():
+        if not HEADER_NAME.fullmatch(name) or not value.isascii() or value != value.strip(" \t") or any(not (char == "\t" or 32 <= ord(char) <= 126) for char in value):
+            raise HTTPException(status_code=400, detail="invalid request headers")
     for key in POLICY_KEYS:
         data.pop(key, None)
     extra = data.get("extra_body")
@@ -140,7 +172,7 @@ def enforce_policy(data):
     data.update(fallbacks=None, context_window_fallbacks=None, content_policy_fallbacks=None)
     state = REQUEST_STATE.get()
     if state is not None:
-        extra_headers = dict(extra_headers)
+        extra_headers = {key: value for key, value in extra_headers.items() if key.lower() != "x-request-id"}
         extra_headers["x-request-id"] = state["request_id"]
         data["extra_headers"] = extra_headers
     return data
@@ -277,6 +309,7 @@ class LimitedStream(httpx.AsyncByteStream):
         size = 0
         tail = b""
         structure = JSONStructure()
+        body = bytearray()
         try:
             async for chunk in self.stream:
                 if self.sse:
@@ -296,11 +329,17 @@ class LimitedStream(httpx.AsyncByteStream):
                     size += len(chunk)
                     if size > self.limit:
                         raise httpx.DecodingError("upstream response exceeds size limit")
+                    body.extend(chunk)
                     try:
                         structure.feed(chunk)
                     except ValueError as error:
                         raise httpx.DecodingError("upstream JSON structure exceeds limit") from error
                 yield chunk
+            if not self.sse:
+                try:
+                    decode_json(body)
+                except ValueError as error:
+                    raise httpx.DecodingError("upstream response is not valid UTF-8 JSON") from error
         finally:
             await self.stream.aclose()
 
@@ -378,7 +417,8 @@ class RedqueenErrors:
             return await reject(429, "gateway_busy")
         self.active += 1
         scope = {**scope, "headers": [(k, v) for k, v in scope.get("headers", []) if k.lower() != b"x-request-id"] + [(b"x-request-id", request_id.encode())]}
-        state = {"request_id": request_id, "path": scope["path"]}
+        state = {"request_id": request_id, "path": scope["path"],
+                 "redqueen_route": RESPONSE_CANCEL.fullmatch(scope["path"]) is not None}
         token = REQUEST_STATE.set(state)
         start, error_bytes, sse = None, bytearray(), False
 
@@ -461,6 +501,7 @@ class RedqueenErrors:
             size, body = 0, bytearray()
             structure = JSONStructure()
             parse_json = scope["method"] in ("POST", "PUT", "PATCH") and not incoming.get(b"content-type", b"").lower().startswith(b"multipart/")
+            body_optional = scope["method"] == "POST" and state["redqueen_route"]
             try:
                 async with asyncio.timeout(UPLOAD_TIMEOUT):
                     while True:
@@ -477,15 +518,19 @@ class RedqueenErrors:
                         if parse_json:
                             try:
                                 structure.feed(chunk)
+                            except JSONEncodingError:
+                                upload_status = 400
+                                invalid_upload.set()
+                                return
                             except ValueError:
                                 upload_status = 413
                                 invalid_upload.set()
                                 return
                             body.extend(chunk)
                         if not message.get("more_body", False):
-                            if parse_json:
+                            if parse_json and (body or not body_optional):
                                 try:
-                                    value = json.loads(body)
+                                    value = decode_json(body)
                                     if not isinstance(value, dict):
                                         raise ValueError("object body required")
                                     del value
