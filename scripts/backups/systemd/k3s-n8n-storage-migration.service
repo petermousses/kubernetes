@@ -1,0 +1,19 @@
+# managed by nas-backup-migration
+[Unit]
+Description=separate n8n live storage from its backup directory
+After=k3s.service
+Requires=k3s.service
+OnFailure=k3s-n8n-storage-recovery.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -u /usr/local/lib/k3s-backups/n8n-storage/current/scripts/backups/migrate-n8n-storage.py --run
+ExecStopPost=/usr/bin/python3 -u /usr/local/lib/k3s-backups/n8n-storage/current/scripts/backups/migrate-n8n-storage.py --recover
+TimeoutStartSec=25min
+TimeoutStopSec=10min
+NoNewPrivileges=true
+PrivateTmp=true

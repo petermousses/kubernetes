@@ -24,6 +24,8 @@ spec:
         mousses.xyz/traefik-http-backend: "true"
     spec:
       automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
       dnsConfig:
         options:
           - name: ndots
@@ -89,7 +91,7 @@ spec:
       volumes:
         - name: n8n-data
           persistentVolumeClaim:
-            claimName: n8n-data
+            claimName: n8n-data-live
         - name: n8n-images
           persistentVolumeClaim:
             claimName: n8n-images
