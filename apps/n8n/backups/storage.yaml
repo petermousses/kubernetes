@@ -1,0 +1,166 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: n8n-backup-local
+provisioner: kubernetes.io/no-provisioner
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: n8n-restic-repositories
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: n8n-backup-local
+  claimRef:
+    namespace: n8n
+    name: restic-repositories
+  local:
+    path: /filesystem/k3s/data/n8n/backups
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: restic-repositories
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: n8n-backup-local
+  volumeName: n8n-restic-repositories
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: n8n-data-backup-staging
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: n8n-backup-local
+  claimRef:
+    namespace: n8n
+    name: data-backup-staging
+  local:
+    path: /filesystem/k3s/data/n8n/backup-staging/n8n-data-live
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: n8n-backup-local
+  volumeName: n8n-data-backup-staging
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: n8n-data-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: n8n-backup-local
+  claimRef:
+    namespace: n8n
+    name: volsync-src-data-backup-cache
+  local:
+    path: /filesystem/k3s/data/n8n/backup-cache/n8n-data-live/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: n8n-images-backup-staging
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: n8n-backup-local
+  claimRef:
+    namespace: n8n
+    name: images-backup-staging
+  local:
+    path: /filesystem/k3s/data/n8n/backup-staging/n8n-images
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: images-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: n8n-backup-local
+  volumeName: n8n-images-backup-staging
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: n8n-images-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: n8n-backup-local
+  claimRef:
+    namespace: n8n
+    name: volsync-src-images-backup-cache
+  local:
+    path: /filesystem/k3s/data/n8n/backup-cache/n8n-images/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
