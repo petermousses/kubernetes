@@ -40,7 +40,7 @@ for **each namespace**, in table order:
 
 ## stage 1 — least impact
 
-**backup onboarding complete, with the user's explicit verification deferrals:** SearXNG and monitoring automatic-run proofs remain open follow-ups. both timers are enabled; their scheduled execution is not yet verified. stage 2 and its first namespace retain separate approval gates.
+**backup onboarding complete, with the user's explicit verification deferrals:** SearXNG and monitoring automatic-run proofs remain open follow-ups. both timers are enabled; their scheduled execution is not yet verified. the user separately approved stage 2 and its first namespace, `n8n`, as recorded below.
 
 | namespace | writable data to protect (read-only: no) | retained OMV mounts (read-only: yes) | namespace steps and verification |
 | --- | --- | --- | --- |
@@ -52,9 +52,11 @@ stop after each namespace. after `monitoring`, obtain separate approval for stag
 
 ## stage 2 — medium impact
 
+**stage 2 and `n8n` separately approved.** begin with a read-only live inventory; later namespaces require their own explicit approval.
+
 | namespace | writable data to protect (read-only: no) | retained OMV mounts (read-only: yes) | namespace steps and verification |
 | --- | --- | --- | --- |
-| `n8n` | data and images | — | separate live data from the nested backup repository; coordinate database and image recovery. restore and verify workflows, credentials, and images. |
+| `n8n` | data and images | — | **approved; live inventory pending.** separate live data from the nested backup repository; coordinate database and image recovery. restore and verify workflows, credentials, and images. |
 | `paperless-ngx` | documents, AI, GPT, PostgreSQL, Redis | — | coordinate document and database backups; protect each claim. restore and verify documents, metadata, and application behavior. |
 | `librechat` | data, uploads, images, MongoDB, Meilisearch | — | use native database/search backup procedures and coordinate uploaded files. restore and verify chats, uploads, and search. |
 | `litellm` | PostgreSQL data | — | back up and restore the database; verify the gateway and its persisted configuration. |
@@ -286,3 +288,11 @@ the upload runner now saves private source/Job/Pod/log diagnostics on newly obse
 **the relayed encrypted export succeeded: 53 files.** `monitoring-recovery.tar.gz.age` was written to the user's NAS home; its SHA-256 is `919403d5008b949f418da0e70d0aa40728d2b9f46fa68db1338350b506cfaf21`. copy it to the Mac and verify it against that checksum with the existing private age identity. the timer remains active with next elapse 2026-10-17 03:45 Arizona, but `LastTriggerUSec` is empty. the service's latest successful completion is 2026-10-16 21:38:12 Arizona, from the manual installation run; this does not establish automatic execution.
 
 **the relayed off-NAS copy verification passed at 2026-10-17 05:51:59 UTC.** the encrypted archive checksum matches the NAS export; all 53 files, four claim identities, initial backup/restore evidence, and daily snapshot evidence passed in-memory verification using the existing age identity. the encrypted archive and public verification receipt are retained under `/Users/petermousses/Backups/k3s-recovery/monitoring/copy.DjZ1OX/`; no decrypted files were written. the user subsequently explicitly deferred monitoring's successful automatic-run proof, as previously done for SearXNG. both checks remain open follow-ups, with timers enabled and no claim of verified scheduled execution. **stage 1 backup onboarding is complete with those deferrals; stop for separate approval of stage 2 and its first namespace, `n8n`.**
+
+### n8n — approved; live inventory pending
+
+the user separately answered **approve stage 2** and **approve n8n**. this authorizes n8n data/images backup onboarding and resolving its live-data/repository overlap; later namespaces retain their individual approval gates.
+
+the repository binds `n8n-data` to `/filesystem/k3s/data/n8n`, mounted at `/home/node/.n8n`, and `n8n-images` to the sibling `/filesystem/k3s/data/n8n-images`, mounted at `/home/node/.n8n-files`. both static local PVs are RWO/Retain and pinned to OMV. the deployment specifies one replica, Recreate, UID/GID 1000, and requests 250m CPU/512Mi memory. these are repository expectations, not verified live state.
+
+`inventory-n8n.py` reads live bindings, controller/Pod metadata, resource reservations/usage, source mount placement and sizes, existing backup-layout entries, and overlap with the proposed namespace backup directory. it reports n8n/Node versions, database/execution/binary-mode enums, and encryption-key source booleans. it reads no SQLite database, starts no n8n CLI/server, prints no encryption-key or other secret values, and applies no workload/storage changes. obtain this output before preparing the live-data separation or backup resources. n8n defaults to SQLite, but runtime overrides and the persisted encryption-key source must be confirmed before choosing its backup and recovery procedure. [n8n database configuration](https://docs.n8n.io/hosting/configuration/environment-variables/database/), [n8n deployment configuration](https://docs.n8n.io/hosting/configuration/environment-variables/deployment/)
