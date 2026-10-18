@@ -1,0 +1,107 @@
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: data-backup
+  labels:
+    app.kubernetes.io/name: data-backup
+    app.kubernetes.io/part-of: n8n
+spec:
+  sourcePVC: data-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-n8n-data-live
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: n8n-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: n8n
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: images-backup
+  labels:
+    app.kubernetes.io/name: images-backup
+    app.kubernetes.io/part-of: n8n
+spec:
+  sourcePVC: images-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-n8n-images
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: n8n-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: n8n
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
