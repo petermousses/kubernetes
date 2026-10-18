@@ -1,0 +1,25 @@
+# managed by nas-backup-migration
+[Unit]
+Description=online recovery capture of paperless-gpt config and SQLite state
+Wants=network-online.target
+After=network-online.target k3s.service
+Requires=k3s.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -u /usr/local/lib/k3s-backups/paperless-gpt-capture/current/scripts/backups/capture-paperless-gpt.py --run
+RuntimeDirectory=k3s-paperless-gpt-capture
+RuntimeDirectoryMode=0700
+PrivateMounts=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+MemoryMax=384M
+LimitCORE=0
+TimeoutStartSec=5min
+TimeoutStopSec=30s
+Nice=10
+IOSchedulingClass=idle
