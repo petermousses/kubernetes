@@ -693,7 +693,9 @@ def capture_pair(identifier):
     journal = saved(QUIESCENCE) if QUIESCENCE.exists() else None
     if journal:
         check_journal(journal)
-    if any(existing.values()) or (journal and journal.get("capture_complete")):
+        if journal["backup_id"] != identifier and journal["phase"] != "resumed":
+            raise setup.SetupError("recover the previous n8n writer before another capture")
+    if any(existing.values()) or (journal and journal["backup_id"] == identifier and journal.get("capture_complete")):
         if (not journal or journal["backup_id"] != identifier or not journal["capture_complete"] or
                 journal["phase"] != "resumed"):
             raise setup.SetupError("existing captures lack a completed, recovered shared capture journal")

@@ -1,0 +1,12 @@
+# managed by nas-backup-migration
+[Unit]
+Description=daily n8n backup at 04:30 Arizona time
+
+[Timer]
+OnCalendar=*-*-* 11:30:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=k3s-n8n-backup.service
+
+[Install]
+WantedBy=timers.target

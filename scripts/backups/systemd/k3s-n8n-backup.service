@@ -1,0 +1,22 @@
+# managed by nas-backup-migration
+[Unit]
+Description=daily paired n8n and VolSync backups
+Wants=network-online.target
+After=network-online.target k3s.service k3s-board-games-backup.service k3s-searxng-backup.service k3s-monitoring-backup.service k3s-n8n-backup-recovery.service
+Requires=k3s.service k3s-n8n-backup-recovery.service
+OnFailure=k3s-n8n-backup-recovery.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -u /usr/local/lib/k3s-backups/n8n-daily/current/scripts/backups/daily-n8n.py
+ExecStopPost=/usr/bin/python3 -u /usr/local/lib/k3s-backups/n8n/current/scripts/backups/backup-n8n.py --recover-writers-only
+TimeoutStartSec=4h
+TimeoutStopSec=25min
+NoNewPrivileges=true
+PrivateTmp=true
+Nice=10
+IOSchedulingClass=idle
