@@ -370,7 +370,20 @@ def check_labels(actual, expected, uid):
     check_isolation(actual)
 
 
+def normalized_pod_spec(spec):
+    spec = json.loads(json.dumps(spec))
+    for group in ("containers", "initContainers"):
+        for container in spec.get(group, []):
+            for variable in container.get("env", []):
+                # EnvVar.Value defaults to "" and is omitted by API JSON.
+                # A valueFrom reference is a distinct, unapproved input.
+                if set(variable) == {"name"}:
+                    variable["value"] = ""
+    return spec
+
+
 def check_pod_spec(actual, expected):
+    actual, expected = normalized_pod_spec(actual), normalized_pod_spec(expected)
     if not backup.contains_fields(actual, expected):
         raise setup.SetupError("validator Pod specification differs")
     defaults = {"dnsPolicy": "ClusterFirst", "schedulerName": "default-scheduler", "serviceAccountName": "default",
@@ -449,8 +462,7 @@ def validate_pair(state, recovered):
     if existing:
         managed(existing)
         if (existing["metadata"].get("annotations") != job["metadata"]["annotations"] or
-                existing["spec"].get("backoffLimit") != 0 or existing["spec"].get("activeDeadlineSeconds") != 1200 or
-                not backup.contains_fields(existing["spec"]["template"]["spec"], spec)):
+                existing["spec"].get("backoffLimit") != 0 or existing["spec"].get("activeDeadlineSeconds") != 1200):
             raise setup.SetupError("existing validation Job differs; preserving scratch evidence")
     else:
         idle()
