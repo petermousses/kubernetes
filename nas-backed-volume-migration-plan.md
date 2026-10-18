@@ -57,7 +57,7 @@ stop after each namespace. after `monitoring`, obtain separate approval for stag
 
 | namespace | writable data to protect (read-only: no) | retained OMV mounts (read-only: yes) | namespace steps and verification |
 | --- | --- | --- | --- |
-| `n8n` | data and images | — | **initial backups/restores, manual daily backup/retention, and encrypted NAS recovery export verified; timer enabled.** verify the off-NAS recovery copy and a successful automatic run. |
+| `n8n` | data and images | — | **initial backups/restores, manual daily backup/retention, and encrypted off-NAS credential recovery verified; timer enabled at 04:30 Arizona.** successful automatic execution remains unverified and has not been deferred. |
 | `paperless-ngx` | documents, AI, GPT, PostgreSQL, Redis | — | coordinate document and database backups; protect each claim. restore and verify documents, metadata, and application behavior. |
 | `librechat` | data, uploads, images, MongoDB, Meilisearch | — | use native database/search backup procedures and coordinate uploaded files. restore and verify chats, uploads, and search. |
 | `litellm` | PostgreSQL data | — | back up and restore the database; verify the gateway and its persisted configuration. |
@@ -336,4 +336,6 @@ run a complete manual daily sequence and a scratch repository proof of seven-day
 
 `recovery-n8n.py` prepares a standalone encrypted recovery export and off-NAS verifier. validate repository/TLS credentials, n8n's saved encryption key against its migration checksum, both volume identities, initial backup/restore evidence, paired writer journals, and the latest daily/schedule/retention evidence. export only while holding the shared namespace lock, with no unfinished daily generation. pipe the archive directly to age encryption using the existing public recipient; write only ciphertext to the NAS home directory for transfer. verify the copied ciphertext checksum and all archive members/evidence on the Mac, decrypting in memory and writing only a public receipt.
 
-**the relayed encrypted NAS export passed:** 39 recovery files were prepared and encrypted into `/srv/dev-disk-by-uuid-f33e3507-3ce3-4d3c-8423-1398e972f9e4/Homes/peter/n8n-recovery.tar.gz.age`, with SHA-256 `87ab935f9818c297b5a025fa570bc853fc8f0dc4842462c73d15bb9637303f93`. **the verified off-NAS copy and successful automatic execution remain pending. stop after n8n; the next namespace still requires separate explicit approval.**
+**the relayed encrypted NAS export passed:** 39 recovery files were prepared and encrypted into `/srv/dev-disk-by-uuid-f33e3507-3ce3-4d3c-8423-1398e972f9e4/Homes/peter/n8n-recovery.tar.gz.age`, with SHA-256 `87ab935f9818c297b5a025fa570bc853fc8f0dc4842462c73d15bb9637303f93`.
+
+**the relayed off-NAS verification passed at 2026-10-18 09:40:31 UTC.** the encrypted Mac copy at `/Users/petermousses/Backups/k3s-recovery/n8n/copy.v9saY2/` matches the NAS checksum; all 39 recovery files, both claims' initial/daily snapshot identities, and the persisted n8n encryption key passed verification. decryption and inspection stayed in memory; only ciphertext and a public verification receipt were written. **successful automatic execution is the only remaining n8n verification and has not been deferred. stop after n8n; the next namespace still requires separate explicit approval.**
