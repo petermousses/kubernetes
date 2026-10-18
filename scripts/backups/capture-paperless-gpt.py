@@ -226,7 +226,12 @@ def private_mount_namespace():
     require(stat.S_ISDIR(attrs.st_mode) and attrs.st_uid == 0 and stat.S_IMODE(attrs.st_mode) == 0o700,
             "service runtime directory is not private")
     propagation = run(["findmnt", "-n", "-o", "PROPAGATION", "-T", str(RUNTIME)]).stdout.strip()
-    require(propagation in ("private", "slave"), "mount propagation is not isolated from the host")
+    # PrivateMounts first detaches the host peer group via MS_SLAVE. systemd's
+    # default MS_SHARED step can then produce a separate shared,slave group.
+    # https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#PrivateMounts=
+    flags = propagation.split(",")
+    require(len(flags) == len(set(flags)) and set(flags) in ({"private"}, {"slave"}, {"shared", "slave"}),
+            "mount propagation is not isolated from the host")
 
 
 @contextmanager
