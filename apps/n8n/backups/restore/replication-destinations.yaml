@@ -1,0 +1,95 @@
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: images-restore-initial
+spec:
+  paused: true
+  trigger:
+    manual: controlled-by-restore-runner
+  restic:
+    destinationPVC: images-restore-artifacts
+    copyMethod: Direct
+    repository: restic-restore-n8n-images
+    customCA:
+      secretName: restic-restore-ca
+      key: ca.crt
+    # The runner injects restoreAsOf from this component's verified initial upload.
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: n8n-backup-local
+    cleanupCachePVC: false
+    enableFileDeletion: false
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: n8n
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: data-restore-initial
+spec:
+  paused: true
+  trigger:
+    manual: controlled-by-restore-runner
+  restic:
+    destinationPVC: data-restore-artifacts
+    copyMethod: Direct
+    repository: restic-restore-n8n-data-live
+    customCA:
+      secretName: restic-restore-ca
+      key: ca.crt
+    # The runner injects restoreAsOf from this component's verified initial upload.
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: n8n-backup-local
+    cleanupCachePVC: false
+    enableFileDeletion: false
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: n8n
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]

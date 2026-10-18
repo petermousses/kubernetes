@@ -1,0 +1,87 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: n8n-restore-validation-initial
+  namespace: n8n
+  labels:
+    app.kubernetes.io/name: n8n-restore-validation
+    app.kubernetes.io/part-of: n8n
+    app.kubernetes.io/managed-by: nas-backup-migration
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1200
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: n8n-restore-validation
+        app.kubernetes.io/part-of: n8n
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: extract
+          image: quay.io/backube/volsync@sha256:0d03a6aad57569eba2c0eaa0848cf4a908d9744b372ff2224bb291a320f36d76
+          command: [python3, -I, -B, -u, /code/n8n-restore.py]
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: code, mountPath: /code, readOnly: true}
+            - {name: data-artifacts, mountPath: /artifacts-data, readOnly: true}
+            - {name: images-artifacts, mountPath: /artifacts-images, readOnly: true}
+            - {name: data, mountPath: /restore-data}
+            - {name: images, mountPath: /restore-images}
+            - {name: temp, mountPath: /tmp}
+      containers:
+        - name: credentials
+          image: docker.n8n.io/n8nio/n8n@sha256:3989d9b8ebb77b4ee8f604519eb73e44f4384bfaa689526e0104eed79a237d30
+          command: [node, --no-warnings, /code/n8n-credentials.js]
+          workingDir: /tmp
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: NODE_OPTIONS, value: ""}
+            - {name: NODE_PATH, value: ""}
+            - {name: NODE_DISABLE_COMPILE_CACHE, value: "1"}
+            - {name: N8N_DIAGNOSTICS_ENABLED, value: "false"}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: code, mountPath: /code, readOnly: true}
+            - {name: data, mountPath: /restore-data, readOnly: true}
+            - {name: images, mountPath: /restore-images, readOnly: true}
+            - {name: temp, mountPath: /tmp}
+      volumes:
+        - name: code
+          configMap:
+            name: injected-by-restore-runner
+            defaultMode: 292
+        - name: data-artifacts
+          persistentVolumeClaim: {claimName: data-restore-artifacts, readOnly: true}
+        - name: images-artifacts
+          persistentVolumeClaim: {claimName: images-restore-artifacts, readOnly: true}
+        - name: data
+          persistentVolumeClaim: {claimName: data-restore-data}
+        - name: images
+          persistentVolumeClaim: {claimName: images-restore-data}
+        - name: temp
+          emptyDir: {medium: Memory, sizeLimit: 32Mi}

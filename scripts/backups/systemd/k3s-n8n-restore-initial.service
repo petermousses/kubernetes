@@ -1,0 +1,20 @@
+# managed by nas-backup-migration
+[Unit]
+Description=isolated n8n initial backup restore validation
+Wants=network-online.target
+After=network-online.target k3s.service
+Requires=k3s.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -u /usr/local/lib/k3s-backups/n8n-restore/current/scripts/backups/restore-n8n.py --run
+TimeoutStartSec=120min
+TimeoutStopSec=60s
+NoNewPrivileges=true
+PrivateTmp=true
+Nice=10
+IOSchedulingClass=idle
