@@ -48,6 +48,7 @@ MAX_CONTENT = 8 * 1024**2
 MAX_ENTRIES = 128
 MAX_JSON = 4 * 1024**2
 MARKER = "# managed by nas-backup-migration\n"
+WORKER_PHASE = "startup"
 
 class CaptureError(Exception):
     pass
@@ -56,6 +57,27 @@ class CaptureError(Exception):
 def require(condition, message):
     if not condition:
         raise CaptureError(message)
+
+
+def worker_phase(name):
+    global WORKER_PHASE
+    WORKER_PHASE = name
+
+
+def worker_error_record(error):
+    """Report the failed operation without paths, SQL, values, or exception text."""
+    frames = []
+    traceback = error.__traceback__
+    while traceback is not None:
+        if traceback.tb_frame.f_code.co_filename == __file__:
+            frames.append({"function": traceback.tb_frame.f_code.co_name,
+                           "line": traceback.tb_lineno})
+        traceback = traceback.tb_next
+    return {"phase": WORKER_PHASE, "error_type": type(error).__name__,
+            "errno": error.errno if isinstance(error, OSError) else None,
+            "sqlite_errorcode": getattr(error, "sqlite_errorcode", None),
+            "sqlite_errorname": getattr(error, "sqlite_errorname", None),
+            "frames": frames[-12:]}
 
 
 def now():
@@ -399,6 +421,7 @@ def counts(connection):
 
 
 def landlock_database_read_ban_writes(readable_paths, write_probe_path):
+    worker_phase("landlock-query-abi")
     require(platform.machine() in ("x86_64", "aarch64"), "unsupported CPU architecture for filesystem sandbox")
     libc = ctypes.CDLL(None, use_errno=True)
     libc.syscall.argtypes = [ctypes.c_long]
@@ -438,18 +461,22 @@ def landlock_database_read_ban_writes(readable_paths, write_probe_path):
 
     ruleset = RulesetAttr(handled, 0, 0, 0, 0, 0)
     ruleset_size = 48 if version >= 10 else 24 if version >= 6 else 16 if version >= 4 else 8
+    worker_phase("landlock-create-ruleset")
     ruleset_fd = syscall(444, ctypes.byref(ruleset), ctypes.c_size_t(ruleset_size), ctypes.c_uint(0))
     try:
-        for descriptor, allowed_access in readable_paths:
+        for index, (descriptor, allowed_access) in enumerate(readable_paths):
+            worker_phase("landlock-add-rule-" + str(index))
             path_rule = PathBeneathAttr(allowed_access, descriptor)
             syscall(445, ctypes.c_int(ruleset_fd), ctypes.c_int(1),
                     ctypes.byref(path_rule), ctypes.c_uint(0))  # LANDLOCK_RULE_PATH_BENEATH
         # sandbox_worker set no_new_privs before installing seccomp.
         require(threading.active_count() == 1, "unexpected helper threads before filesystem sandbox")
+        worker_phase("landlock-restrict-self")
         syscall(446, ctypes.c_int(ruleset_fd), ctypes.c_uint(0))  # LANDLOCK_RESTRICT_SELF
     finally:
         os.close(ruleset_fd)
 
+    worker_phase("database-write-denial")
     try:
         descriptor = os.open(write_probe_path, os.O_WRONLY | os.O_NONBLOCK | os.O_CLOEXEC)
     except OSError as error:
@@ -457,6 +484,7 @@ def landlock_database_read_ban_writes(readable_paths, write_probe_path):
     else:
         os.close(descriptor)
         raise CaptureError("Landlock allowed a writable SQLite descriptor")
+    worker_phase("outside-read-denial")
     try:
         descriptor = os.open("/etc/passwd", os.O_RDONLY | os.O_CLOEXEC)
     except OSError as error:
@@ -495,6 +523,7 @@ def open_landlock_read_paths(database_directory):
 
 def sandbox_worker(readable_paths, write_probe_path):
     """Drop capabilities, filter dangerous syscalls, and confine Landlock reads/writes."""
+    worker_phase("drop-capabilities")
     require(platform.machine() in ("x86_64", "aarch64"), "unsupported CPU architecture for filesystem sandbox")
     libc = ctypes.CDLL(None, use_errno=True)
     libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
@@ -534,6 +563,7 @@ def sandbox_worker(readable_paths, write_probe_path):
             all(int(value, 16) == 0 for value in capability_values.values()),
             "worker still has Linux capabilities")
 
+    worker_phase("load-seccomp")
     try:
         seccomp = ctypes.CDLL("libseccomp.so.2", use_errno=True)
     except OSError as error:
@@ -583,6 +613,7 @@ def sandbox_worker(readable_paths, write_probe_path):
 
 
 def sqlite_sandbox_probe(database_path, parent_pid, expected_identity):
+    worker_phase("probe-pin-source")
     database_path = Path(database_path)
     require(database_path.is_absolute() and database_path.is_relative_to(RUNTIME) and
             database_path.name == "probe.db" and not any(part in (".", "..") for part in database_path.parts),
@@ -607,8 +638,10 @@ def sqlite_sandbox_probe(database_path, parent_pid, expected_identity):
     finally:
         for descriptor in reversed(rule_descriptors):
             os.close(descriptor)
+    worker_phase("probe-open-sqlite")
     database_uri = database_path_in_parent.as_uri() + "?mode=ro"
     with closing(sqlite3.connect(database_uri, uri=True, timeout=1, isolation_level=None)) as source:
+        worker_phase("probe-read-wal")
         source.execute("PRAGMA query_only=ON")
         source.execute("PRAGMA trusted_schema=OFF")
         source.execute("PRAGMA temp_store=MEMORY")
@@ -617,7 +650,9 @@ def sqlite_sandbox_probe(database_path, parent_pid, expected_identity):
                 "read-only WAL probe did not recover the committed synthetic row")
         memory = sqlite3.connect(":memory:", isolation_level=None)
         try:
+            worker_phase("probe-backup-sqlite")
             source.backup(memory)
+            worker_phase("probe-validate-sqlite")
             require(memory.execute("PRAGMA integrity_check").fetchall() == [("ok",)] and
                     memory.execute("SELECT value FROM probe").fetchone() == ("committed-in-wal",),
                     "synthetic WAL online backup failed validation")
@@ -658,6 +693,9 @@ def synthetic_sqlite_sandbox_check():
             save(RECOVERY / "sqlite-probe-error.json", {
                 "returncode": result.returncode, "stdout": result.stdout[-4096:],
                 "stderr": result.stderr[-8192:]})
+            # This helper sees only the synthetic fixture. Emit its bounded,
+            # structured diagnostics now so a failed probe needs no second SSH run.
+            print(result.stderr[-8192:].strip(), file=sys.stderr, flush=True)
             raise CaptureError("synthetic WAL/write-denial probe failed; private diagnostics saved")
         require(result.stdout.strip() ==
                 "synthetic read-only WAL snapshot passed with allowlisted reads and filesystem writes denied",
@@ -687,6 +725,7 @@ def regular_descriptors():
 
 
 def sqlite_snapshot_worker(pid, process_started, database_relative, expected_identity):
+    worker_phase("snapshot-pin-source")
     parts = PurePosixPath(database_relative).parts
     require(parts and str(PurePosixPath(database_relative)) == database_relative and
             all(part not in ("", ".", "..") and "/" not in part for part in parts),
@@ -729,6 +768,7 @@ def sqlite_snapshot_worker(pid, process_started, database_relative, expected_ide
         finally:
             for descriptor in reversed(rule_descriptors):
                 os.close(descriptor)
+        worker_phase("snapshot-list-descriptors")
         before = regular_descriptors()
         uri = uri_path.as_uri() + "?mode=ro"
         deadline = time.monotonic() + 20
@@ -739,7 +779,9 @@ def sqlite_snapshot_worker(pid, process_started, database_relative, expected_ide
                     raise RuntimeError("native SQLite snapshot exceeded its time or size budget")
 
             memory.execute("PRAGMA temp_store=MEMORY")
+            worker_phase("snapshot-open-sqlite")
             with closing(sqlite3.connect(uri, uri=True, timeout=1, isolation_level=None)) as source:
+                worker_phase("snapshot-read-sqlite")
                 source.execute("PRAGMA query_only=ON")
                 source.execute("PRAGMA trusted_schema=OFF")
                 source.execute("PRAGMA temp_store=MEMORY")
@@ -757,9 +799,11 @@ def sqlite_snapshot_worker(pid, process_started, database_relative, expected_ide
                 require(opened_database, "SQLite did not open the pinned source database")
                 journal = source.execute("PRAGMA journal_mode").fetchone()[0]
                 memory.execute("PRAGMA page_size=" + str(page_size))
+                worker_phase("snapshot-backup-sqlite")
                 source.backup(memory, pages=128, progress=progress, sleep=0.01)
                 expected_counts = counts(source)
                 source.rollback()
+            worker_phase("snapshot-validate-sqlite")
             require(memory.execute("PRAGMA integrity_check").fetchall() == [("ok",)] and
                     counts(memory) == expected_counts,
                     "native SQLite memory snapshot failed integrity or row-count verification")
@@ -1123,6 +1167,8 @@ def main():
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--install", action="store_true")
     modes.add_argument("--run", action="store_true")
+    modes.add_argument("--check-sandbox", action="store_true",
+                       help="check only synthetic SQLite state; never inspect the live GPT Pod")
     modes.add_argument("--sqlite-snapshot", nargs=5,
                        metavar=("PID", "PROCESS_START", "DATABASE", "DEVICE", "INODE"),
                        help=argparse.SUPPRESS)
@@ -1157,7 +1203,12 @@ def main():
         else:
             stack.enter_context(lock(GLOBAL_LOCK))
             stack.enter_context(lock(RECOVERY.parent / ".setup.lock"))
-            capture()
+            if args.check_sandbox:
+                private_mount_namespace()
+                synthetic_sqlite_sandbox_check()
+                print("synthetic sandbox check passed; no live GPT files were opened", flush=True)
+            else:
+                capture()
 
 
 if __name__ == "__main__":
@@ -1166,6 +1217,9 @@ if __name__ == "__main__":
     except (CaptureError, OSError, ValueError, KeyError, IndexError, TypeError, AttributeError,
             RuntimeError, sqlite3.Error, subprocess.TimeoutExpired, KeyboardInterrupt):
         error = sys.exc_info()[1]
+        if "--sqlite-probe" in sys.argv[1:] or "--sqlite-snapshot" in sys.argv[1:]:
+            print("SQLITE_WORKER_ERROR_JSON=" + json.dumps(worker_error_record(error)),
+                  file=sys.stderr, flush=True)
         message = str(error) if isinstance(error, CaptureError) else "filesystem, API, runtime, or SQLite check failed; private data omitted"
         print("GPT capture stopped: " + message, file=sys.stderr, flush=True)
         sys.exit(1)
