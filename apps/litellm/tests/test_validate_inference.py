@@ -206,6 +206,7 @@ class FakeOpener:
             model = payload.get("model")
             if model not in {
                 "qwen3.8-27b",
+                "deepseek-v4.1-flash-1017-unsloth",
                 "gemma-4-e4b-it",
                 "gemma-4-12b-it",
                 "gemma-4-26b-a4b-it",
@@ -364,7 +365,7 @@ class ValidationScriptTest(unittest.TestCase):
     def test_text_model_alias_is_forwarded_and_response_is_checked(self) -> None:
         opener = FakeOpener()
         models = (
-            "deepseek-v4.1-flash-1017",
+            "deepseek-v4.1-flash-1017-unsloth",
             "gemma-4-e4b-it",
             "qwen3.6-35b-a3b",
             "glm-5.3-flash-abliterated",

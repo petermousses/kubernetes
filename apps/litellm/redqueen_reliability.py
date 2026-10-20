@@ -32,7 +32,7 @@ MAX_JSON_MARKERS = 250_000
 UPLOAD_TIMEOUT = 60
 REQUEST_STATE = contextvars.ContextVar("redqueen_request_state", default=None)
 MODELS = frozenset({
-    "qwen3.8-27b", "deepseek-v4.1-flash-1017",
+    "qwen3.8-27b", "deepseek-v4.1-flash-1017-unsloth",
     "gemma-4-e4b-it", "gemma-4-12b-it",
     "gemma-4-26b-a4b-it", "qwen3.6-35b-a3b", "glm-5.3-flash-abliterated",
     "embeddinggemma-2", "qwen-image-2.1", "qwen-image-2.1-uncensored",

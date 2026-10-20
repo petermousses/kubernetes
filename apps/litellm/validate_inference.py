@@ -29,7 +29,7 @@ DEFAULT_IMAGE_MODEL = "qwen-image-2.1"
 SUPPORTED_IMAGE_MODELS = (DEFAULT_IMAGE_MODEL, "qwen-image-2.1-uncensored")
 SUPPORTED_TEXT_MODELS = (
     "qwen3.8-27b",
-    "deepseek-v4.1-flash-1017",
+    "deepseek-v4.1-flash-1017-unsloth",
     "gemma-4-e4b-it",
     "gemma-4-12b-it",
     "gemma-4-26b-a4b-it",

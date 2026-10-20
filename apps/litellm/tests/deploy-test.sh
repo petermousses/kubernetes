@@ -144,7 +144,7 @@ grep -Fq 'port: 8191' "${app_root}/networkpolicy.yaml"
 
 readonly -a configured_models=(
   qwen3.8-27b
-  deepseek-v4.1-flash-1017
+  deepseek-v4.1-flash-1017-unsloth
   gemma-4-e4b-it
   gemma-4-12b-it
   gemma-4-26b-a4b-it
@@ -187,12 +187,12 @@ if grep -Fq 'model_name: deepseek-v4.1-flash-q2' "${app_root}/configmap.yaml"; t
   exit 1
 fi
 deepseek_model_config="$(awk '
-  /^      - model_name: deepseek-v4[.]1-flash-1017$/ { capture = 1 }
-  capture && /^      - model_name:/ && $0 !~ /deepseek-v4[.]1-flash-1017/ { exit }
+  /^      - model_name: deepseek-v4[.]1-flash-1017-unsloth$/ { capture = 1 }
+  capture && /^      - model_name:/ && $0 !~ /deepseek-v4[.]1-flash-1017-unsloth/ { exit }
   capture { print }
 ' "${app_root}/configmap.yaml")"
 for deepseek_contract in \
-  '          model: openai/deepseek' \
+  '          model: openai/deepseek-v4.1-flash-1017-unsloth' \
   '          api_base: http://qwen-redqueen:8081/v1' \
   '          api_key: os.environ/QWEN_API_KEY' \
   '          max_retries: 0' \
@@ -205,6 +205,10 @@ for deepseek_contract in \
     exit 1
   fi
 done
+if grep -Eq '^      - model_name: deepseek-v4[.]1-flash-1017$' "${app_root}/configmap.yaml"; then
+  printf 'the ambiguous pre-quantized DeepSeek alias must not be registered\n' >&2
+  exit 1
+fi
 grep -Fq '      store_model_in_db: false' "${app_root}/configmap.yaml"
 for priced_openai_model in \
   'openai/jevk5-4b-v0.3' \

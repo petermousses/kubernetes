@@ -23,11 +23,11 @@ rg -q 'ALLOW_REGISTRATION: "false"' "${app_root}/configmap.yaml"
 rg -q 'apiKey: '\''\$\{LITELLM_API_KEY\}'\''' "${app_root}/configmap.yaml"
 rg -q 'baseURL: http://litellm\.litellm\.svc\.cluster\.local:4000/v1' "${app_root}/configmap.yaml"
 rg -q -U 'models:\n[[:space:]]+default: \[qwen3\.8-27b\]\n[[:space:]]+fetch: true' "${app_root}/configmap.yaml"
-if rg -q -- '- (deepseek-v4\.1-flash-1017|gemma-4-e4b-it|gemma-4-12b-it|gemma-4-26b-a4b-it|qwen3\.6-35b-a3b)' "${app_root}/configmap.yaml"; then
+if rg -q -- '- (deepseek-v4\.1-flash-1017-unsloth|gemma-4-e4b-it|gemma-4-12b-it|gemma-4-26b-a4b-it|qwen3\.6-35b-a3b)' "${app_root}/configmap.yaml"; then
   printf 'LibreChat must fetch the model picker instead of maintaining a static list of all chat models\n' >&2
   exit 1
 fi
-rg -q -U 'deepseek-v4\.1-flash-1017:\n[[:space:]]+prompt: 0\.3\n[[:space:]]+completion: 1\.2\n[[:space:]]+context: 220000' "${app_root}/configmap.yaml"
+rg -q -U 'deepseek-v4\.1-flash-1017-unsloth:\n[[:space:]]+prompt: 0\.3\n[[:space:]]+completion: 1\.2\n[[:space:]]+context: 220000' "${app_root}/configmap.yaml"
 rg -q 'IMAGE_GEN_OAI_MODEL: qwen-image-2\.1' "${app_root}/configmap.yaml"
 if rg -q 'IMAGE_GEN_OAI_MODEL: qwen-image-2\.1-uncensored' "${app_root}/configmap.yaml"; then
   printf 'LibreChat must not default its global image tool to the uncensored model\n' >&2
