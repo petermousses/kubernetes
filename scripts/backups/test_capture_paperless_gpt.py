@@ -146,5 +146,130 @@ class SyntheticOnlyTests(unittest.TestCase):
             self.assertEqual(list(runtime.iterdir()), [])
 
 
+class SQLiteTransportTests(unittest.TestCase):
+    def test_wal_backup_can_be_deserialized_without_changing_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source_path = Path(temporary) / "source.db"
+            with contextlib.closing(sqlite3.connect(source_path, isolation_level=None)) as source:
+                source.execute("PRAGMA journal_mode=WAL")
+                source.execute("CREATE TABLE probe(value TEXT NOT NULL)")
+                source.execute("INSERT INTO probe VALUES ('committed in WAL')")
+                with contextlib.closing(sqlite3.connect(":memory:")) as memory:
+                    source.backup(memory)
+                    before = {path.name: path.read_bytes() for path in Path(temporary).iterdir()}
+                    self.assertEqual(memory.serialize()[18:20], b"\x02\x02")
+                    payload = capture.serialize_snapshot(memory)
+                self.assertEqual(payload[18:20], b"\x01\x01")
+                with contextlib.closing(sqlite3.connect(":memory:")) as checked:
+                    checked.deserialize(payload)
+                    self.assertEqual(checked.execute("PRAGMA integrity_check").fetchall(), [("ok",)])
+                    self.assertEqual(checked.execute("SELECT value FROM probe").fetchall(), [("committed in WAL",)])
+                self.assertEqual({path.name: path.read_bytes() for path in Path(temporary).iterdir()}, before)
+
+
+@unittest.skipUnless(sys.platform == "linux" and os.geteuid() == 0 and
+                     os.environ.get("K3S_GPT_SANDBOX_INTEGRATION") == "1",
+                     "requires an isolated root Linux guest with Landlock and mount namespaces")
+class LinuxSandboxTests(unittest.TestCase):
+    """Opt-in kernel checks; run in an isolated guest named openmediavault."""
+
+    def setUp(self):
+        capture.RUNTIME.mkdir(mode=0o700, parents=True, exist_ok=True)
+        capture.RECOVERY.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+    def test_synthetic_wal_probe_uses_real_kernel_restrictions(self):
+        capture.synthetic_sqlite_sandbox_check()
+
+    def test_missing_wal_shared_memory_cannot_be_created(self):
+        with tempfile.TemporaryDirectory(dir=capture.RUNTIME) as temporary:
+            directory = Path(temporary)
+            with contextlib.closing(sqlite3.connect(directory / "writer.db", isolation_level=None)) as writer:
+                writer.execute("PRAGMA journal_mode=WAL")
+                writer.execute("CREATE TABLE probe(value TEXT NOT NULL)")
+                writer.execute("INSERT INTO probe VALUES ('committed-in-wal')")
+                (directory / "probe.db").write_bytes((directory / "writer.db").read_bytes())
+                (directory / "probe.db-wal").write_bytes((directory / "writer.db-wal").read_bytes())
+                before = {path.name: path.read_bytes() for path in directory.iterdir()}
+                attrs = (directory / "probe.db").stat()
+                result = subprocess.run(
+                    [sys.executable, "-I", "-S", "-B", str(SCRIPT), "--sqlite-probe",
+                     str(directory / "probe.db"), str(os.getpid()), str(attrs.st_dev), str(attrs.st_ino)],
+                    capture_output=True, text=True, timeout=20)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('"phase": "probe-read-wal"', result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual({path.name: path.read_bytes() for path in directory.iterdir()}, before)
+                self.assertFalse((directory / "probe.db-shm").exists())
+
+    def test_snapshot_from_foreign_mount_namespace_preserves_source(self):
+        writer_code = r'''
+import ctypes, json, os, sqlite3, sys
+from pathlib import Path
+root, journal = sys.argv[1:]
+libc = ctypes.CDLL(None, use_errno=True)
+def check(result):
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+check(libc.unshare(0x00020000))
+check(libc.mount(None, b"/", None, (1 << 14) | (1 << 18), None))
+check(libc.mount(b"tmpfs", os.fsencode(root), b"tmpfs", 0, b"size=4m"))
+os.chroot(root)
+os.chdir("/")
+Path("/app/db").mkdir(parents=True)
+database = sqlite3.connect("/app/db/state.db", isolation_level=None)
+database.execute("PRAGMA journal_mode=" + journal).fetchone()
+database.execute("PRAGMA wal_autocheckpoint=0")
+database.execute("CREATE TABLE probe(value TEXT NOT NULL)")
+database.execute("INSERT INTO probe VALUES ('committed synthetic row')")
+print(json.dumps({"ready": True}), flush=True)
+sys.stdin.read(1)
+database.close()
+'''
+        for journal in ("WAL", "DELETE"):
+            with self.subTest(journal=journal), tempfile.TemporaryDirectory() as temporary:
+                writer = subprocess.Popen(
+                    [sys.executable, "-I", "-S", "-B", "-c", writer_code, temporary, journal],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                try:
+                    self.assertEqual(json.loads(writer.stdout.readline()), {"ready": True})
+                    source = Path("/proc") / str(writer.pid) / "root/app/db"
+                    self.assertEqual(list(Path(temporary).iterdir()), [],
+                                     "writer tmpfs must be invisible in the caller's mount namespace")
+
+                    def source_state():
+                        result = {}
+                        for path in sorted(source.iterdir()):
+                            attrs = path.stat()
+                            result[path.name] = (attrs.st_dev, attrs.st_ino, attrs.st_size,
+                                                 attrs.st_mtime_ns, attrs.st_ctime_ns,
+                                                 capture.hashlib.sha256(path.read_bytes()).hexdigest())
+                        return result
+
+                    before = source_state()
+                    attrs = (source / "state.db").stat()
+                    anchor = {"pid": writer.pid, "process_start": capture.process_start(writer.pid)}
+                    with self.assertRaisesRegex(capture.CaptureError, "isolated SQLite snapshot failed"):
+                        capture.online_snapshot_in_worker(
+                            "state.db", {"device": attrs.st_dev, "inode": attrs.st_ino + 1}, anchor)
+                    self.assertEqual(source_state(), before)
+                    memory, relations, original_journal = capture.online_snapshot_in_worker(
+                        "state.db", {"device": attrs.st_dev, "inode": attrs.st_ino}, anchor)
+                    with contextlib.closing(memory):
+                        self.assertEqual(original_journal, journal.lower())
+                        self.assertEqual(relations, {"probe": 1})
+                        self.assertEqual(memory.execute("PRAGMA integrity_check").fetchall(), [("ok",)])
+                        self.assertEqual(memory.execute("SELECT value FROM probe").fetchall(),
+                                         [("committed synthetic row",)])
+                    self.assertEqual(source_state(), before)
+                    self.assertIsNone(writer.poll())
+                finally:
+                    if writer.poll() is None:
+                        writer.communicate("\n", timeout=5)
+                    else:
+                        writer.communicate(timeout=5)
+                    self.assertEqual(writer.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

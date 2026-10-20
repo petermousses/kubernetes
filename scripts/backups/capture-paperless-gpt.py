@@ -420,7 +420,19 @@ def counts(connection):
     return {name: connection.execute('SELECT count(*) FROM "' + name.replace('"', '""') + '"').fetchone()[0] for name in names}
 
 
-def landlock_database_read_ban_writes(readable_paths, write_probe_path):
+def serialize_snapshot(connection):
+    require(hasattr(connection, "serialize"), "host SQLite cannot serialize the bounded snapshot")
+    payload = connection.serialize()
+    require(512 <= len(payload) <= MAX_DATABASE and payload[:16] == b"SQLite format 3\x00" and
+            payload[18] in (1, 2) and payload[19] in (1, 2),
+            "serialized SQLite snapshot has an invalid header or exceeds the capture budget")
+    # Only the complete in-memory backup is changed. SQLite explicitly requires
+    # rollback-mode header bytes for deserialize(), even for a WAL source.
+    # https://www.sqlite.org/c3ref/deserialize.html
+    return payload[:18] + b"\x01\x01" + payload[20:]
+
+
+def landlock_database_read_ban_writes(readable_paths, write_probe_path, outside_directory):
     worker_phase("landlock-query-abi")
     require(platform.machine() in ("x86_64", "aarch64"), "unsupported CPU architecture for filesystem sandbox")
     libc = ctypes.CDLL(None, use_errno=True)
@@ -437,8 +449,8 @@ def landlock_database_read_ban_writes(readable_paths, write_probe_path):
     # 444-446 are the generic Linux Landlock syscalls on x86_64 and aarch64.
     version = syscall(444, ctypes.c_void_p(), ctypes.c_size_t(0), ctypes.c_uint(1))
     require(version >= 3, "Landlock ABI cannot deny file truncation")
-    # Handle reads too: allow /proc and /dev traversal, the pinned SQLite tree,
-    # and only /dev/urandom file contents. All other files stay unreadable.
+    # Only the pinned SQLite directory receives read rights. The outside
+    # directory descriptor makes the read-denial check independent of chroot.
     handled = sum(1 << bit for bit in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12))
     if version >= 2:
         handled |= 1 << 13  # LANDLOCK_ACCESS_FS_REFER
@@ -476,6 +488,9 @@ def landlock_database_read_ban_writes(readable_paths, write_probe_path):
     finally:
         os.close(ruleset_fd)
 
+    worker_phase("database-read-allowed")
+    descriptor = os.open(write_probe_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    os.close(descriptor)
     worker_phase("database-write-denial")
     try:
         descriptor = os.open(write_probe_path, os.O_WRONLY | os.O_NONBLOCK | os.O_CLOEXEC)
@@ -486,7 +501,8 @@ def landlock_database_read_ban_writes(readable_paths, write_probe_path):
         raise CaptureError("Landlock allowed a writable SQLite descriptor")
     worker_phase("outside-read-denial")
     try:
-        descriptor = os.open("/etc/passwd", os.O_RDONLY | os.O_CLOEXEC)
+        descriptor = os.open("passwd", os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             dir_fd=outside_directory)
     except OSError as error:
         require(error.errno in (1, 13), "Landlock read-confinement probe failed unexpectedly")
     else:
@@ -495,36 +511,17 @@ def landlock_database_read_ban_writes(readable_paths, write_probe_path):
     return version
 
 
-def open_landlock_read_paths(database_directory):
-    require(hasattr(os, "O_PATH"), "Linux O_PATH support is required for the filesystem sandbox")
-    flags = os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC
-    descriptors = []
-    try:
-        proc_fd = os.open("/proc", flags)
-        descriptors.append(proc_fd)
-        database_fd = os.open(database_directory, flags | os.O_NOFOLLOW)
-        descriptors.append(database_fd)
-        dev_fd = os.open("/dev", flags)
-        descriptors.append(dev_fd)
-        random_fd = os.open("/dev/urandom", os.O_PATH | os.O_CLOEXEC | os.O_NOFOLLOW)
-        descriptors.append(random_fd)
-        require(stat.S_ISDIR(os.fstat(proc_fd).st_mode) and
-                stat.S_ISDIR(os.fstat(database_fd).st_mode) and
-                stat.S_ISDIR(os.fstat(dev_fd).st_mode) and
-                stat.S_ISCHR(os.fstat(random_fd).st_mode),
-                "Landlock read allowlist paths have unexpected types")
-        return [(proc_fd, 1 << 3), (database_fd, (1 << 2) | (1 << 3)),
-                (dev_fd, 1 << 3), (random_fd, 1 << 2)], descriptors
-    except BaseException:
-        for descriptor in reversed(descriptors):
-            os.close(descriptor)
-        raise
-
-
-def sandbox_worker(readable_paths, write_probe_path):
-    """Drop capabilities, filter dangerous syscalls, and confine Landlock reads/writes."""
-    worker_phase("drop-capabilities")
+@contextmanager
+def sandbox_worker(database_directory, database_basename):
+    """Confine this disposable helper to the pinned directory before dropping caps."""
+    worker_phase("prepare-worker-root")
     require(platform.machine() in ("x86_64", "aarch64"), "unsupported CPU architecture for filesystem sandbox")
+    require(database_basename not in ("", ".", "..") and "/" not in database_basename and
+            "\x00" not in database_basename, "database basename is unsafe")
+    directory_identity = os.fstat(database_directory)
+    require(stat.S_ISDIR(directory_identity.st_mode) and
+            (fcntl.fcntl(database_directory, fcntl.F_GETFL) & os.O_ACCMODE) == os.O_RDONLY,
+            "worker root is not a read-only directory descriptor")
     libc = ctypes.CDLL(None, use_errno=True)
     libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
     libc.prctl.restype = ctypes.c_int
@@ -534,13 +531,6 @@ def sandbox_worker(readable_paths, write_probe_path):
             error = ctypes.get_errno()
             raise OSError(error, os.strerror(error))
 
-    require(threading.active_count() == 1, "unexpected helper threads before filesystem sandbox")
-    prctl(38, 1)  # PR_SET_NO_NEW_PRIVS
-    prctl(28, 3)  # PR_SET_SECUREBITS: SECBIT_NOROOT | SECBIT_NOROOT_LOCKED
-    cap_last = int(Path("/proc/sys/kernel/cap_last_cap").read_text().strip())
-    for capability in range(cap_last + 1):
-        prctl(24, capability)  # PR_CAPBSET_DROP
-
     class CapabilityHeader(ctypes.Structure):
         _fields_ = [("version", ctypes.c_uint32), ("pid", ctypes.c_int)]
 
@@ -548,22 +538,10 @@ def sandbox_worker(readable_paths, write_probe_path):
         _fields_ = [("effective", ctypes.c_uint32), ("permitted", ctypes.c_uint32),
                     ("inheritable", ctypes.c_uint32)]
 
-    header = CapabilityHeader(0x20080522, 0)  # _LINUX_CAPABILITY_VERSION_3
-    data = (CapabilityData * 2)()
-    syscall_number = {"x86_64": 126, "aarch64": 91}[platform.machine()]
     libc.syscall.argtypes = [ctypes.c_long]
     libc.syscall.restype = ctypes.c_long
-    if libc.syscall(syscall_number, ctypes.byref(header), data) != 0:
-        error = ctypes.get_errno()
-        raise OSError(error, "could not clear worker capabilities")
-    status = Path("/proc/self/status").read_text()
-    capability_values = {line.split(":", 1)[0]: line.split(":", 1)[1].strip()
-                         for line in status.splitlines() if line.startswith(("CapEff:", "CapPrm:", "CapInh:", "CapAmb:"))}
-    require(set(capability_values) == {"CapEff", "CapPrm", "CapInh", "CapAmb"} and
-            all(int(value, 16) == 0 for value in capability_values.values()),
-            "worker still has Linux capabilities")
-
-    worker_phase("load-seccomp")
+    # Load the native library and initialize SQLite's RNG before the helper's
+    # filesystem root changes. No executable or library is loaded afterward.
     try:
         seccomp = ctypes.CDLL("libseccomp.so.2", use_errno=True)
     except OSError as error:
@@ -578,15 +556,12 @@ def sandbox_worker(readable_paths, write_probe_path):
     seccomp.seccomp_load.restype = ctypes.c_int
     seccomp.seccomp_release.argtypes = [ctypes.c_void_p]
     seccomp.seccomp_release.restype = None
-    context = seccomp.seccomp_init(0x7FFF0000)  # SCMP_ACT_ALLOW
-    require(bool(context), "could not initialize the worker syscall filter")
-    denied = set()
     syscall_names = (
         "chmod", "fchmod", "fchmodat", "fchmodat2", "chown", "fchown", "lchown", "fchownat",
         "utime", "utimes", "futimesat", "utimensat", "setxattr", "lsetxattr", "fsetxattr",
         "removexattr", "lremovexattr", "fremovexattr", "mount", "umount2", "pivot_root",
         "move_mount", "open_tree", "fsopen", "fsconfig", "fsmount", "fspick", "mount_setattr",
-        "unshare", "setns", "open_by_handle_at", "name_to_handle_at", "ptrace", "process_vm_readv",
+        "unshare", "setns", "chroot", "chdir", "fchdir", "open_by_handle_at", "name_to_handle_at", "ptrace", "process_vm_readv",
         "process_vm_writev", "pidfd_getfd", "prctl", "capset", "setuid", "setgid", "setresuid",
         "setresgid", "setfsuid", "setfsgid", "setgroups",
         "socket", "socketpair", "connect", "bind", "listen", "accept", "accept4", "sendto",
@@ -594,22 +569,69 @@ def sandbox_worker(readable_paths, write_probe_path):
         "io_uring_setup", "io_uring_enter", "io_uring_register", "userfaultfd", "bpf", "ioctl",
         "kill", "tkill", "tgkill", "rt_sigqueueinfo", "rt_tgsigqueueinfo", "pidfd_send_signal",
     )
-    try:
-        for name in syscall_names:
-            number = seccomp.seccomp_syscall_resolve_name(name.encode())
-            if number < 0:
-                continue
-            result = seccomp.seccomp_rule_add(context, 0x00050000 | 1, number, 0)  # SCMP_ACT_ERRNO(EPERM)
-            require(result == 0, "could not deny a metadata or mount syscall")
-            denied.add(name)
-        require({"fchmodat", "fchownat", "utimensat", "setxattr", "mount", "umount2", "socket",
-                 "connect", "execve", "clone", "process_vm_readv", "prctl", "capset", "ioctl"} <= denied,
-                "libseccomp could not resolve required worker restrictions")
-        require(seccomp.seccomp_load(context) == 0, "could not load the worker syscall filter")
-    finally:
-        seccomp.seccomp_release(context)
-
-    return landlock_database_read_ban_writes(readable_paths, write_probe_path)
+    with ExitStack() as stack:
+        descriptor_directory = os.open("/proc/self/fd", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        stack.callback(os.close, descriptor_directory)
+        status_descriptor = os.open("/proc/self/status", os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        stack.callback(os.close, status_descriptor)
+        outside_directory = os.open("/etc", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        stack.callback(os.close, outside_directory)
+        require(stat.S_ISREG(os.stat("passwd", dir_fd=outside_directory, follow_symlinks=False).st_mode),
+                "outside-read probe target has an unexpected type")
+        cap_last = int(Path("/proc/sys/kernel/cap_last_cap").read_text().strip())
+        with closing(sqlite3.connect(":memory:")) as warmup:
+            warmup.execute("SELECT randomblob(8)").fetchone()
+        require(threading.active_count() == 1, "unexpected helper threads before filesystem sandbox")
+        # A proc-root path cannot be dereferenced after capability/Landlock
+        # restrictions. SQLite also canonicalizes fd symlinks, so use a real
+        # absolute path in a filesystem root pinned by the directory descriptor.
+        os.fchdir(database_directory)
+        os.chroot(".")
+        os.chdir("/")
+        root_identity = os.stat("/")
+        require((root_identity.st_dev, root_identity.st_ino) ==
+                (directory_identity.st_dev, directory_identity.st_ino),
+                "worker filesystem root differs from the pinned database directory")
+        worker_phase("drop-capabilities")
+        prctl(38, 1)  # PR_SET_NO_NEW_PRIVS
+        prctl(28, 3)  # PR_SET_SECUREBITS: SECBIT_NOROOT | SECBIT_NOROOT_LOCKED
+        for capability in range(cap_last + 1):
+            prctl(24, capability)  # PR_CAPBSET_DROP
+        header = CapabilityHeader(0x20080522, 0)  # _LINUX_CAPABILITY_VERSION_3
+        data = (CapabilityData * 2)()
+        syscall_number = {"x86_64": 126, "aarch64": 91}[platform.machine()]
+        if libc.syscall(syscall_number, ctypes.byref(header), data) != 0:
+            error = ctypes.get_errno()
+            raise OSError(error, "could not clear worker capabilities")
+        status = os.read(status_descriptor, 65536).decode("ascii")
+        capability_values = {line.split(":", 1)[0]: line.split(":", 1)[1].strip()
+                             for line in status.splitlines() if line.startswith(("CapEff:", "CapPrm:", "CapInh:", "CapAmb:"))}
+        require(set(capability_values) == {"CapEff", "CapPrm", "CapInh", "CapAmb"} and
+                all(int(value, 16) == 0 for value in capability_values.values()),
+                "worker still has Linux capabilities")
+        worker_phase("load-seccomp")
+        context = seccomp.seccomp_init(0x7FFF0000)  # SCMP_ACT_ALLOW
+        require(bool(context), "could not initialize the worker syscall filter")
+        denied = set()
+        try:
+            for name in syscall_names:
+                number = seccomp.seccomp_syscall_resolve_name(name.encode())
+                if number < 0:
+                    continue
+                result = seccomp.seccomp_rule_add(context, 0x00050000 | 1, number, 0)  # SCMP_ACT_ERRNO(EPERM)
+                require(result == 0, "could not deny a metadata or mount syscall")
+                denied.add(name)
+            require({"fchmodat", "fchownat", "utimensat", "setxattr", "mount", "umount2", "socket",
+                     "connect", "execve", "clone", "process_vm_readv", "prctl", "capset", "ioctl",
+                     "chroot", "chdir", "fchdir"} <= denied,
+                    "libseccomp could not resolve required worker restrictions")
+            require(seccomp.seccomp_load(context) == 0, "could not load the worker syscall filter")
+        finally:
+            seccomp.seccomp_release(context)
+        version = landlock_database_read_ban_writes(
+            [(database_directory, (1 << 2) | (1 << 3))],
+            Path("/") / database_basename, outside_directory)
+        yield version, descriptor_directory
 
 
 def sqlite_sandbox_probe(database_path, parent_pid, expected_identity):
@@ -628,36 +650,52 @@ def sqlite_sandbox_probe(database_path, parent_pid, expected_identity):
         os.close(descriptor)
     proc_root = Path("/proc") / str(parent_pid) / "root"
     database_path_in_parent = proc_root / database_path.relative_to("/")
-    readable_paths, rule_descriptors = open_landlock_read_paths(database_path_in_parent.parent)
+    directory_descriptor = os.open(database_path_in_parent.parent,
+                                   os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
         expected_parent = database_path.parent.stat()
-        pinned_parent = os.fstat(rule_descriptors[1])
+        pinned_parent = os.fstat(directory_descriptor)
         require((expected_parent.st_dev, expected_parent.st_ino) == (pinned_parent.st_dev, pinned_parent.st_ino),
                 "synthetic SQLite directory identity changed")
-        version = sandbox_worker(readable_paths, database_path_in_parent)
+        with sandbox_worker(directory_descriptor, database_path.name):
+            worker_phase("probe-metadata-write-denial")
+            try:
+                os.chmod("/" + database_path.name, stat.S_IMODE(attrs.st_mode))
+            except OSError as error:
+                require(error.errno in (1, 13), "metadata write-denial probe failed unexpectedly")
+            else:
+                raise CaptureError("worker sandbox allowed a metadata write")
+            worker_phase("probe-truncation-denial")
+            try:
+                truncate_descriptor = os.open("/" + database_path.name,
+                                              os.O_RDONLY | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC)
+            except OSError as error:
+                require(error.errno in (1, 13), "file truncation-denial probe failed unexpectedly")
+            else:
+                os.close(truncate_descriptor)
+                raise CaptureError("worker sandbox allowed database truncation")
+            worker_phase("probe-open-sqlite")
+            database_uri = (Path("/") / database_path.name).as_uri() + "?mode=ro"
+            with closing(sqlite3.connect(database_uri, uri=True, timeout=1, isolation_level=None)) as source:
+                worker_phase("probe-read-wal")
+                source.execute("PRAGMA query_only=ON")
+                source.execute("PRAGMA trusted_schema=OFF")
+                source.execute("PRAGMA temp_store=MEMORY")
+                require(source.execute("PRAGMA journal_mode").fetchone()[0] == "wal" and
+                        source.execute("SELECT value FROM probe").fetchone() == ("committed-in-wal",),
+                        "read-only WAL probe did not recover the committed synthetic row")
+                memory = sqlite3.connect(":memory:", isolation_level=None)
+                try:
+                    worker_phase("probe-backup-sqlite")
+                    source.backup(memory)
+                    worker_phase("probe-validate-sqlite")
+                    require(memory.execute("PRAGMA integrity_check").fetchall() == [("ok",)] and
+                            memory.execute("SELECT value FROM probe").fetchone() == ("committed-in-wal",),
+                            "synthetic WAL online backup failed validation")
+                finally:
+                    memory.close()
     finally:
-        for descriptor in reversed(rule_descriptors):
-            os.close(descriptor)
-    worker_phase("probe-open-sqlite")
-    database_uri = database_path_in_parent.as_uri() + "?mode=ro"
-    with closing(sqlite3.connect(database_uri, uri=True, timeout=1, isolation_level=None)) as source:
-        worker_phase("probe-read-wal")
-        source.execute("PRAGMA query_only=ON")
-        source.execute("PRAGMA trusted_schema=OFF")
-        source.execute("PRAGMA temp_store=MEMORY")
-        require(source.execute("PRAGMA journal_mode").fetchone()[0] == "wal" and
-                source.execute("SELECT value FROM probe").fetchone() == ("committed-in-wal",),
-                "read-only WAL probe did not recover the committed synthetic row")
-        memory = sqlite3.connect(":memory:", isolation_level=None)
-        try:
-            worker_phase("probe-backup-sqlite")
-            source.backup(memory)
-            worker_phase("probe-validate-sqlite")
-            require(memory.execute("PRAGMA integrity_check").fetchall() == [("ok",)] and
-                    memory.execute("SELECT value FROM probe").fetchone() == ("committed-in-wal",),
-                    "synthetic WAL online backup failed validation")
-        finally:
-            memory.close()
+        os.close(directory_descriptor)
     print("synthetic read-only WAL snapshot passed with allowlisted reads and filesystem writes denied", flush=True)
 
 
@@ -704,16 +742,16 @@ def synthetic_sqlite_sandbox_check():
                   path.stat().st_mtime_ns, path.stat().st_ctime_ns) for path in source_paths]
         require(before == after,
                 "synthetic read-only WAL snapshot changed source-file metadata")
-        print("synthetic read-only WAL snapshot, outside-read denial, and database write-denial checks passed before live GPT inspection", flush=True)
+        print("synthetic read-only WAL snapshot, outside-read denial, and data/metadata/truncation write-denial checks passed before live GPT inspection", flush=True)
     finally:
         if writer is not None:
             writer.close()
         shutil.rmtree(directory)
 
 
-def regular_descriptors():
+def regular_descriptors(directory_descriptor):
     result = {}
-    for name in os.listdir("/proc/self/fd"):
+    for name in os.listdir(directory_descriptor):
         try:
             descriptor = int(name)
             attrs = os.fstat(descriptor)
@@ -753,65 +791,53 @@ def sqlite_snapshot_worker(pid, process_started, database_relative, expected_ide
                 os.pread(sourcefd, 16, 0) == b"SQLite format 3\x00",
                 "container database identity differs from the pinned source")
 
-        uri_path = Path("/proc") / str(pid) / "root" / "app" / "db" / Path(*parts)
-        readable_paths, rule_descriptors = open_landlock_read_paths(uri_path.parent)
-        try:
-            expected_parent = os.fstat(parentfd)
-            pinned_parent = os.fstat(rule_descriptors[1])
-            require((expected_parent.st_dev, expected_parent.st_ino) ==
-                    (pinned_parent.st_dev, pinned_parent.st_ino),
-                    "container database directory changed before sandboxing")
-            for descriptor in reversed(descriptors):
+        for descriptor in reversed(descriptors):
+            if descriptor != parentfd:
                 os.close(descriptor)
-            descriptors.clear()
-            version = sandbox_worker(readable_paths, uri_path)
-        finally:
-            for descriptor in reversed(rule_descriptors):
-                os.close(descriptor)
-        worker_phase("snapshot-list-descriptors")
-        before = regular_descriptors()
-        uri = uri_path.as_uri() + "?mode=ro"
-        deadline = time.monotonic() + 20
-        memory = sqlite3.connect(":memory:", isolation_level=None)
-        try:
-            def progress(status, remaining, total):
-                if time.monotonic() >= deadline or total * page_size > MAX_DATABASE:
-                    raise RuntimeError("native SQLite snapshot exceeded its time or size budget")
+        descriptors[:] = [parentfd]
+        with sandbox_worker(parentfd, parts[-1]) as (version, descriptor_directory):
+            worker_phase("snapshot-list-descriptors")
+            before = regular_descriptors(descriptor_directory)
+            uri = (Path("/") / parts[-1]).as_uri() + "?mode=ro"
+            deadline = time.monotonic() + 20
+            memory = sqlite3.connect(":memory:", isolation_level=None)
+            try:
+                def progress(status, remaining, total):
+                    if time.monotonic() >= deadline or total * page_size > MAX_DATABASE:
+                        raise RuntimeError("native SQLite snapshot exceeded its time or size budget")
 
-            memory.execute("PRAGMA temp_store=MEMORY")
-            worker_phase("snapshot-open-sqlite")
-            with closing(sqlite3.connect(uri, uri=True, timeout=1, isolation_level=None)) as source:
-                worker_phase("snapshot-read-sqlite")
-                source.execute("PRAGMA query_only=ON")
-                source.execute("PRAGMA trusted_schema=OFF")
-                source.execute("PRAGMA temp_store=MEMORY")
-                source.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
-                source.execute("BEGIN")
-                page_size = source.execute("PRAGMA page_size").fetchone()[0]
-                page_count = source.execute("PRAGMA page_count").fetchone()[0]
-                require(page_size in {512, 1024, 2048, 4096, 8192, 16384, 32768, 65536} and
-                        page_size * page_count <= MAX_DATABASE,
-                        "source SQLite page geometry exceeds the capture budget")
-                identities = regular_descriptors()
-                opened_database = [identity for descriptor, identity in identities.items()
-                                   if before.get(descriptor) != identity and
-                                   identity == (expected_identity["device"], expected_identity["inode"])]
-                require(opened_database, "SQLite did not open the pinned source database")
-                journal = source.execute("PRAGMA journal_mode").fetchone()[0]
-                memory.execute("PRAGMA page_size=" + str(page_size))
-                worker_phase("snapshot-backup-sqlite")
-                source.backup(memory, pages=128, progress=progress, sleep=0.01)
-                expected_counts = counts(source)
-                source.rollback()
-            worker_phase("snapshot-validate-sqlite")
-            require(memory.execute("PRAGMA integrity_check").fetchall() == [("ok",)] and
-                    counts(memory) == expected_counts,
-                    "native SQLite memory snapshot failed integrity or row-count verification")
-            require(hasattr(memory, "serialize"), "host SQLite cannot serialize the bounded snapshot")
-            payload = memory.serialize()
-            require(0 < len(payload) <= MAX_DATABASE, "serialized SQLite snapshot exceeds the capture budget")
-        finally:
-            memory.close()
+                memory.execute("PRAGMA temp_store=MEMORY")
+                worker_phase("snapshot-open-sqlite")
+                with closing(sqlite3.connect(uri, uri=True, timeout=1, isolation_level=None)) as source:
+                    worker_phase("snapshot-read-sqlite")
+                    source.execute("PRAGMA query_only=ON")
+                    source.execute("PRAGMA trusted_schema=OFF")
+                    source.execute("PRAGMA temp_store=MEMORY")
+                    source.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
+                    source.execute("BEGIN")
+                    page_size = source.execute("PRAGMA page_size").fetchone()[0]
+                    page_count = source.execute("PRAGMA page_count").fetchone()[0]
+                    require(page_size in {512, 1024, 2048, 4096, 8192, 16384, 32768, 65536} and
+                            page_size * page_count <= MAX_DATABASE,
+                            "source SQLite page geometry exceeds the capture budget")
+                    identities = regular_descriptors(descriptor_directory)
+                    opened_database = [identity for descriptor, identity in identities.items()
+                                       if before.get(descriptor) != identity and
+                                       identity == (expected_identity["device"], expected_identity["inode"])]
+                    require(opened_database, "SQLite did not open the pinned source database")
+                    journal = source.execute("PRAGMA journal_mode").fetchone()[0]
+                    memory.execute("PRAGMA page_size=" + str(page_size))
+                    worker_phase("snapshot-backup-sqlite")
+                    source.backup(memory, pages=128, progress=progress, sleep=0.01)
+                    expected_counts = counts(source)
+                    source.rollback()
+                worker_phase("snapshot-validate-sqlite")
+                require(memory.execute("PRAGMA integrity_check").fetchall() == [("ok",)] and
+                        counts(memory) == expected_counts,
+                        "native SQLite memory snapshot failed integrity or row-count verification")
+                payload = serialize_snapshot(memory)
+            finally:
+                memory.close()
         require(not select.select([pidfd], [], [], 0)[0],
                 "source process exited during SQLite snapshot")
         header = json.dumps({"version": 1, "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
