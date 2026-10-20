@@ -38,6 +38,9 @@ data:
           output_cost_per_token: 0.0000012
           max_input_tokens: 220000
           supports_reasoning: true
+          supports_vision: true
+          supports_function_calling: true
+          supports_tool_choice: true
           supported_reasoning_efforts:
             - low
             - high
