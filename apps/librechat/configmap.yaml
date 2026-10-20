@@ -67,6 +67,10 @@ data:
               prompt: 0.544
               completion: 3.263
               context: 220000
+            deepseek-v4.1-flash-1017:
+              prompt: 0.3
+              completion: 1.2
+              context: 220000
             gemma-4-e4b-it:
               prompt: 0.02
               completion: 0.1

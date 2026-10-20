@@ -8,7 +8,7 @@ the stack is deliberately limited to:
 - LibreChat API/UI, pinned to `v0.8.7`
 - MongoDB for users, sessions, conversations, and application state
 - Meilisearch for conversation search
-- Authentik OIDC and a restricted LiteLLM key for the static chat models and
+- Authentik OIDC and a restricted LiteLLM key for the discovered chat models and
   the standard Qwen Image tool
 
 RAG/pgvector and the separate LibreChat admin-panel service are not deployed.
@@ -54,6 +54,7 @@ before applying the kustomization, confirm all of the following:
    a non-admin user in `librechat_users` and one outside that group for tests.
    The provider's ID token must contain the `groups` claim.
 6. create a LiteLLM virtual key limited to chat models `qwen3.8-27b`,
+   `deepseek-v4.1-flash-1017`,
    `gemma-4-e4b-it`, `gemma-4-12b-it`, `gemma-4-26b-a4b-it`, and
    `qwen3.6-35b-a3b`, plus the standard image model `qwen-image-2.1`, with
    `allowed_routes` limited to `/v1/models` (used with `GET`),
@@ -144,8 +145,10 @@ the user-facing LibreChat configuration is the `librechat.yaml` key in
 populate the picker dynamically from LiteLLM. the fallback is used if fetching
 fails; it is not a model allowlist. its LiteLLM virtual key must allow
 `/v1/models` or discovery fails and the chat picker has only the fallback.
-the key's model scope enforces inference access. qwen image remains an Agent tool, not a
-chat-model selector entry; its single global image-tool setting stays on
+the key's model scope enforces inference access. include
+`deepseek-v4.1-flash-1017` in that scope for it to appear in the dynamically
+fetched chat picker; the fallback remains `qwen3.8-27b`. qwen image remains an
+Agent tool, not a chat-model selector entry; its single global image-tool setting stays on
 `qwen-image-2.1`. The uncensored image alias is exposed through LiteLLM for
 direct API evaluation with a separately scoped virtual key, not through the
 shared LibreChat image tool. JevK5 is a typed decision route, not a chat model.

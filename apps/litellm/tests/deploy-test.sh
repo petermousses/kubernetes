@@ -144,6 +144,7 @@ grep -Fq 'port: 8191' "${app_root}/networkpolicy.yaml"
 
 readonly -a configured_models=(
   qwen3.8-27b
+  deepseek-v4.1-flash-1017
   gemma-4-e4b-it
   gemma-4-12b-it
   gemma-4-26b-a4b-it
@@ -182,9 +183,28 @@ for reasoning_contract in \
   fi
 done
 if grep -Fq 'model_name: deepseek-v4.1-flash-q2' "${app_root}/configmap.yaml"; then
-  printf 'DeepSeek must not be registered before its weights are available\n' >&2
+  printf 'the retired DeepSeek Q2 alias must not be registered\n' >&2
   exit 1
 fi
+deepseek_model_config="$(awk '
+  /^      - model_name: deepseek-v4[.]1-flash-1017$/ { capture = 1 }
+  capture && /^      - model_name:/ && $0 !~ /deepseek-v4[.]1-flash-1017/ { exit }
+  capture { print }
+' "${app_root}/configmap.yaml")"
+for deepseek_contract in \
+  '          model: openai/deepseek' \
+  '          api_base: http://qwen-redqueen:8081/v1' \
+  '          api_key: os.environ/QWEN_API_KEY' \
+  '          max_retries: 0' \
+  '          input_cost_per_token: 0.0000003' \
+  '          output_cost_per_token: 0.0000012' \
+  '          max_input_tokens: 220000'; do
+  if ! grep -Fq -- "${deepseek_contract}" <<<"${deepseek_model_config}"; then
+    printf 'DeepSeek LiteLLM entry is missing contract: %s\n' \
+      "${deepseek_contract}" >&2
+    exit 1
+  fi
+done
 grep -Fq '      store_model_in_db: false' "${app_root}/configmap.yaml"
 for priced_openai_model in \
   'openai/jevk5-4b-v0.3' \
@@ -198,8 +218,8 @@ for priced_openai_model in \
     exit 1
   fi
 done
-if [[ "$(grep -Fc 'api_base: http://qwen-redqueen:8081/v1' "${app_root}/configmap.yaml")" -ne 7 ]]; then
-  printf 'all six chat aliases and EmbeddingGemma must use the shared redqueen text endpoint\n' >&2
+if [[ "$(grep -Fc 'api_base: http://qwen-redqueen:8081/v1' "${app_root}/configmap.yaml")" -ne 8 ]]; then
+  printf 'all seven chat aliases and EmbeddingGemma must use the shared redqueen text endpoint\n' >&2
   exit 1
 fi
 if [[ "$(grep -Fc 'api_base: http://qwen-image-redqueen:8190/v1' "${app_root}/configmap.yaml")" -ne 2 ]]; then

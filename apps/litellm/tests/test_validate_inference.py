@@ -364,6 +364,7 @@ class ValidationScriptTest(unittest.TestCase):
     def test_text_model_alias_is_forwarded_and_response_is_checked(self) -> None:
         opener = FakeOpener()
         models = (
+            "deepseek-v4.1-flash-1017",
             "gemma-4-e4b-it",
             "qwen3.6-35b-a3b",
             "glm-5.3-flash-abliterated",

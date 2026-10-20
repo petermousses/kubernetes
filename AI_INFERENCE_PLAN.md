@@ -11,6 +11,7 @@ do **not** make k3s directly manage the AMD Halo GPU workloads in v1. run the in
 | identity | Authentik OIDC (MIT for the community core) |
 | backup archive | Borg 1.4.5 over restricted SSH (BSD-3-Clause) |
 | text-model router | `llama-swap` (MIT) dynamically starts/stops `llama.cpp` (MIT) model servers |
+| DeepSeek chat runtime | native HIP worker with SSD-backed expert reads, admitted by the Redqueen host scheduler |
 | embedding model | EmbeddingGemma 2 through the same private llama-swap and LiteLLM gateways |
 | Qwen3.8, Gemma 4 E4B/12B/26B-A4B, Qwen3.6-35B-A3B weights | Apache-2.0 |
 | Huihui GLM-5.3-Flash abliterated GGUF | MIT; reduced safety filtering; dedicated restricted key only |
@@ -25,7 +26,7 @@ AMD officially supports `llama.cpp` on supported Ryzen APUs, while vLLM/SGLang r
 browser ──> traefik ──> LibreChat ──> LiteLLM
                  └────> Authentik       │
 api clients ──> api.ai... ──────────────┤
-                                        ├─> llama-swap ─> one llama.cpp text model at a time
+                                        ├─> Redqueen host scheduler ─> llama-swap / DeepSeek HIP worker
                                         ├─> image adapter ─> ComfyUI (standard or uncensored Qwen Image)
                                         └─> System One adapter ─> JevK5, llama-swap Clef, or CLM + Qwen3-8B encoder
 ```
@@ -268,6 +269,7 @@ the following snapshot supplies the `model_info` rates above. prices are USD per
 | local chat alias | hosted API benchmark | input / output per 1M tokens |
 | --- | --- | ---: |
 | `qwen3.8-27b` | Alibaba Model Studio `qwen3.8-27b` (international) | $0.544 / $3.263* |
+| `deepseek-v4.1-flash-1017` | DeepSeek API `deepseek-flash` (V4.1-Flash-1017) | $0.30 / $1.20† |
 | `gemma-4-e4b-it` | DeepInfra `google/gemma-4-E4B-it` | $0.02 / $0.10 |
 | `gemma-4-12b-it` | SiliconFlow `gemma-4-12B-it` | $0.10 / $0.30 |
 | `gemma-4-26b-a4b-it` | SiliconFlow `gemma-4-26B-A4B-it` | $0.14 / $0.40 |
@@ -275,6 +277,8 @@ the following snapshot supplies the `model_info` rates above. prices are USD per
 | `glm-5.3-flash-abliterated` | Z.AI `GLM-5.3-Flash` base model; proxy for the ablated derivative | $0.15 / $0.50 |
 
 price sources: [DeepInfra Gemma 4 E4B](https://deepinfra.com/google/gemma-4-E4B-it), [SiliconFlow pricing](https://www.siliconflow.com/pricing), [Z.AI pricing](https://docs.z.ai/guides/overview/pricing). the GLM ablation is not offered as a hosted API; its base-model rate is only a comparison benchmark. refresh these sources when adding/removing a chat model or a listed rate changes. System One API-equivalent rates are recorded below.
+
+† DeepSeek prices checked 2026-10-19. the official API lists peak rates of $0.30 per 1M uncached input tokens and $1.20 per 1M output tokens; the V4.1-Flash-1017 update says to use `deepseek-flash` and that pricing is unchanged. Redqueen reports aggregate prompt usage without cache-hit or peak/off-peak detail, so LiteLLM uses peak uncached-input and peak-output rates as a conservative API-equivalent benchmark. this is not the cost of local inference. [DeepSeek API pricing](https://api-docs.deepseek.com/quick_start/pricing/), [1017 update](https://api-docs.deepseek.com/updates/?release=deepseek-coder)
 
 #### API-equivalent System One rates — 2026-10-06
 
@@ -411,6 +415,7 @@ to deploy the full static expansion on the NAS, pull this branch and run `./apps
 ```bash
 ./apps/litellm/validate_inference.py \
   --text-model qwen3.8-27b \
+  --text-model deepseek-v4.1-flash-1017 \
   --text-model gemma-4-e4b-it \
   --text-model gemma-4-12b-it \
   --text-model gemma-4-26b-a4b-it \
@@ -420,9 +425,9 @@ to deploy the full static expansion on the NAS, pull this branch and run `./apps
   --image-model qwen-image-2.1-uncensored
 ```
 
-that exercises text-model switching, public invalid-key rejection, JevK5, and 512px generation/edit for both image IDs. then inspect the ComfyUI UI through the existing SSH tunnel, verify the GGUF node/model appears without any browser-side download, inspect redqueen service logs and memory during mixed text/image requests, and repeat after reboot. do not call the expansion complete until all six text requests and both image generation/edit pairs pass without OOM, GPU reset, leaked listener or unapproved model visibility.
+that exercises text-model switching, public invalid-key rejection, JevK5, and 512px generation/edit for both image IDs. then inspect the ComfyUI UI through the existing SSH tunnel, verify the GGUF node/model appears without any browser-side download, inspect redqueen service logs and memory during mixed text/image requests, and repeat after reboot. do not call the expansion complete until all seven text requests and both image generation/edit pairs pass without OOM, GPU reset, leaked listener or unapproved model visibility.
 
-to let LibreChat discover the chat aliases, ensure its LiteLLM virtual key allows `/v1/models` (the endpoint is called with `GET`), then apply `kubectl apply -k apps/librechat` from the NAS clone and restart the deployment because `librechat.yaml` is mounted with `subPath`. confirm the rollout and verify discovery. that key must allow the five chat aliases plus only the standard `qwen-image-2.1` for the built-in image tool, with `/v1/models`, `/v1/chat/completions`, `/v1/images/generations` and `/v1/images/edits` routes. create a replacement restricted key if the current LibreChat key lacks those model or route permissions, then run `./apps/librechat/replace-litellm-key.sh`; it patches only that Secret field and restarts LibreChat without changing its persistent encryption material. reserve the uncensored alias for a separate direct-API key with only model `qwen-image-2.1-uncensored` and routes `/v1/images/generations` and `/v1/images/edits`; explicitly verify that the LibreChat key is denied this alias.
+to let LibreChat discover the chat aliases, ensure its LiteLLM virtual key allows `/v1/models` (the endpoint is called with `GET`), then apply `kubectl apply -k apps/librechat` from the NAS clone and restart the deployment because `librechat.yaml` is mounted with `subPath`. confirm the rollout and verify discovery. that key must allow the six approved chat aliases, including `deepseek-v4.1-flash-1017`, plus only the standard `qwen-image-2.1` for the built-in image tool, with `/v1/models`, `/v1/chat/completions`, `/v1/images/generations` and `/v1/images/edits` routes. create a replacement restricted key if the current LibreChat key lacks those model or route permissions, then run `./apps/librechat/replace-litellm-key.sh`; it patches only that Secret field and restarts LibreChat without changing its persistent encryption material. reserve the uncensored alias for a separate direct-API key with only model `qwen-image-2.1-uncensored` and routes `/v1/images/generations` and `/v1/images/edits`; explicitly verify that the LibreChat key is denied this alias.
 
 rollback if the router does not become healthy: `systemctl --user disable --now llama-swap.service` then `systemctl --user enable --now qwen38.service`; revert only the new LiteLLM model-list entries and redeploy if needed. keep the new image files and ComfyUI plugin installed during rollback; the existing standard image path remains independently available. the old `qwen38.service` unit and weights are intentionally retained until the new path passes reboot and mixed-load gates.
 
@@ -513,9 +518,9 @@ use pinned Podman Quadlets or systemd services running under the dedicated, non-
   - Qwen3.8-27B is a native vision-language model under Apache-2.0. [official model card](https://huggingface.co/Qwen/Qwen3.8-27B)
 
 - **Text model switching and additional chat models**
-  - keep `llama-swap` on the existing authenticated `10.9.20.242:8081` listener; it launches one `llama.cpp` server at a time for `qwen3.8-27b`, three Gemma 4 variants and `qwen3.6-35b-a3b`. LiteLLM remains the only public aggregator and owns the static model allowlist.
+  - keep the Redqueen host scheduler on the existing authenticated `10.9.20.242:8081` listener. it admits `llama-swap` chat/embedding workers and the native DeepSeek HIP worker under one memory policy; LiteLLM remains the only public aggregator and owns the static model allowlist.
   - the existing Qwen3.8 process is replaced by the router only during an explicit cutover; its weights and 64k context remain unchanged. the new Gemma and Qwen3.6 entries use their already-downloaded Q4_0/Q4_K_M weights, Q8_0 multimodal projectors, 32k contexts and q8_0 K/V cache to bound cache growth. a five-minute idle TTL unloads inactive text weights; no model is preloaded at service startup.
-  - model storage stays under `/srv/ai/models/<model-id>/`; keep the downloaded `LICENSE`, `MODEL_CARD.md`, `SOURCE_REVISION` and `SHA256SUMS` beside each model. DeepSeek remains unregistered until its download is complete and verified.
+  - model storage stays under `/srv/ai/models/<model-id>/`; keep the downloaded `LICENSE`, `MODEL_CARD.md`, `SOURCE_REVISION` and `SHA256SUMS` beside each model. DeepSeek-V4.1-Flash-1017 is downloaded and verified, and a low-token request passed through Redqueen's internal scheduler; its LiteLLM alias is `deepseek-v4.1-flash-1017`.
   - Gemma 4 E4B/12B/26B-A4B and Qwen3.6-35B-A3B weights are Apache-2.0. [Gemma 4 model cards](https://huggingface.co/google/gemma-4-12B-it), [Qwen3.6 model card](https://huggingface.co/Qwen/Qwen3.6-35B-A3B)
 
 - **JevK5**
@@ -536,10 +541,10 @@ use pinned Podman Quadlets or systemd services running under the dedicated, non-
 - deploy **LiteLLM** as one pinned replica with a dedicated PostgreSQL database.
 - expose:
 
-  - `qwen3.8-27b`, `gemma-4-e4b-it`, `gemma-4-12b-it`, `gemma-4-26b-a4b-it`, `qwen3.6-35b-a3b` and `glm-5.3-flash-abliterated` through `/v1/chat/completions`
+  - `qwen3.8-27b`, `deepseek-v4.1-flash-1017`, `gemma-4-e4b-it`, `gemma-4-12b-it`, `gemma-4-26b-a4b-it`, `qwen3.6-35b-a3b` and `glm-5.3-flash-abliterated` through `/v1/chat/completions`
   - `qwen-image-2.1` and `qwen-image-2.1-uncensored` through `/v1/images/generations` and `/v1/images/edits`
   - the six canonical System One model IDs plus the `clef-flash` bf16 shorthand through LiteLLM's native `/v1/systemone` and `/v1/decisions` routes
-- keep `store_model_in_db: false`; make each listed public model a reviewed static `model_list` entry in `apps/litellm/configmap.yaml`. the six text aliases and EmbeddingGemma share the existing `qwen-redqueen:8081` endpoint and `QWEN_API_KEY`; both image aliases share `qwen-image-redqueen:8190` and `QWEN_IMAGE_API_KEY`; decision aliases use LiteLLM's `openai/` provider at the existing `jevk5-redqueen:8191` OpenAI Decisions adapter. the adapter key is aliased from the existing `TYPESAFE_API_KEY` Secret value while the TypeSafe pass-through remains enabled. no new Kubernetes Service, firewall port or network-policy exception is required.
+- keep `store_model_in_db: false`; make each listed public model a reviewed static `model_list` entry in `apps/litellm/configmap.yaml`. the seven text aliases and EmbeddingGemma share the existing `qwen-redqueen:8081` endpoint and `QWEN_API_KEY`; both image aliases share `qwen-image-redqueen:8190` and `QWEN_IMAGE_API_KEY`; decision aliases use LiteLLM's `openai/` provider at the existing `jevk5-redqueen:8191` OpenAI Decisions adapter. the adapter key is aliased from the existing `TYPESAFE_API_KEY` Secret value while the TypeSafe pass-through remains enabled. no new Kubernetes Service, firewall port or network-policy exception is required.
 
 - use LiteLLM virtual keys:
   - one restricted key for LibreChat;
