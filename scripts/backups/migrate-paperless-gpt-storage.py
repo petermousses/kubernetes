@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import uuid
 
 sys.dont_write_bytecode = True
@@ -182,8 +183,19 @@ def identity_matches(anchor):
                     not select.select([descriptor], [], [], 0)[0])
         finally:
             os.close(descriptor)
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return False
+
+
+def safe_failure(error):
+    details = {"type": type(error).__name__,
+               "frames": [{"function": frame.name, "line": frame.lineno}
+                          for frame in traceback.extract_tb(error.__traceback__)[-8:]]}
+    for name in ("errno", "sqlite_errorcode", "sqlite_errorname"):
+        value = getattr(error, name, None)
+        if value is not None:
+            details[name] = value
+    return details
 
 
 @contextmanager
@@ -783,4 +795,6 @@ if __name__ == "__main__":
             AttributeError, RuntimeError, sqlite3.Error, subprocess.TimeoutExpired, KeyboardInterrupt) as error:
         message = str(error) if isinstance(error, (capture.CaptureError, inspection.InspectionError)) else "filesystem, API, process, or SQLite check failed; private data omitted"
         print("GPT storage migration stopped: " + message, file=sys.stderr, flush=True)
+        print("GPT_STORAGE_ERROR_JSON=" + json.dumps(safe_failure(error), sort_keys=True),
+              file=sys.stderr, flush=True)
         sys.exit(1)

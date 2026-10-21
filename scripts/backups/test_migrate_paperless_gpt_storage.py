@@ -1,5 +1,6 @@
 import contextlib
 import copy
+import errno
 import importlib.util
 import json
 import os
@@ -35,6 +36,30 @@ def source_template():
 
 
 class CutoverStateTests(unittest.TestCase):
+    def test_reaped_process_is_not_present(self):
+        anchor = {"boot_id": "this-boot", "pid": 12345, "process_start": "1"}
+        with (patch.object(migration, "boot_id", return_value="this-boot"),
+              patch.object(migration.os, "pidfd_open",
+                           side_effect=ProcessLookupError(errno.ESRCH, "process no longer exists"), create=True)):
+            self.assertFalse(migration.identity_matches(anchor))
+
+    def test_permission_error_checking_process_identity_is_not_hidden(self):
+        anchor = {"boot_id": "this-boot", "pid": 12345, "process_start": "1"}
+        with (patch.object(migration, "boot_id", return_value="this-boot"),
+              patch.object(migration.os, "pidfd_open", side_effect=PermissionError(errno.EACCES, "denied"), create=True),
+              self.assertRaises(PermissionError)):
+            migration.identity_matches(anchor)
+
+    def test_safe_failure_reports_location_without_exception_text(self):
+        try:
+            raise OSError(errno.EIO, "sensitive path and content")
+        except OSError as error:
+            details = migration.safe_failure(error)
+        self.assertEqual(details["type"], "OSError")
+        self.assertEqual(details["errno"], errno.EIO)
+        self.assertTrue(details["frames"])
+        self.assertNotIn("sensitive", json.dumps(details))
+
     def test_patch_adds_only_state_claims_and_omv_pin(self):
         original = source_template()
         snapshot = copy.deepcopy(original)
@@ -308,6 +333,32 @@ while True:
             migration.fence_original(result)
         self.assertEqual(self.child.wait(timeout=5), -signal.SIGKILL)
         self.assertEqual(helper.wait(timeout=5), -signal.SIGKILL)
+        # A production container runtime reaps the process immediately. The
+        # recovery retry must handle pidfd_open(ESRCH), not only a zombie PID.
+        self.assertFalse(migration.identity_matches(self.anchor))
+        with patch.object(migration, "get", return_value=None), patch.object(migration, "owned_pods", return_value=[]):
+            migration.fence_original(result)
+
+    def test_target_committed_recovery_starts_from_copy_after_process_is_reaped(self):
+        self.child.kill()
+        self.child.wait(timeout=5)
+        state = {"phase": "target-committed", "authoritative": "target", "anchor": self.anchor,
+                 "target_template": {"spec": "target"}}
+        events = []
+        def proof(current, before_start=False):
+            events.append("prestart-proof" if before_start else "retained-proof")
+            return {"relation_counts": {"settings": 1}}
+        with (patch.object(migration, "target_proof", side_effect=proof),
+              patch.object(migration, "get", side_effect=[{"spec": {"template": state["target_template"]}}, None]),
+              patch.object(migration, "zero_controllers", side_effect=lambda _: events.append("controllers-zero")),
+              patch.object(migration, "owned_pods", return_value=[]),
+              patch.object(migration, "patch_writer", side_effect=lambda _, replicas: events.append("writer-started")),
+              patch.object(migration, "ready_writer", return_value={"pod_uid": "persistent-target"})):
+            ready, copy_proof = migration.start_target(state)
+        self.assertEqual(ready, {"pod_uid": "persistent-target"})
+        self.assertEqual(copy_proof, {"relation_counts": {"settings": 1}})
+        self.assertEqual(events, ["retained-proof", "controllers-zero", "prestart-proof", "writer-started"])
+        self.assertEqual(state["phase"], "target-starting")
 
     def test_pause_timeout_thaws_source_and_rejects_stale_target(self):
         actual_normalize = migration.normalize_database
