@@ -22,6 +22,7 @@ IMAGE_DIGEST = "sha256:15bad5d455b98f21bb7b5d6615f56871ff67a8bb379dc0dd7ba411f46
 PORT = 8080
 MAX_RESPONSE = 4 * 1024 * 1024
 HTTP_STATUS = re.compile(r"(?:status(?:_code|-code)?\s*[=:]\s*|error fetching tags:\s*)(\d{3})\b")
+CURRENT_PHASE = "starting"
 
 
 class DiagnosticError(Exception):
@@ -159,9 +160,12 @@ def paperless_request(port, path, token, kind):
 
 
 def paperless_api_probe(port, token, manual_tag):
+    global CURRENT_PHASE
     tag_query = urlencode({"name__iexact": manual_tag})
     document_query = urlencode({"tags__name__iexact": manual_tag, "page_size": 1})
+    CURRENT_PHASE = "looking up the Paperless-GPT manual tag"
     tags = paperless_request(port, f"/api/tags/?{tag_query}", token, "tags")
+    CURRENT_PHASE = "checking Paperless-GPT manual-tag documents"
     documents = paperless_request(port, f"/api/documents/?{document_query}", token, "documents")
     return {"token_accepted": tags.get("http_status") == 200 and tags.get("json_type") == "dict" and
             documents.get("http_status") == 200 and documents.get("json_type") == "dict",
@@ -181,6 +185,8 @@ def process_start(pid, container_id):
 
 
 def token_evidence(pod):
+    global CURRENT_PHASE
+    CURRENT_PHASE = "reading Paperless token Secret metadata"
     secret = json.loads(kube("get", "secret", "paperless-env", "-n", NAMESPACE, "-o", "json"))
     encoded = secret.get("data", {}).get("PAPERLESS_API_TOKEN")
     if not encoded:
@@ -193,6 +199,7 @@ def token_evidence(pod):
     except (binascii.Error, ValueError, TypeError):
         raise DiagnosticError("Paperless API token Secret data is unreadable; value omitted")
 
+    CURRENT_PHASE = "verifying GPT Pod Secret wiring"
     pod_spec = pod.get("spec", {})
     containers = [item for item in pod_spec.get("containers", []) if item.get("name") == "paperless-gpt"]
     env_from = containers[0].get("envFrom", []) if len(containers) == 1 else []
@@ -204,6 +211,7 @@ def token_evidence(pod):
     container_id = states[0].get("containerID", "").removeprefix("containerd://")
     if not re.fullmatch(r"[0-9a-f]{64}", container_id):
         raise DiagnosticError("running container identity is invalid")
+    CURRENT_PHASE = "checking CRI container identity"
     runtime = json.loads(command(["k3s", "crictl", "inspect", "-o", "json", container_id]))
     status, info = runtime.get("status", {}), runtime.get("info", {})
     if (status.get("id") != container_id or status.get("state") != "CONTAINER_RUNNING" or
@@ -214,6 +222,7 @@ def token_evidence(pod):
     pid = info.get("pid")
     if type(pid) is not int or pid <= 1:
         raise DiagnosticError("running container process identity is unavailable")
+    CURRENT_PHASE = "checking container process identity"
     start = process_start(pid, container_id)
     try:
         entries = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
@@ -221,6 +230,7 @@ def token_evidence(pod):
         raise DiagnosticError("running container environment could not be inspected") from error
     if process_start(pid, container_id) != start:
         raise DiagnosticError("running container process changed during token inspection")
+    CURRENT_PHASE = "comparing in-memory token metadata"
     values = [entry.partition(b"=")[2] for entry in entries if entry.startswith(b"PAPERLESS_API_TOKEN=")]
     if len(values) > 1:
         raise DiagnosticError("running container has ambiguous Paperless API token variables")
@@ -231,6 +241,8 @@ def token_evidence(pod):
 
 
 def manual_tag():
+    global CURRENT_PHASE
+    CURRENT_PHASE = "reading Paperless-GPT manual-tag metadata"
     config = json.loads(kube("get", "configmap", "paperless-config", "-n", NAMESPACE, "-o", "json"))
     tag = config.get("data", {}).get("MANUAL_TAG", "")
     if not tag:
@@ -283,17 +295,22 @@ def log_summary(pod_name):
 
 
 def probe():
+    global CURRENT_PHASE
+    CURRENT_PHASE = "selecting the ready Paperless-GPT Pod"
     pod, container = ready_pod()
+    CURRENT_PHASE = "checking the Paperless-GPT documents endpoint"
     api = port_forward("pod/" + pod["metadata"]["name"], PORT, http_probe)
     token, token_value = token_evidence(pod)
     paperless = None
     if token_value is not None:
+        CURRENT_PHASE = "checking Paperless API authentication and tag lookup"
         paperless = port_forward("service/paperless", 8000,
                                  lambda port: paperless_api_probe(port, token_value, manual_tag()))
     passed = (api.get("http_status") == 200 and api.get("json_type") == "array" and
               token.get("running_value_matches_secret") is True and
               paperless is not None and paperless.get("token_accepted") is True)
-    return {
+    CURRENT_PHASE = "summarizing sanitized Paperless-GPT logs"
+    result = {
         "result": "passed" if passed else "action_needed",
         "namespace": NAMESPACE,
         "pod": pod["metadata"]["name"],
@@ -308,13 +325,39 @@ def probe():
         "credentials_or_raw_logs_printed": False,
         "kubernetes_resources_changed": False,
     }
+    CURRENT_PHASE = "complete"
+    return result
 
 
 def main():
     try:
         print(json.dumps(probe(), indent=2), flush=True)
-    except (DiagnosticError, json.JSONDecodeError):
-        print("Paperless-GPT diagnostics stopped; command output and application data were omitted", file=sys.stderr)
+    except DiagnosticError as error:
+        print(json.dumps({
+            "result": "stopped",
+            "phase": CURRENT_PHASE,
+            "reason": str(error),
+            "command_output_printed": False,
+            "application_data_printed": False,
+        }), file=sys.stderr)
+        return 1
+    except json.JSONDecodeError:
+        print(json.dumps({
+            "result": "stopped",
+            "phase": CURRENT_PHASE,
+            "reason": "invalid Kubernetes JSON metadata",
+            "command_output_printed": False,
+            "application_data_printed": False,
+        }), file=sys.stderr)
+        return 1
+    except Exception:
+        print(json.dumps({
+            "result": "stopped",
+            "phase": CURRENT_PHASE,
+            "reason": "unexpected diagnostic failure; details withheld",
+            "command_output_printed": False,
+            "application_data_printed": False,
+        }), file=sys.stderr)
         return 1
     return 0
 
