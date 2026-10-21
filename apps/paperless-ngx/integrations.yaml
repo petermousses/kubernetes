@@ -206,8 +206,8 @@ spec:
         - name: paperless-gpt-prompts
           persistentVolumeClaim: {claimName: paperless-gpt}
         - name: paperless-gpt-config
-          emptyDir: {}
+          persistentVolumeClaim: {claimName: paperless-gpt-config}
         - name: paperless-gpt-db
-          emptyDir: {}
+          persistentVolumeClaim: {claimName: paperless-gpt-db}
       nodeSelector: {kubernetes.io/hostname: openmediavault}
       terminationGracePeriodSeconds: 60

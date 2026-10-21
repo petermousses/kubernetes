@@ -1,0 +1,21 @@
+# managed by nas-backup-migration
+[Unit]
+Description=release an uncommitted GPT pause after its deadline
+After=k3s.service
+Requires=k3s.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+UMask=0077
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -u /usr/local/lib/k3s-backups/paperless-gpt-storage/current/scripts/backups/migrate-paperless-gpt-storage.py --watchdog
+TimeoutStopSec=10s
+Restart=on-failure
+RestartSec=1s
+NoNewPrivileges=true
+PrivateTmp=true
+Nice=10
+IOSchedulingClass=idle

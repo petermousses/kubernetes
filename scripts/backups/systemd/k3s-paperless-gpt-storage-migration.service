@@ -1,0 +1,21 @@
+# managed by nas-backup-migration
+[Unit]
+Description=move GPT config and SQLite state to retained NAS claims
+After=k3s.service
+Requires=k3s.service
+OnFailure=k3s-paperless-gpt-storage-recovery.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -u /usr/local/lib/k3s-backups/paperless-gpt-storage/current/scripts/backups/migrate-paperless-gpt-storage.py --run
+ExecStopPost=/usr/bin/python3 -u /usr/local/lib/k3s-backups/paperless-gpt-storage/current/scripts/backups/migrate-paperless-gpt-storage.py --recover
+TimeoutStartSec=20min
+TimeoutStopSec=10min
+NoNewPrivileges=true
+PrivateTmp=true
+Nice=10
+IOSchedulingClass=idle

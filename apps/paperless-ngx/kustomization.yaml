@@ -12,6 +12,10 @@ resources:
   - dependencies.yaml
   - paperless.yaml
   - integrations.yaml
+  - persistent-volume-gpt-config.yaml
+  - persistent-volume-claim-gpt-config.yaml
+  - persistent-volume-gpt-db.yaml
+  - persistent-volume-claim-gpt-db.yaml
   - certificates.yaml
   - ingress.yaml
   - ../_shared/ingress-security
