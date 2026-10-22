@@ -1,0 +1,26 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-paperless-restore-repository
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: restic-server
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: paperless-restore-validation
+      podSelector:
+        matchLabels:
+          backups.mousses.xyz/restic-client: 'true'
+    ports:
+    - protocol: TCP
+      port: 8000

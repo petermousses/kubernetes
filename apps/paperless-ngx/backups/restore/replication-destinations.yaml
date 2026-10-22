@@ -1,0 +1,371 @@
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: data-restore-initial
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  paused: true
+  trigger:
+    manual: controlled-by-restore-runner
+  restic:
+    destinationPVC: data-restore-artifacts
+    copyMethod: Direct
+    repository: restic-restore-paperless-data
+    customCA:
+      secretName: restic-restore-ca
+      key: ca.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes:
+    - ReadWriteOnce
+    cacheStorageClassName: paperless-backup-local
+    cleanupCachePVC: false
+    enableFileDeletion: false
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: 'true'
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: '1'
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - openmediavault
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: ai-restore-initial
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  paused: true
+  trigger:
+    manual: controlled-by-restore-runner
+  restic:
+    destinationPVC: ai-restore-artifacts
+    copyMethod: Direct
+    repository: restic-restore-paperless-ai
+    customCA:
+      secretName: restic-restore-ca
+      key: ca.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes:
+    - ReadWriteOnce
+    cacheStorageClassName: paperless-backup-local
+    cleanupCachePVC: false
+    enableFileDeletion: false
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: 'true'
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: '1'
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - openmediavault
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: gpt-restore-initial
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  paused: true
+  trigger:
+    manual: controlled-by-restore-runner
+  restic:
+    destinationPVC: gpt-restore-artifacts
+    copyMethod: Direct
+    repository: restic-restore-paperless-gpt
+    customCA:
+      secretName: restic-restore-ca
+      key: ca.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes:
+    - ReadWriteOnce
+    cacheStorageClassName: paperless-backup-local
+    cleanupCachePVC: false
+    enableFileDeletion: false
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: 'true'
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: '1'
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - openmediavault
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: gpt-config-restore-initial
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  paused: true
+  trigger:
+    manual: controlled-by-restore-runner
+  restic:
+    destinationPVC: gpt-config-restore-artifacts
+    copyMethod: Direct
+    repository: restic-restore-paperless-gpt-config
+    customCA:
+      secretName: restic-restore-ca
+      key: ca.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes:
+    - ReadWriteOnce
+    cacheStorageClassName: paperless-backup-local
+    cleanupCachePVC: false
+    enableFileDeletion: false
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: 'true'
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: '1'
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - openmediavault
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: gpt-db-restore-initial
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  paused: true
+  trigger:
+    manual: controlled-by-restore-runner
+  restic:
+    destinationPVC: gpt-db-restore-artifacts
+    copyMethod: Direct
+    repository: restic-restore-paperless-gpt-db
+    customCA:
+      secretName: restic-restore-ca
+      key: ca.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes:
+    - ReadWriteOnce
+    cacheStorageClassName: paperless-backup-local
+    cleanupCachePVC: false
+    enableFileDeletion: false
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: 'true'
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: '1'
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - openmediavault
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: postgres-restore-initial
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  paused: true
+  trigger:
+    manual: controlled-by-restore-runner
+  restic:
+    destinationPVC: postgres-restore-artifacts
+    copyMethod: Direct
+    repository: restic-restore-paperless-postgres
+    customCA:
+      secretName: restic-restore-ca
+      key: ca.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes:
+    - ReadWriteOnce
+    cacheStorageClassName: paperless-backup-local
+    cleanupCachePVC: false
+    enableFileDeletion: false
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: 'true'
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: '1'
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - openmediavault
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: redis-restore-initial
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  paused: true
+  trigger:
+    manual: controlled-by-restore-runner
+  restic:
+    destinationPVC: redis-restore-artifacts
+    copyMethod: Direct
+    repository: restic-restore-paperless-redis
+    customCA:
+      secretName: restic-restore-ca
+      key: ca.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes:
+    - ReadWriteOnce
+    cacheStorageClassName: paperless-backup-local
+    cleanupCachePVC: false
+    enableFileDeletion: false
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: 'true'
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: '1'
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - openmediavault

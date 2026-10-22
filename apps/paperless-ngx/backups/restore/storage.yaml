@@ -1,0 +1,955 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-data-restore-artifacts
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: data-restore-artifacts
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-data/initial/artifacts"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-restore-artifacts
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-data-restore-artifacts
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-data-restore-cache
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: volsync-dst-data-restore-initial-cache
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-data/initial/cache"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-data-restore-data
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: data-restore-data
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-data/initial/data"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-restore-data
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-data-restore-data
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-ai-restore-artifacts
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: ai-restore-artifacts
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-ai/initial/artifacts"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-restore-artifacts
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-ai-restore-artifacts
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-ai-restore-cache
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: volsync-dst-ai-restore-initial-cache
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-ai/initial/cache"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-ai-restore-data
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: ai-restore-data
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-ai/initial/data"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-restore-data
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-ai-restore-data
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-restore-artifacts
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: gpt-restore-artifacts
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-gpt/initial/artifacts"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpt-restore-artifacts
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-gpt-restore-artifacts
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-restore-cache
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: volsync-dst-gpt-restore-initial-cache
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-gpt/initial/cache"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-restore-data
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: gpt-restore-data
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-gpt/initial/data"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpt-restore-data
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-gpt-restore-data
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-config-restore-artifacts
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: gpt-config-restore-artifacts
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-gpt-config/initial/artifacts"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpt-config-restore-artifacts
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-gpt-config-restore-artifacts
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-config-restore-cache
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: volsync-dst-gpt-config-restore-initial-cache
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-gpt-config/initial/cache"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-config-restore-data
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: gpt-config-restore-data
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-gpt-config/initial/data"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpt-config-restore-data
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-gpt-config-restore-data
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-db-restore-artifacts
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: gpt-db-restore-artifacts
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-gpt-db/initial/artifacts"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpt-db-restore-artifacts
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-gpt-db-restore-artifacts
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-db-restore-cache
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: volsync-dst-gpt-db-restore-initial-cache
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-gpt-db/initial/cache"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-db-restore-data
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: gpt-db-restore-data
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-gpt-db/initial/data"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpt-db-restore-data
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-gpt-db-restore-data
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-postgres-restore-artifacts
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: postgres-restore-artifacts
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-postgres/initial/artifacts"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-restore-artifacts
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-postgres-restore-artifacts
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-postgres-restore-cache
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: volsync-dst-postgres-restore-initial-cache
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-postgres/initial/cache"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-postgres-restore-data
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: postgres-restore-data
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-postgres/initial/data"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-restore-data
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-postgres-restore-data
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-postgres-restore-native
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: postgres-restore-native
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-postgres/initial/native"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-restore-native
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-postgres-restore-native
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-redis-restore-artifacts
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: redis-restore-artifacts
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-redis/initial/artifacts"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-restore-artifacts
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-redis-restore-artifacts
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-redis-restore-cache
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: volsync-dst-redis-restore-initial-cache
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-redis/initial/cache"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-redis-restore-data
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: redis-restore-data
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-redis/initial/data"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-restore-data
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-redis-restore-data
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-redis-restore-native
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-restore-validation
+    name: redis-restore-native
+  local:
+    path: "/filesystem/k3s/data/paperless-ngx/restore-validation/paperless-redis/initial/native"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - openmediavault
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-restore-native
+  namespace: paperless-restore-validation
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  accessModes:
+  - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-redis-restore-native
+  resources:
+    requests:
+      storage: 10Gi
