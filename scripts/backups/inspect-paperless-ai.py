@@ -121,12 +121,22 @@ def checked_pod():
     pod = json.loads(kube("get", "pod", POD, "-n", NAMESPACE, "-o", "json"))
     containers = [item for item in pod["spec"]["containers"] if item.get("name") == "paperless-ai"]
     states = [item for item in pod.get("status", {}).get("containerStatuses", []) if item.get("name") == "paperless-ai"]
-    require(pod["metadata"].get("uid") == POD_UID and not pod["metadata"].get("deletionTimestamp") and
-            pod["spec"].get("nodeName") == "openmediavault" and pod.get("status", {}).get("phase") == "Running" and
-            len(containers) == len(states) == 1 and containers[0].get("image", "").endswith(IMAGE_DIGEST) and
-            states[0].get("imageID", "").endswith(IMAGE_DIGEST) and states[0].get("containerID") and
-            states[0].get("ready") is True and states[0].get("restartCount") == 0,
-            "inventoried AI Pod changed or is not ready; retain it and relay the output")
+    checks = {
+        "pod_uid_matches_inventory": pod["metadata"].get("uid") == POD_UID,
+        "pod_not_terminating": not pod["metadata"].get("deletionTimestamp"),
+        "node_is_omv": pod["spec"].get("nodeName") == "openmediavault",
+        "pod_is_running": pod.get("status", {}).get("phase") == "Running",
+        "one_ai_container": len(containers) == len(states) == 1,
+        "image_reference_matches": len(containers) == 1 and containers[0].get("image", "").endswith(IMAGE_DIGEST),
+        "image_id_matches": len(states) == 1 and states[0].get("imageID", "").endswith(IMAGE_DIGEST),
+        "container_id_present": len(states) == 1 and bool(states[0].get("containerID")),
+        "container_is_ready": len(states) == 1 and states[0].get("ready") is True,
+        "container_is_running": len(states) == 1 and isinstance(states[0].get("state", {}).get("running"), dict),
+        "restart_count_is_valid": len(states) == 1 and type(states[0].get("restartCount")) is int and
+                                  states[0]["restartCount"] >= 0,
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    require(not failed, "AI Pod checks failed: " + ", ".join(failed))
     return pod, (pod["metadata"]["uid"], states[0]["containerID"], states[0]["imageID"], states[0]["restartCount"])
 
 
@@ -208,7 +218,17 @@ def schema_summary(data):
 
 def inspect(progress):
     progress["phase"] = "checking AI Pod identity"
-    _, before = checked_pod()
+    pod, before = checked_pod()
+    terminated = next((item.get("lastState", {}).get("terminated", {})
+                       for item in pod.get("status", {}).get("containerStatuses", [])
+                       if item.get("name") == "paperless-ai"), {})
+    reason = terminated.get("reason")
+    previous_termination = None if not terminated else {
+        "reason": reason if reason in {"OOMKilled", "Error", "Completed", "ContainerCannotRun", "StartError", "DeadlineExceeded"}
+                  else "other; details withheld",
+        "exit_code": terminated.get("exitCode") if type(terminated.get("exitCode")) is int else None,
+    }
+    progress.update(restart_count=before[3], previous_termination=previous_termination)
     progress["phase"] = "reading bounded AI schema and source files"
     metadata, data = inspect_files()
     progress["phase"] = "preserving private schema copy"
