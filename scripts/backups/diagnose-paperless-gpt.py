@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 
 NAMESPACE = "paperless-ngx"
@@ -27,6 +27,11 @@ CURRENT_PHASE = "starting"
 
 class DiagnosticError(Exception):
     pass
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
 
 
 def kube(*arguments, timeout=45):
@@ -94,16 +99,17 @@ def port_forward(resource, remote_port, callback):
 def http_probe(port):
     result = {"http_status": None, "content_type": None, "json_type": None, "item_count": None,
               "body_printed": False}
-    opener = build_opener(ProxyHandler({}))
+    opener = build_opener(ProxyHandler({}), NoRedirect())
     try:
         with opener.open(f"http://127.0.0.1:{port}/api/documents", timeout=8) as response:
             result["http_status"] = response.status
             result["content_type"] = response.headers.get_content_type()
             body = response.read(MAX_RESPONSE + 1)
     except HTTPError as error:
-        result["http_status"] = error.code
-        result["content_type"] = error.headers.get_content_type()
-        body = error.read(MAX_RESPONSE + 1)
+        with error:
+            result["http_status"] = error.code
+            result["content_type"] = error.headers.get_content_type()
+            body = error.read(MAX_RESPONSE + 1)
     except (URLError, TimeoutError, OSError):
         result["transport"] = "connection_failed_or_timed_out"
         return result
@@ -123,10 +129,12 @@ def http_probe(port):
 
 
 def paperless_request(port, path, token, kind):
+    if not header_safe_token(token):
+        raise DiagnosticError("unsafe Paperless API token was withheld from the HTTP request")
     request = Request(f"http://127.0.0.1:{port}{path}",
                       headers={"Authorization": "Token " + token.decode("ascii"),
                                "Accept": "application/json"})
-    opener = build_opener(ProxyHandler({}))
+    opener = build_opener(ProxyHandler({}), NoRedirect())
     result = {"http_status": None, "content_type": None, "json_type": None, "result_count": None,
               "tag_document_count": None, "token_value_printed": False}
     try:
@@ -135,9 +143,10 @@ def paperless_request(port, path, token, kind):
             result["content_type"] = response.headers.get_content_type()
             body = response.read(MAX_RESPONSE + 1)
     except HTTPError as error:
-        result["http_status"] = error.code
-        result["content_type"] = error.headers.get_content_type()
-        body = error.read(MAX_RESPONSE + 1)
+        with error:
+            result["http_status"] = error.code
+            result["content_type"] = error.headers.get_content_type()
+            body = error.read(MAX_RESPONSE + 1)
     except (URLError, TimeoutError, OSError):
         result["transport"] = "connection_failed_or_timed_out"
         return result
@@ -167,8 +176,8 @@ def paperless_api_probe(port, token, manual_tag):
     tags = paperless_request(port, f"/api/tags/?{tag_query}", token, "tags")
     CURRENT_PHASE = "checking Paperless-GPT manual-tag documents"
     documents = paperless_request(port, f"/api/documents/?{document_query}", token, "documents")
-    return {"token_accepted": tags.get("http_status") == 200 and tags.get("json_type") == "dict" and
-            documents.get("http_status") == 200 and documents.get("json_type") == "dict",
+    return {"token_accepted": tags.get("http_status") == 200 and tags.get("result_count") is not None and
+            documents.get("http_status") == 200 and documents.get("result_count") is not None,
             "manual_tag_lookup": tags, "manual_tag_documents": documents,
             "tag_name_or_document_data_printed": False}
 
@@ -184,21 +193,43 @@ def process_start(pid, container_id):
     return fields[19]
 
 
-def token_evidence(pod):
-    global CURRENT_PHASE
-    CURRENT_PHASE = "reading Paperless token Secret metadata"
-    secret = json.loads(kube("get", "secret", "paperless-env", "-n", NAMESPACE, "-o", "json"))
-    encoded = secret.get("data", {}).get("PAPERLESS_API_TOKEN")
-    if not encoded:
-        return {"secret_key_present": False, "running_process_key_present": False,
-                "running_value_matches_secret": None}, None
-    try:
-        secret_token = base64.b64decode(encoded, validate=True)
-        if not secret_token or not all(0x21 <= byte <= 0x7E for byte in secret_token):
-            raise ValueError("token is empty or contains non-header-safe bytes")
-    except (binascii.Error, ValueError, TypeError):
-        raise DiagnosticError("Paperless API token Secret data is unreadable; value omitted")
+def header_safe_token(value):
+    return bool(value) and all(0x21 <= byte <= 0x7E for byte in value)
 
+
+def token_format(value):
+    stripped = value.strip()
+    placeholders = {b"changeme", b"change-me", b"replace-me", b"your-token", b"your-token-here",
+                    b"your-paperless-api-token", b"your_paperless_api_token", b"<your-token>",
+                    b"<paperless-api-token>", b"replace_with_your_api_token"}
+    return {
+        "empty": not value,
+        "header_safe": header_safe_token(value),
+        "contains_whitespace": any(byte in b" \t\r\n\v\f" for byte in value),
+        "outer_whitespace": stripped != value,
+        "contains_control_bytes": any(byte < 0x20 or byte == 0x7F for byte in value),
+        "contains_non_ascii": any(byte > 0x7F for byte in value),
+        "authorization_scheme_prefix": re.match(br"(?i)^(?:token|bearer)[ \t]+", stripped) is not None,
+        "recognized_placeholder": stripped.lower() in placeholders,
+    }
+
+
+def normalized_token_candidate(value):
+    candidate = value.strip()
+    changes = []
+    if candidate != value:
+        changes.append("trim_outer_whitespace")
+    prefix = re.match(br"(?i)^(?:token|bearer)[ \t]+", candidate)
+    if prefix:
+        candidate = candidate[prefix.end():].strip()
+        changes.append("remove_authorization_scheme_prefix")
+    if changes and header_safe_token(candidate) and not token_format(candidate)["recognized_placeholder"]:
+        return candidate, changes
+    return None, changes
+
+
+def process_token(pod):
+    global CURRENT_PHASE
     CURRENT_PHASE = "verifying GPT Pod Secret wiring"
     pod_spec = pod.get("spec", {})
     containers = [item for item in pod_spec.get("containers", []) if item.get("name") == "paperless-gpt"]
@@ -234,9 +265,35 @@ def token_evidence(pod):
     values = [entry.partition(b"=")[2] for entry in entries if entry.startswith(b"PAPERLESS_API_TOKEN=")]
     if len(values) > 1:
         raise DiagnosticError("running container has ambiguous Paperless API token variables")
-    current = values[0] if values else None
-    evidence = {"secret_key_present": True, "running_process_key_present": current is not None,
-                "running_value_matches_secret": current is not None and hmac.compare_digest(current, secret_token)}
+    return values[0] if values else None
+
+
+def token_evidence(pod):
+    global CURRENT_PHASE
+    CURRENT_PHASE = "reading Paperless token Secret metadata"
+    secret = json.loads(kube("get", "secret", "paperless-env", "-n", NAMESPACE, "-o", "json"))
+    encoded = secret.get("data", {}).get("PAPERLESS_API_TOKEN")
+    evidence = {"secret_key_present": encoded is not None, "running_process_key_present": None,
+                "running_value_matches_secret": None}
+    if encoded is None:
+        return evidence, None
+    try:
+        secret_token = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError, TypeError):
+        evidence["secret_encoding"] = "invalid_base64"
+        return evidence, None
+    evidence["secret_encoding"] = "valid_base64"
+    evidence["secret_token_format"] = token_format(secret_token)
+    try:
+        current = process_token(pod)
+    except DiagnosticError as error:
+        evidence["running_environment_check"] = {"result": "unavailable", "reason": str(error)}
+    except json.JSONDecodeError:
+        evidence["running_environment_check"] = {"result": "unavailable", "reason": "invalid CRI JSON metadata"}
+    else:
+        evidence["running_environment_check"] = {"result": "passed"}
+        evidence["running_process_key_present"] = current is not None
+        evidence["running_value_matches_secret"] = current is not None and hmac.compare_digest(current, secret_token)
     return evidence, secret_token
 
 
@@ -302,10 +359,21 @@ def probe():
     api = port_forward("pod/" + pod["metadata"]["name"], PORT, http_probe)
     token, token_value = token_evidence(pod)
     paperless = None
+    candidate = None
+    candidate_evidence = {"available": False, "changes": [], "paperless_manual_tag_api": None}
     if token_value is not None:
+        candidate, changes = normalized_token_candidate(token_value)
+        candidate_evidence.update(available=candidate is not None, changes=changes)
+    if header_safe_token(token_value) or candidate is not None:
+        tag = manual_tag()
         CURRENT_PHASE = "checking Paperless API authentication and tag lookup"
-        paperless = port_forward("service/paperless", 8000,
-                                 lambda port: paperless_api_probe(port, token_value, manual_tag()))
+
+        def check_tokens(port):
+            original = paperless_api_probe(port, token_value, tag) if header_safe_token(token_value) else None
+            normalized = paperless_api_probe(port, candidate, tag) if candidate is not None else None
+            return original, normalized
+
+        paperless, candidate_evidence["paperless_manual_tag_api"] = port_forward("service/paperless", 8000, check_tokens)
     passed = (api.get("http_status") == 200 and api.get("json_type") == "array" and
               token.get("running_value_matches_secret") is True and
               paperless is not None and paperless.get("token_accepted") is True)
@@ -319,6 +387,7 @@ def probe():
         "documents_api": api,
         "token_evidence": token,
         "paperless_manual_tag_api": paperless,
+        "normalized_token_candidate": candidate_evidence,
         "manual_tag_value_printed": False,
         "backend_log_summary": log_summary(pod["metadata"]["name"]),
         "document_titles_or_contents_printed": False,
