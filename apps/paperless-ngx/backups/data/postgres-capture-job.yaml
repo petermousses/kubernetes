@@ -1,0 +1,185 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: paperless-postgres-capture-
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/name: postgres-native-backup
+    app.kubernetes.io/part-of: paperless-ngx
+    app.kubernetes.io/managed-by: nas-backup-migration
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres-native-backup
+        backups.mousses.xyz/native-client: postgres
+        app.kubernetes.io/part-of: paperless-ngx
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dump
+          image: postgres@sha256:1090bc3a8ccfb0b55f78a494d76f8d603434f7e4553543d6e807bc7bd6bbd17f
+          command: [/bin/bash, -euo, pipefail, -c]
+          args:
+            - |
+              umask 077
+              [[ "$BACKUP_ID" =~ ^(initial|daily)-[0-9a-f]{32}$ ]]
+              test -d "/staging/.pending-$BACKUP_ID"
+              test ! -L "/staging/.pending-$BACKUP_ID"
+              backup_work="/staging/.pending-$BACKUP_ID/native-postgres"
+              mkdir -m 0700 "$backup_work"
+              trap 'if [[ -n "${snapshot_pid:-}" ]]; then kill "$snapshot_pid" 2>/dev/null || true; wait "$snapshot_pid" 2>/dev/null || true; fi' EXIT
+              # The staging root is setgid; keep this private artifact directory 0700.
+              chmod u=rwx,go=,g-s "$backup_work"
+
+              # New Pods can start before their NetworkPolicy allow rules settle.
+              # Exercise the real TCP connection and credentials before dumping.
+              connection_deadline=$((SECONDS + 60))
+              until PGCONNECT_TIMEOUT=3 PGOPTIONS='-c statement_timeout=5000' \
+                timeout 8s psql -XqAt --no-password -v ON_ERROR_STOP=1 \
+                  -c 'SELECT 1;' >"$backup_work/connect-result" \
+                  2>"$backup_work/connect-error"
+              do
+                if (( SECONDS >= connection_deadline )); then
+                  cat "$backup_work/connect-error" >&2
+                  printf 'authenticated PostgreSQL connection did not become available\n' >&2
+                  exit 1
+                fi
+                printf 'waiting for authenticated PostgreSQL connection\n'
+                sleep 2
+              done
+              test "$(cat "$backup_work/connect-result")" = 1
+              rm -- "$backup_work/connect-result" "$backup_work/connect-error"
+              printf 'authenticated PostgreSQL connection verified\n'
+
+              pg_dumpall --no-password --globals-only --file="$backup_work/globals.sql"
+
+              # Keep the exporting session open until both readers finish.
+              # The dump and expected row counts use the SAME MVCC snapshot.
+              mkfifo "$backup_work/session-in" "$backup_work/session-out"
+              psql -XqAt --no-password -v ON_ERROR_STOP=1 \
+                <"$backup_work/session-in" >"$backup_work/session-out" &
+              snapshot_pid=$!
+              exec 3>"$backup_work/session-in"
+              exec 4<"$backup_work/session-out"
+              printf '%s\n' \
+                'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;' \
+                'SELECT pg_export_snapshot();' >&3
+              IFS= read -r -t 30 snapshot_id <&4
+              [[ "$snapshot_id" =~ ^[0-9A-Fa-f]+-[0-9A-Fa-f]+-[0-9]+$ ]]
+
+              pg_dump --no-password --format=custom --create \
+                --lock-wait-timeout=30s --snapshot="$snapshot_id" \
+                --file="$backup_work/database.dump"
+
+              psql -Xq --csv --no-password -v ON_ERROR_STOP=1 \
+                -v snapshot_id="$snapshot_id" >"$backup_work/row-counts.csv" <<'SQL'
+              BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+              SET TRANSACTION SNAPSHOT :'snapshot_id';
+              SELECT coalesce(string_agg(format(
+                'SELECT %L::text AS relation, count(*)::bigint AS rows FROM ONLY %I.%I',
+                format('%I.%I', n.nspname, c.relname), n.nspname, c.relname
+              ), ' UNION ALL ' ORDER BY n.nspname, c.relname),
+                'SELECT NULL::text AS relation, NULL::bigint AS rows WHERE false')
+                || ' ORDER BY relation;' AS query
+              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE c.relkind IN ('r', 'p')
+                AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
+              \gexec
+              COMMIT;
+              SQL
+
+              printf '%s\n' 'COMMIT;' '\q' >&3
+              exec 3>&-
+              wait "$snapshot_pid"
+              snapshot_pid=
+              exec 4<&-
+              rm -- "$backup_work/session-in" "$backup_work/session-out"
+
+              psql -XqAt --no-password -v ON_ERROR_STOP=1 -c \
+                "SELECT json_build_object('database', current_database(),
+                   'server_version_num', current_setting('server_version_num'),
+                   'captured_at', current_timestamp,
+                   'database_bytes', pg_database_size(current_database()));" \
+                >"$backup_work/metadata.json"
+              pg_restore --list "$backup_work/database.dump" >"$backup_work/archive-list.txt"
+              printf '%s\n' "$BACKUP_ID" >"$backup_work/backup-id"
+              cd "$backup_work"
+              # Flush these artifacts and directories, not the whole NAS filesystem.
+              sync -- "$backup_work/"*
+              sync -- "$backup_work"
+              printf 'native dump published: %s\n' "$BACKUP_ID"
+              printf 'database archive bytes: '
+              stat -c %s "$backup_work/database.dump"
+              printf 'row-count CSV lines: '
+              wc -l <"$backup_work/row-counts.csv"
+          env:
+            # BACKUP_ID is injected by the NAS runner; it contains no credentials.
+            - name: PGHOST
+              value: postgres.paperless-ngx.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            - name: PGAPPNAME
+              value: paperless-ngx-native-backup
+            - name: PGOPTIONS
+              value: -c statement_timeout=300000 -c idle_in_transaction_session_timeout=300000
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-env
+                  key: POSTGRES_DB
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-env
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-env
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: staging
+              mountPath: /staging
+            - name: temp
+              mountPath: /tmp
+      volumes:
+        - name: staging
+          persistentVolumeClaim:
+            claimName: postgres-backup-staging
+        - name: temp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi

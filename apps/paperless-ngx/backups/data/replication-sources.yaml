@@ -1,0 +1,377 @@
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: data-backup
+  labels:
+    app.kubernetes.io/name: data-backup
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  sourcePVC: data-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-paperless-data
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: paperless-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: ai-backup
+  labels:
+    app.kubernetes.io/name: ai-backup
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  sourcePVC: ai-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-paperless-ai
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: paperless-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: gpt-backup
+  labels:
+    app.kubernetes.io/name: gpt-backup
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  sourcePVC: gpt-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-paperless-gpt
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: paperless-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: gpt-config-backup
+  labels:
+    app.kubernetes.io/name: gpt-config-backup
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  sourcePVC: gpt-config-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-paperless-gpt-config
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: paperless-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: gpt-db-backup
+  labels:
+    app.kubernetes.io/name: gpt-db-backup
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  sourcePVC: gpt-db-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-paperless-gpt-db
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: paperless-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: postgres-backup
+  labels:
+    app.kubernetes.io/name: postgres-backup
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  sourcePVC: postgres-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-paperless-postgres
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: paperless-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: redis-backup
+  labels:
+    app.kubernetes.io/name: redis-backup
+    app.kubernetes.io/part-of: paperless-ngx
+spec:
+  sourcePVC: redis-backup-staging
+  # VolSync starts its first sync immediately, even with an empty trigger.
+  # The runner unpauses only after the consistent artifact capture has completed, and then
+  # uses manual tags to serialize later uploads with dump production.
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-paperless-redis
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: paperless-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: paperless-ngx
+    moverResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]

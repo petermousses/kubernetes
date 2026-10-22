@@ -668,8 +668,9 @@ def checked_workloads(pods, receipt):
             mounts[mount["mountPath"]] = (claim_ref["claimName"], mount.get("subPath"))
         require(mounts == MOUNTS[name], "protected writable mounts changed: " + name)
         if name == "paperless-ai":
-            require(pod["metadata"]["uid"] == receipt["pod_uid"] and container["imageID"] == receipt["image_id"],
-                    "AI Pod/image changed since its private schema capture")
+            # The preserved container-local file is verified generated documentation.
+            # Backups intentionally replace this Pod after capturing its PVC state.
+            require(container["imageID"] == receipt["image_id"], "AI image changed since its private schema capture")
         if name == "gotenberg":
             require(definition.get("resources", {}).get("requests") in (ORIGINAL_REQUESTS, TARGET_REQUESTS) and
                     definition.get("resources", {}).get("limits") == LIMITS, "Gotenberg requests or limits changed")

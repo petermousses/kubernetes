@@ -1,0 +1,48 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-paperless-native-postgres
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: paperless-ngx
+      app.kubernetes.io/component: database
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              backups.mousses.xyz/native-client: postgres
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paperless-native-client-egress
+  namespace: paperless-ngx
+  labels:
+    app.kubernetes.io/managed-by: nas-backup-migration
+spec:
+  podSelector:
+    matchLabels:
+      backups.mousses.xyz/native-client: postgres
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: paperless-ngx
+              app.kubernetes.io/component: database
+      ports: [{protocol: TCP, port: 5432}]
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]

@@ -1,0 +1,23 @@
+# managed by nas-backup-migration
+[Unit]
+Description=resume Paperless writers after an interrupted backup
+After=k3s.service
+Requires=k3s.service
+Before=k3s-paperless-backup-initial.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -u /usr/local/lib/k3s-backups/paperless-ngx/current/scripts/backups/backup-paperless.py --recover-writers-only
+TimeoutStartSec=35min
+Restart=on-failure
+RestartSec=30s
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
