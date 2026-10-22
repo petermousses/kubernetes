@@ -1,0 +1,12 @@
+# managed by nas-backup-migration
+[Unit]
+Description=daily paperless backup at 05:15 Arizona time
+
+[Timer]
+OnCalendar=*-*-* 12:15:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=k3s-paperless-backup.service
+
+[Install]
+WantedBy=timers.target

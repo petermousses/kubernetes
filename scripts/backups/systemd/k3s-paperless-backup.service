@@ -1,0 +1,22 @@
+# managed by nas-backup-migration
+[Unit]
+Description=daily coordinated paperless and VolSync backups
+Wants=network-online.target
+After=network-online.target k3s.service k3s-board-games-backup.service k3s-searxng-backup.service k3s-monitoring-backup.service k3s-n8n-backup.service k3s-paperless-backup-recovery.service
+Requires=k3s.service k3s-paperless-backup-recovery.service
+OnFailure=k3s-paperless-backup-recovery.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -u /usr/local/lib/k3s-backups/paperless-daily/current/scripts/backups/daily-paperless.py
+ExecStopPost=/usr/bin/python3 -u /usr/local/lib/k3s-backups/paperless-ngx/current/scripts/backups/backup-paperless.py --recover-writers-only
+TimeoutStartSec=8h
+TimeoutStopSec=35min
+NoNewPrivileges=true
+PrivateTmp=true
+Nice=10
+IOSchedulingClass=idle
