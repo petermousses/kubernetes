@@ -1,0 +1,471 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: paperless-backup-local
+provisioner: kubernetes.io/no-provisioner
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-restic-repositories
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: restic-repositories
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backups
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: restic-repositories
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-restic-repositories
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-data-backup-staging
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: data-backup-staging
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-staging/paperless-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-data-backup-staging
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-data-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: volsync-src-data-backup-cache
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-cache/paperless-data/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-ai-backup-staging
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: ai-backup-staging
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-staging/paperless-ai
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-ai-backup-staging
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-ai-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: volsync-src-ai-backup-cache
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-cache/paperless-ai/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-backup-staging
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: gpt-backup-staging
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-staging/paperless-gpt
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpt-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-gpt-backup-staging
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: volsync-src-gpt-backup-cache
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-cache/paperless-gpt/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-config-backup-staging
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: gpt-config-backup-staging
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-staging/paperless-gpt-config
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpt-config-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-gpt-config-backup-staging
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-config-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: volsync-src-gpt-config-backup-cache
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-cache/paperless-gpt-config/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-db-backup-staging
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: gpt-db-backup-staging
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-staging/paperless-gpt-db
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpt-db-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-gpt-db-backup-staging
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-gpt-db-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: volsync-src-gpt-db-backup-cache
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-cache/paperless-gpt-db/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-postgres-backup-staging
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: postgres-backup-staging
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-staging/paperless-postgres
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-postgres-backup-staging
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-postgres-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: volsync-src-postgres-backup-cache
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-cache/paperless-postgres/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-redis-backup-staging
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: redis-backup-staging
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-staging/paperless-redis
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: paperless-backup-local
+  volumeName: paperless-redis-backup-staging
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: paperless-redis-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: paperless-backup-local
+  claimRef:
+    namespace: paperless-ngx
+    name: volsync-src-redis-backup-cache
+  local:
+    path: /filesystem/k3s/data/paperless-ngx/backup-cache/paperless-redis/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
