@@ -53,13 +53,13 @@ stop after each namespace. after `monitoring`, obtain separate approval for stag
 
 ## stage 2 — medium impact
 
-**stage 2 approved; `n8n` and `paperless-ngx` backup onboarding complete.** `librechat` and later namespaces require their own explicit approval before inventory or implementation.
+**stage 2 approved; `n8n` and `paperless-ngx` backup onboarding complete. `librechat` separately approved and awaiting live inventory.** later namespaces require their own explicit approval before inventory or implementation.
 
 | namespace | writable data to protect (read-only: no) | retained OMV mounts (read-only: yes) | namespace steps and verification |
 | --- | --- | --- | --- |
 | `n8n` | data and images | — | **backup onboarding complete:** initial backups/restores, manual daily backup/retention, and encrypted off-NAS credential recovery verified; timer enabled at 04:30 Arizona. automatic-run verification explicitly deferred by the user. |
 | `paperless-ngx` | documents, AI, GPT prompts/config/database, PostgreSQL, Redis | — | **backup onboarding complete:** all seven initial backups/isolated restores, browser health, daily backup/retention, automatic daily execution at 05:15 Arizona, and encrypted off-NAS credential recovery verified. original live bindings retained. |
-| `librechat` | data, uploads, images, MongoDB, Meilisearch | — | use native database/search backup procedures and coordinate uploaded files. restore and verify chats, uploads, and search. |
+| `librechat` | data, uploads, images, MongoDB, Meilisearch | — | **approved; read-only live inventory pending.** use native database/search backup procedures and coordinate uploaded files. restore and verify chats, uploads, and search. |
 | `litellm` | PostgreSQL data | — | back up and restore the database; verify the gateway and its persisted configuration. |
 | `jellyfin` | config and cache | movies and TV | protect writable claims; retain media bindings and OMV placement. restore and verify configuration and playback. |
 
@@ -402,3 +402,11 @@ the scratch retention proof at `2026-10-22T21:11:17Z` expired the nine-day snaps
 **the relayed encrypted NAS export passed:** 100 recovery files were prepared and streamed directly into age encryption at `/srv/dev-disk-by-uuid-f33e3507-3ce3-4d3c-8423-1398e972f9e4/Homes/peter/paperless-recovery.tar.gz.age`, with SHA-256 `fa2fcb642c048aa3cb0d473cfa4a058e679ce013060050a42b712e0ddcadef60`. the existing public recipient was reused, with no plaintext archive written.
 
 **the relayed off-NAS verification passed at `2026-10-26T23:47:01Z` (16:47 Arizona).** the encrypted Mac copy at `/Users/petermousses/Backups/k3s-recovery/paperless/copy.ZVHDnd/` matches the NAS checksum. all 100 recovery files, seven claim identities, initial/daily snapshot identities, repository credentials, application configuration, and isolated native restore evidence passed verification using the existing age identity. decryption and inspection stayed in memory; only ciphertext and a public verification receipt were written. **Paperless backup onboarding is complete, including actual automatic-run verification; no namespace check was deferred. stop for separate approval of `librechat`.** the previously deferred SearXNG, monitoring, and n8n automatic-run checks remain open.
+
+### librechat — approved; live inventory pending
+
+the user explicitly approved `librechat` after Paperless completion. this authorizes backup onboarding for its data, uploads, images, MongoDB, and Meilisearch; `litellm` and later namespaces retain separate approval gates. keep all live bindings and OMV scheduling pins during inventory.
+
+`inventory-librechat.py` reads workload/Pod metadata, claim/PV identities and paths, storage sizes/overlap, capacity, and dependency references. inspect MongoDB version/topology/storage totals and native tool availability with read-only metadata commands. inspect LibreChat's key-source/path flags and Meilisearch version, aggregate index statistics, and unfinished-task count; output fixed metadata only, with no chat/upload contents, arbitrary collection/index names, or credential values. no dump or snapshot is requested by inventory, and no writer is stopped or Kubernetes resource changed. execution on OMV remains pending; Git declarations do not prove live bindings or backend settings.
+
+choose the coordinated capture procedure only after that output confirms the live topology, access modes, native tools, and available worker budget. a MongoDB dump needs a consistent source: stop relevant writes or, for a suitable replica set, use the documented oplog procedure. Meilisearch provides native asynchronous dump creation/import. coordinate these with uploaded files and preserve LibreChat's existing encryption/session keys and OIDC configuration. [MongoDB backup consistency](https://www.mongodb.com/docs/manual/tutorial/backup-and-restore-tools/), [Meilisearch dump backup](https://www.meilisearch.com/docs/resources/self_hosting/data_backup/dumps).
