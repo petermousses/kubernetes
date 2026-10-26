@@ -53,12 +53,12 @@ stop after each namespace. after `monitoring`, obtain separate approval for stag
 
 ## stage 2 — medium impact
 
-**stage 2 and `n8n` separately approved.** begin with a read-only live inventory; later namespaces require their own explicit approval.
+**stage 2 approved; `n8n` and `paperless-ngx` backup onboarding complete.** `librechat` and later namespaces require their own explicit approval before inventory or implementation.
 
 | namespace | writable data to protect (read-only: no) | retained OMV mounts (read-only: yes) | namespace steps and verification |
 | --- | --- | --- | --- |
 | `n8n` | data and images | — | **backup onboarding complete:** initial backups/restores, manual daily backup/retention, and encrypted off-NAS credential recovery verified; timer enabled at 04:30 Arizona. automatic-run verification explicitly deferred by the user. |
-| `paperless-ngx` | documents, AI, GPT prompts/config/database, PostgreSQL, Redis | — | **all seven initial backups and isolated restores passed; browser health confirmed.** daily backup/retention, timer, and independent recovery credentials remain pending. original live bindings retained. |
+| `paperless-ngx` | documents, AI, GPT prompts/config/database, PostgreSQL, Redis | — | **backup onboarding complete:** all seven initial backups/isolated restores, browser health, daily backup/retention, automatic daily execution at 05:15 Arizona, and encrypted off-NAS credential recovery verified. original live bindings retained. |
 | `librechat` | data, uploads, images, MongoDB, Meilisearch | — | use native database/search backup procedures and coordinate uploaded files. restore and verify chats, uploads, and search. |
 | `litellm` | PostgreSQL data | — | back up and restore the database; verify the gateway and its persisted configuration. |
 | `jellyfin` | config and cache | movies and TV | protect writable claims; retain media bindings and OMV placement. restore and verify configuration and playback. |
@@ -340,7 +340,7 @@ run a complete manual daily sequence and a scratch repository proof of seven-day
 
 **the relayed off-NAS verification passed at 2026-10-18 09:40:31 UTC.** the encrypted Mac copy at `/Users/petermousses/Backups/k3s-recovery/n8n/copy.v9saY2/` matches the NAS checksum; all 39 recovery files, both claims' initial/daily snapshot identities, and the persisted n8n encryption key passed verification. decryption and inspection stayed in memory; only ciphertext and a public verification receipt were written. **the user explicitly deferred n8n's automatic-run verification and separately approved `paperless-ngx`. n8n backup onboarding is complete with that open follow-up; its timer remains enabled.**
 
-### paperless-ngx — GPT storage cutover passed; backup onboarding in progress
+### paperless-ngx — backup onboarding complete
 
 the user approved `paperless-ngx` as the current namespace. `librechat` and later namespaces retain separate approval gates. no additional nodes may be enabled until the three-stage migration is complete.
 
@@ -399,4 +399,6 @@ the scratch retention proof at `2026-10-22T21:11:17Z` expired the nine-day snaps
 
 `recovery-paperless.py` prepares a standalone encrypted recovery export and Mac verifier. include all seven repository credentials, TLS/CA material, saved application dependencies/controllers and original live bindings, GPT migration and AI schema evidence, initial backup/isolated native restore receipts, writer recovery journals, and latest daily/schedule/retention evidence. collect under the shared namespace lock with no unfinished daily run, then pipe directly to age encryption using the existing public recipient. verify the transferred ciphertext checksum, recipient, every archive member/hash, and relationships between the saved evidence in memory; write only a public receipt. retain original live bindings; publish no archive or credential to GitHub, and do not start the next namespace before its separate approval.
 
-**the relayed encrypted NAS export passed:** 100 recovery files were prepared and streamed directly into age encryption at `/srv/dev-disk-by-uuid-f33e3507-3ce3-4d3c-8423-1398e972f9e4/Homes/peter/paperless-recovery.tar.gz.age`, with SHA-256 `fa2fcb642c048aa3cb0d473cfa4a058e679ce013060050a42b712e0ddcadef60`. the existing public recipient was reused, with no plaintext archive written. transfer to the Mac and independent in-memory verification remain pending.
+**the relayed encrypted NAS export passed:** 100 recovery files were prepared and streamed directly into age encryption at `/srv/dev-disk-by-uuid-f33e3507-3ce3-4d3c-8423-1398e972f9e4/Homes/peter/paperless-recovery.tar.gz.age`, with SHA-256 `fa2fcb642c048aa3cb0d473cfa4a058e679ce013060050a42b712e0ddcadef60`. the existing public recipient was reused, with no plaintext archive written.
+
+**the relayed off-NAS verification passed at `2026-10-26T23:47:01Z` (16:47 Arizona).** the encrypted Mac copy at `/Users/petermousses/Backups/k3s-recovery/paperless/copy.ZVHDnd/` matches the NAS checksum. all 100 recovery files, seven claim identities, initial/daily snapshot identities, repository credentials, application configuration, and isolated native restore evidence passed verification using the existing age identity. decryption and inspection stayed in memory; only ciphertext and a public verification receipt were written. **Paperless backup onboarding is complete, including actual automatic-run verification; no namespace check was deferred. stop for separate approval of `librechat`.** the previously deferred SearXNG, monitoring, and n8n automatic-run checks remain open.
