@@ -1,0 +1,349 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: librechat-backup-local
+provisioner: kubernetes.io/no-provisioner
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-restic-repositories
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-backup-local
+  claimRef:
+    namespace: librechat
+    name: restic-repositories
+  local:
+    path: /filesystem/k3s/data/librechat/backups
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: restic-repositories
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: librechat-backup-local
+  volumeName: librechat-restic-repositories
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-data-backup-staging
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-backup-local
+  claimRef:
+    namespace: librechat
+    name: data-backup-staging
+  local:
+    path: /filesystem/k3s/data/librechat/backup-staging/librechat-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: librechat-backup-local
+  volumeName: librechat-data-backup-staging
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-data-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-backup-local
+  claimRef:
+    namespace: librechat
+    name: volsync-src-data-backup-cache
+  local:
+    path: /filesystem/k3s/data/librechat/backup-cache/librechat-data/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-uploads-backup-staging
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-backup-local
+  claimRef:
+    namespace: librechat
+    name: uploads-backup-staging
+  local:
+    path: /filesystem/k3s/data/librechat/backup-staging/librechat-uploads
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uploads-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: librechat-backup-local
+  volumeName: librechat-uploads-backup-staging
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-uploads-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-backup-local
+  claimRef:
+    namespace: librechat
+    name: volsync-src-uploads-backup-cache
+  local:
+    path: /filesystem/k3s/data/librechat/backup-cache/librechat-uploads/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-images-backup-staging
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-backup-local
+  claimRef:
+    namespace: librechat
+    name: images-backup-staging
+  local:
+    path: /filesystem/k3s/data/librechat/backup-staging/librechat-images
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: images-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: librechat-backup-local
+  volumeName: librechat-images-backup-staging
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-images-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-backup-local
+  claimRef:
+    namespace: librechat
+    name: volsync-src-images-backup-cache
+  local:
+    path: /filesystem/k3s/data/librechat/backup-cache/librechat-images/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-mongodb-backup-staging
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-backup-local
+  claimRef:
+    namespace: librechat
+    name: mongodb-backup-staging
+  local:
+    path: /filesystem/k3s/data/librechat/backup-staging/librechat-mongodb
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: librechat-backup-local
+  volumeName: librechat-mongodb-backup-staging
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-mongodb-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-backup-local
+  claimRef:
+    namespace: librechat
+    name: volsync-src-mongodb-backup-cache
+  local:
+    path: /filesystem/k3s/data/librechat/backup-cache/librechat-mongodb/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-meilisearch-backup-staging
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-backup-local
+  claimRef:
+    namespace: librechat
+    name: meilisearch-backup-staging
+  local:
+    path: /filesystem/k3s/data/librechat/backup-staging/librechat-meilisearch
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: meilisearch-backup-staging
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: librechat-backup-local
+  volumeName: librechat-meilisearch-backup-staging
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: librechat-meilisearch-backup-cache
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: librechat-backup-local
+  claimRef:
+    namespace: librechat
+    name: volsync-src-meilisearch-backup-cache
+  local:
+    path: /filesystem/k3s/data/librechat/backup-cache/librechat-meilisearch/source
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [openmediavault]
