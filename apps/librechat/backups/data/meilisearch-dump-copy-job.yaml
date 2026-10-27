@@ -1,0 +1,123 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: librechat-meilisearch-dump-copy-
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: meilisearch-dump-copy
+    app.kubernetes.io/part-of: librechat
+    app.kubernetes.io/managed-by: nas-backup-migration
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: meilisearch-dump-copy
+        app.kubernetes.io/part-of: librechat
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        supplementalGroups: [999]
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: copy
+          image: quay.io/backube/volsync@sha256:0d03a6aad57569eba2c0eaa0848cf4a908d9744b372ff2224bb291a320f36d76
+          command: [python3, -u, -c]
+          args:
+            - |
+              import hashlib
+              import json
+              import os
+              from pathlib import Path
+              import re
+              import stat
+
+              uid = os.environ["DUMP_UID"]
+              if not re.fullmatch(r"[A-Za-z0-9-]{1,80}", uid):
+                  raise SystemExit("dump identity is invalid")
+              pending = os.environ["PENDING_DIRECTORY"]
+              if not re.fullmatch(r"\.pending-initial-[0-9a-f]{32}", pending):
+                  raise SystemExit("staging identity is invalid")
+              source = Path("/source/dumps") / (uid + ".dump")
+              target = Path("/staging") / pending / "meilisearch.dump"
+              before = source.lstat()
+              if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size <= 0:
+                  raise SystemExit("completed Meilisearch dump file is not a regular nonempty file")
+              if target.exists() or target.is_symlink():
+                  raise SystemExit("Meilisearch dump destination already exists; preserving it")
+              source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+              target_fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+              digest = hashlib.sha256()
+              copied = 0
+              try:
+                  with os.fdopen(source_fd, "rb") as incoming, os.fdopen(target_fd, "wb") as outgoing:
+                      opened = os.fstat(incoming.fileno())
+                      if (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns) != (
+                              before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns):
+                          raise SystemExit("Meilisearch dump changed before copying")
+                      while chunk := incoming.read(1024 * 1024):
+                          outgoing.write(chunk)
+                          digest.update(chunk)
+                          copied += len(chunk)
+                      after = os.fstat(incoming.fileno())
+                      if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) != (
+                              before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns):
+                          raise SystemExit("Meilisearch dump changed while copying")
+                      outgoing.flush()
+                      os.fsync(outgoing.fileno())
+              except BaseException:
+                  try:
+                      target.unlink()
+                  except FileNotFoundError:
+                      pass
+                  raise
+              target.chmod(0o600)
+              directory_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+              try:
+                  os.fsync(directory_fd)
+              finally:
+                  os.close(directory_fd)
+              print("MEILISEARCH_DUMP_COPY_JSON=" + json.dumps({
+                  "result": "passed", "dump_uid": uid, "bytes": copied,
+                  "sha256": digest.hexdigest(),
+              }, sort_keys=True))
+          env:
+            - name: DUMP_UID
+              value: controlled-by-backup-runner
+            - name: PENDING_DIRECTORY
+              value: controlled-by-backup-runner
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: source
+              mountPath: /source
+              readOnly: true
+            - name: staging
+              mountPath: /staging
+      volumes:
+        - name: source
+          persistentVolumeClaim:
+            claimName: librechat-meilisearch
+            readOnly: true
+        - name: staging
+          persistentVolumeClaim:
+            claimName: meilisearch-backup-staging

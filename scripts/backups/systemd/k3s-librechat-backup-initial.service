@@ -1,0 +1,22 @@
+# managed by nas-backup-migration
+[Unit]
+Description=initial LibreChat stopped-writer and VolSync backups
+Wants=network-online.target
+After=network-online.target k3s.service k3s-librechat-backup-recovery.service
+Requires=k3s.service k3s-librechat-backup-recovery.service
+OnFailure=k3s-librechat-backup-recovery.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -u /usr/local/lib/k3s-backups/librechat/current/scripts/backups/backup-librechat.py
+ExecStopPost=/usr/bin/python3 -u /usr/local/lib/k3s-backups/librechat/current/scripts/backups/backup-librechat.py --recover-writers-only
+TimeoutStartSec=180min
+TimeoutStopSec=25min
+NoNewPrivileges=true
+PrivateTmp=true
+Nice=10
+IOSchedulingClass=idle

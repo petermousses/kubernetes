@@ -1,0 +1,254 @@
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: data-backup
+  labels:
+    app.kubernetes.io/name: data-backup
+    app.kubernetes.io/part-of: librechat
+spec:
+  sourcePVC: data-backup-staging
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-librechat-data
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: librechat-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: librechat
+    moverResources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: uploads-backup
+  labels:
+    app.kubernetes.io/name: uploads-backup
+    app.kubernetes.io/part-of: librechat
+spec:
+  sourcePVC: uploads-backup-staging
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-librechat-uploads
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: librechat-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: librechat
+    moverResources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: images-backup
+  labels:
+    app.kubernetes.io/name: images-backup
+    app.kubernetes.io/part-of: librechat
+spec:
+  sourcePVC: images-backup-staging
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-librechat-images
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: librechat-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: librechat
+    moverResources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: mongodb-backup
+  labels:
+    app.kubernetes.io/name: mongodb-backup
+    app.kubernetes.io/part-of: librechat
+spec:
+  sourcePVC: mongodb-backup-staging
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-librechat-mongodb
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: librechat-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: librechat
+    moverResources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: meilisearch-backup
+  labels:
+    app.kubernetes.io/name: meilisearch-backup
+    app.kubernetes.io/part-of: librechat
+spec:
+  sourcePVC: meilisearch-backup-staging
+  paused: true
+  trigger:
+    manual: controlled-by-backup-runner
+  restic:
+    copyMethod: Direct
+    repository: restic-librechat-meilisearch
+    customCA:
+      secretName: restic-root-ca
+      key: tls.crt
+    cacheCapacity: 1Gi
+    cacheAccessModes: [ReadWriteOnce]
+    cacheStorageClassName: librechat-backup-local
+    retain:
+      within: 7d
+    pruneIntervalDays: 1
+    moverPodLabels:
+      backups.mousses.xyz/restic-client: "true"
+      app.kubernetes.io/part-of: librechat
+    moverResources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    moverSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    moverAffinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [openmediavault]

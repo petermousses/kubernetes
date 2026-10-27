@@ -1,0 +1,240 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: librechat-backup-check-
+  namespace: librechat
+  labels:
+    app.kubernetes.io/name: librechat-backup-check
+    app.kubernetes.io/part-of: librechat
+    app.kubernetes.io/managed-by: nas-backup-migration
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: librechat-backup-check
+        app.kubernetes.io/part-of: librechat
+        backups.mousses.xyz/restic-client: "true"
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      # Match VolSync's default DNS settings to exercise the mover's hostname.
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        kubernetes.io/hostname: openmediavault
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: check
+          image: quay.io/backube/volsync@sha256:0d03a6aad57569eba2c0eaa0848cf4a908d9744b372ff2224bb291a320f36d76
+          command: [python3, -u, -c]
+          args:
+            - |
+              import base64
+              from datetime import datetime, timedelta, timezone
+              import hashlib
+              import ipaddress
+              import json
+              import os
+              from pathlib import Path
+              import socket
+              import ssl
+              import subprocess
+              import tempfile
+              import time
+              import urllib.error
+              import urllib.parse
+              import urllib.request
+
+              target = urllib.parse.urlsplit(os.environ["RESTIC_REPOSITORY"].removeprefix("rest:"))
+              expected_addresses = {
+                  str(ipaddress.ip_address(value))
+                  for value in os.environ["EXPECTED_RESTIC_IPS"].split(",")
+              }
+              print("pod resolver configuration:\n" + Path("/etc/resolv.conf").read_text())
+              context = ssl.create_default_context(cafile="/ca/ca.crt")
+              context.minimum_version = ssl.TLSVersion.TLSv1_3
+              class NoRedirect(urllib.request.HTTPRedirectHandler):
+                  def redirect_request(self, request, response, code, message, headers, new_url):
+                      raise urllib.error.HTTPError(request.full_url, code, "redirect refused", headers, response)
+
+              opener = urllib.request.build_opener(
+                  urllib.request.ProxyHandler({}), NoRedirect(),
+                  urllib.request.HTTPSHandler(context=context),
+              )
+              credentials = os.environ["RESTIC_REST_USERNAME"] + ":" + os.environ["RESTIC_REST_PASSWORD"]
+              request = urllib.request.Request(
+                  os.environ["RESTIC_REPOSITORY"].removeprefix("rest:") + "config",
+                  headers={"Authorization": "Basic " + base64.b64encode(credentials.encode()).decode()},
+              )
+              deadline = time.monotonic() + 60
+              while time.monotonic() < deadline:
+                  try:
+                      addresses = {
+                          str(ipaddress.ip_address(item[4][0]))
+                          for item in socket.getaddrinfo(target.hostname, target.port, type=socket.SOCK_STREAM)
+                      }
+                      if not addresses or addresses != expected_addresses:
+                          raise SystemExit("repository DNS does not match the Restic Service")
+                      with opener.open(request, timeout=min(8, max(0.1, deadline - time.monotonic()))) as response:
+                          if response.status != 200:
+                              raise SystemExit("authenticated repository access failed")
+                      print("repository DNS: " + target.hostname + " -> " + ", ".join(sorted(addresses)))
+                      print("authenticated repository connection verified")
+                      break
+                  except urllib.error.HTTPError as error:
+                      raise SystemExit("authenticated repository access failed: HTTP " + str(error.code))
+                  except (urllib.error.URLError, OSError) as error:
+                      reason = getattr(error, "reason", error)
+                      if isinstance(reason, ssl.SSLError):
+                          raise SystemExit("TLS verification failed: " + str(reason))
+                      print("waiting for repository endpoint: " + str(reason))
+                      time.sleep(min(2, max(0, deadline - time.monotonic())))
+              else:
+                  raise SystemExit("repository endpoint did not become available")
+
+              restic = ["restic", "--cacert", "/ca/ca.crt", "--no-cache"]
+              subprocess.run(restic + ["check", "--read-data"], check=True, timeout=1200)
+              snapshots = json.loads(subprocess.run(
+                  restic + ["snapshots", "--json", "--host", "volsync"],
+                  text=True, capture_output=True, check=True, timeout=300,
+              ).stdout)
+              if not snapshots:
+                  raise SystemExit("no VolSync backup snapshot exists")
+              snapshot = max(snapshots, key=lambda value: value["time"])["id"]
+              listing = subprocess.run(
+                  restic + ["ls", "--json", "--recursive", snapshot],
+                  text=True, capture_output=True, check=True, timeout=300,
+              ).stdout
+              paths = {}
+              for line in listing.splitlines():
+                  node = json.loads(line)
+                  path = node.get("path", "")
+                  if node.get("type") == "file" and "/current/" in path:
+                      name = path.rsplit("/current/", 1)[1]
+                      if "/" not in name:
+                          if name in paths:
+                              raise SystemExit("ambiguous backup artifact path: " + name)
+                          paths[name] = path
+              expected_names = set(json.loads(os.environ["EXPECTED_ARTIFACTS"]))
+              if set(paths) != expected_names:
+                  raise SystemExit("the snapshot does not contain the complete artifact set")
+
+              def read_small(name):
+                  return subprocess.run(
+                      restic + ["dump", snapshot, paths[name]], capture_output=True,
+                      check=True, timeout=300,
+                  ).stdout
+
+              if read_small("backup-id").decode().strip() != os.environ["EXPECTED_BACKUP_ID"]:
+                  raise SystemExit("the snapshot contains a different backup generation")
+              checksums = read_small("SHA256SUMS").decode()
+              if checksums != os.environ["EXPECTED_SHA256SUMS"]:
+                  raise SystemExit("the snapshot checksum manifest differs from the staged backup")
+              for line in checksums.splitlines():
+                  digest, name = line.split("  ", 1)
+                  process = subprocess.Popen(
+                      restic + ["dump", snapshot, paths[name]], stdout=subprocess.PIPE,
+                  )
+                  try:
+                      checksum = hashlib.sha256()
+                      while chunk := process.stdout.read(1024 * 1024):
+                          checksum.update(chunk)
+                      process.stdout.close()
+                      if process.wait(timeout=300) or checksum.hexdigest() != digest:
+                          raise SystemExit("snapshot artifact checksum failed: " + name)
+                  finally:
+                      if process.poll() is None:
+                          process.kill()
+                          process.wait()
+              print("complete volume snapshot verified: " + snapshot)
+              print("all artifacts present; all file checksums match")
+
+              print("BACKUP_VERIFIED_JSON=" + json.dumps({
+                  "result": "passed", "backup_id": os.environ["EXPECTED_BACKUP_ID"],
+                  "claim": os.environ["PROTECTED_CLAIM"], "snapshot": snapshot,
+              }, sort_keys=True))
+
+              if os.environ.get("VERIFY_RETENTION_PROOF") == "true":
+                  # Exercise expiry and space reclamation in an ephemeral local
+                  # repository, using the same binary and keep-within policy.
+                  with tempfile.TemporaryDirectory(prefix="librechat-retention-", dir="/tmp") as folder:
+                      root = Path(folder)
+                      source = root / "source"
+                      source.mkdir(mode=0o700)
+                      environment = os.environ.copy()
+                      environment["RESTIC_PASSWORD"] = base64.b64encode(os.urandom(32)).decode()
+                      environment["TZ"] = "UTC"
+                      local = ["restic", "--repo", str(root / "repository"), "--no-cache"]
+
+                      def scratch(*arguments):
+                          return subprocess.run(local + list(arguments), env=environment,
+                                                text=True, capture_output=True, check=True, timeout=90).stdout
+
+                      scratch("init")
+                      now = datetime.now(timezone.utc).replace(microsecond=0)
+                      ids, hashes = [], []
+                      for age in (9, 6, 0):
+                          data = os.urandom(256 * 1024)
+                          (source / "probe").write_bytes(data)
+                          hashes.append(hashlib.sha256(data).hexdigest())
+                          output = scratch("backup", "--json", "--host", "retention-proof", "--time",
+                                           (now - timedelta(days=age)).strftime("%Y-%m-%d %H:%M:%S"), str(source))
+                          ids.append(next(json.loads(line)["snapshot_id"] for line in output.splitlines()
+                                          if json.loads(line).get("message_type") == "summary"))
+                      repository = root / "repository"
+                      before = sum(path.stat().st_size for path in repository.rglob("*") if path.is_file())
+                      scratch("forget", "--host", "retention-proof", "--keep-within", "7d")
+                      kept = {entry["id"] for entry in json.loads(scratch("snapshots", "--json"))}
+                      if kept != set(ids[1:]):
+                          raise SystemExit("scratch retention proof failed: unexpected retained snapshots")
+                      scratch("prune")
+                      scratch("check", "--read-data")
+                      for identifier, digest in zip(ids[1:], hashes[1:]):
+                          restored = subprocess.run(local + ["dump", identifier, str(source / "probe")],
+                                                    env=environment, capture_output=True, check=True, timeout=90).stdout
+                          if hashlib.sha256(restored).hexdigest() != digest:
+                              raise SystemExit("scratch retention proof failed: retained data could not be recovered")
+                      after = sum(path.stat().st_size for path in repository.rglob("*") if path.is_file())
+                      if after >= before:
+                          raise SystemExit("scratch retention proof failed: prune did not reclaim space")
+                      print("scratch retention proof passed: 9-day snapshot expired; 6-day and current retained; "
+                            + str(before - after) + " bytes reclaimed")
+          envFrom:
+            - secretRef:
+                name: restic-librechat-data-live
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: ca
+              mountPath: /ca
+              readOnly: true
+            - name: temp
+              mountPath: /tmp
+      volumes:
+        - name: ca
+          secret:
+            secretName: restic-root-ca
+            items:
+              - key: tls.crt
+                path: ca.crt
+        - name: temp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Mi
