@@ -12,19 +12,20 @@ spec:
     - websecure
   routes:
     - kind: Rule
+      # Keep the folded content at one indentation; Traefik rejects embedded rule newlines.
       match: >-
         Host(`api.ai.omv.mousses.xyz`) && (
-          ((Method(`GET`) || Method(`POST`)) &&
-            (Path(`/v1/responses`) || PathPrefix(`/v1/responses/`))) ||
-          (Method(`POST`) &&
-            (Path(`/v1/chat/completions`) ||
-             Path(`/v1/chat/completions/input_tokens`) ||
-             Path(`/v1/embeddings`) || Path(`/v1/systemone`) ||
-             Path(`/v1/decisions`) || Path(`/v1/images/generations`) ||
-             Path(`/v1/images/edits`) || Path(`/typesafe/v1/systemone`))) ||
-          (Method(`GET`) &&
-            (Path(`/v1/models`) || PathPrefix(`/v1/models/`) ||
-             Path(`/typesafe/v1/models`)))
+        ((Method(`GET`) || Method(`POST`)) &&
+        (Path(`/v1/responses`) || PathPrefix(`/v1/responses/`))) ||
+        (Method(`POST`) &&
+        (Path(`/v1/chat/completions`) ||
+        Path(`/v1/chat/completions/input_tokens`) ||
+        Path(`/v1/embeddings`) || Path(`/v1/systemone`) ||
+        Path(`/v1/decisions`) || Path(`/v1/images/generations`) ||
+        Path(`/v1/images/edits`) || Path(`/typesafe/v1/systemone`))) ||
+        (Method(`GET`) &&
+        (Path(`/v1/models`) || PathPrefix(`/v1/models/`) ||
+        Path(`/typesafe/v1/models`)))
         )
       middlewares:
         - name: security-headers
