@@ -263,7 +263,8 @@ def resource_budget(node, pods):
     if set(allocated) != {"cpu", "memory"}:
         raise SetupError("could not determine the node's resource reservations")
     all_servers = [pod for pod in pods
-                   if pod["metadata"].get("labels", {}).get("app.kubernetes.io/name") == "restic-server"
+                   if pod["metadata"].get("namespace") == NAMESPACE
+                   and pod["metadata"].get("labels", {}).get("app.kubernetes.io/name") == "restic-server"
                    and pod.get("status", {}).get("phase") not in ("Succeeded", "Failed")]
     servers = [pod for pod in all_servers if pod["spec"].get("nodeName") == "openmediavault"]
     if len(all_servers) > 1:
