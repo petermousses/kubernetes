@@ -204,6 +204,17 @@ def check_journal(state):
     for component, binding in state["bindings"].items():
         if set(binding) != {"claim_uid", "volume_uid", "device", "inode"}:
             raise setup.SetupError("invalid saved source binding: " + component)
+    mongo_lock = state.get("mongodb_fsync_lock")
+    if mongo_lock is not None:
+        if (not isinstance(mongo_lock, dict) or
+                mongo_lock.get("phase") not in ("acquiring", "locked", "releasing", "released", "conflict") or
+                not isinstance(mongo_lock.get("pod_identity"), dict) or
+                set(mongo_lock["pod_identity"]) != {"pod_uid", "container_id", "restarts"} or
+                not isinstance(mongo_lock["pod_identity"].get("pod_uid"), str) or
+                not isinstance(mongo_lock["pod_identity"].get("container_id"), str) or
+                type(mongo_lock["pod_identity"].get("restarts")) is not int or
+                mongo_lock.get("dump_phase") not in ("not_started", "running", "finished")):
+            raise setup.SetupError("invalid durable MongoDB fsync-lock journal")
 
 
 def checked_sources(state):
@@ -284,6 +295,7 @@ def wait_stopped(state):
 
 
 def resume_writer(state):
+    release_mongodb_fsync_lock(state)
     current = checked_sources(state)
     if current["spec"].get("replicas") == 0:
         wait_stopped(state)
@@ -303,7 +315,10 @@ def resume_writer(state):
                    identities["bindings"][name].get("directory_inode") != value["inode"]
                    for name, value in state["bindings"].items()):
                 raise setup.SetupError("LibreChat recovered on different storage bindings")
-            save(QUIESCENCE, {**state, "phase": "resumed", "resumed_at": now()})
+            journal = saved(QUIESCENCE)
+            if journal.get("backup_id") != state.get("backup_id"):
+                raise setup.SetupError("LibreChat writer journal changed during recovery")
+            save(QUIESCENCE, {**journal, "phase": "resumed", "resumed_at": now()})
             print("LibreChat recovered on its original claims; capture downtime ended", flush=True)
             return
         time.sleep(3)
@@ -442,46 +457,178 @@ print(JSON.stringify({database:"LibreChat",database_names:appdbs,collections,vie
     if any(not isinstance(item.get("count"), int) or item["count"] < 0 or not item.get("indexes")
            for item in value["collections"]):
         raise setup.SetupError("MongoDB collection counts or indexes could not be verified")
-    if any(item.get("ttl_indexes") for item in value["collections"]):
-        raise setup.SetupError("MongoDB has TTL indexes that can write during a standalone dump; preserving the live database")
     return value
 
 
-def capture_mongodb(state, destination):
-    before = mongo_inventory()
-    log_path = setup.RECOVERY / "mongodb-initial-dump.stderr.log"
-    fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+def mongo_admin_json(script, description):
+    result = setup.kube("exec", "-n", NS, "mongodb-0", "-c", "mongodb", "--", "mongosh", "--quiet",
+                        "--eval", script, capture=True, sensitive=True, timeout=120)
+    candidates = [line for line in result.stdout.splitlines() if line.startswith("{")]
+    if len(candidates) != 1:
+        raise setup.SetupError("MongoDB " + description + " returned unexpected output")
     try:
+        value = json.loads(candidates[0])
+    except json.JSONDecodeError:
+        raise setup.SetupError("MongoDB " + description + " returned malformed metadata")
+    if not isinstance(value, dict):
+        raise setup.SetupError("MongoDB " + description + " returned malformed metadata")
+    return value
+
+
+def mongodb_process_identity():
+    pod = setup.get_object("pod", "mongodb-0", NS)
+    if (not pod or pod["metadata"].get("deletionTimestamp") or pod.get("status", {}).get("phase") != "Running" or
+            not setup.ready(pod)):
+        raise setup.SetupError("MongoDB is not ready for its protected backup operation")
+    containers = [item for item in pod.get("status", {}).get("containerStatuses", [])
+                 if item.get("name") == "mongodb"]
+    if (len(containers) != 1 or not containers[0].get("ready") or not containers[0].get("containerID") or
+            not isinstance(containers[0].get("restartCount"), int)):
+        raise setup.SetupError("MongoDB container identity is unavailable")
+    return {"pod_uid": pod["metadata"]["uid"], "container_id": containers[0]["containerID"],
+            "restarts": containers[0]["restartCount"]}
+
+
+def mongodb_fsync_locked():
+    value = mongo_admin_json(
+        'const r=db.getSiblingDB("admin").adminCommand({currentOp:1});'
+        'print(JSON.stringify({ok:r.ok===1,locked:r.fsyncLock===true}));', "write-lock status check")
+    if value.get("ok") is not True or type(value.get("locked")) is not bool:
+        raise setup.SetupError("MongoDB write-lock status could not be verified")
+    return value["locked"]
+
+
+def save_mongodb_fsync_lock(state, lock):
+    journal = saved(QUIESCENCE)
+    check_journal(journal)
+    if journal.get("backup_id") != state.get("backup_id"):
+        raise setup.SetupError("MongoDB write-lock journal belongs to another backup")
+    save(QUIESCENCE, {**journal, "mongodb_fsync_lock": lock})
+
+
+def release_mongodb_fsync_lock(state):
+    journal = saved(QUIESCENCE) if QUIESCENCE.exists() or QUIESCENCE.is_symlink() else None
+    if not journal:
+        raise setup.SetupError("LibreChat writer journal is missing; MongoDB lock state cannot be proven")
+    check_journal(journal)
+    if journal.get("backup_id") != state.get("backup_id"):
+        raise setup.SetupError("MongoDB write-lock journal belongs to another backup")
+    lock = journal.get("mongodb_fsync_lock")
+    locked = mongodb_fsync_locked()
+    if lock and lock.get("dump_phase") == "running":
+        if lock.get("phase") != "conflict":
+            save_mongodb_fsync_lock(state, {**lock, "phase": "conflict", "dump_exit_unconfirmed_at": now(),
+                                            "observed_locked": locked})
+        raise setup.SetupError("MongoDB dump exit is unconfirmed; preserving the lock state and keeping LibreChat stopped")
+    if not locked:
+        if lock:
+            save_mongodb_fsync_lock(state, {**lock, "phase": "released", "released_at": now(),
+                                            "recovered_unlocked": True})
+        return
+    if not lock:
+        raise setup.SetupError("MongoDB has an fsync lock with no backup ownership record; LibreChat remains stopped")
+    phase = lock["phase"]
+    if phase == "released":
+        save_mongodb_fsync_lock(state, {**lock, "phase": "conflict", "unexpected_lock_at": now()})
+        raise setup.SetupError("MongoDB is locked despite a released journal; preserving the lock and LibreChat")
+    if phase == "conflict":
+        raise setup.SetupError("MongoDB fsync-lock state needs manual inspection; LibreChat remains stopped")
+    if phase in ("acquiring", "releasing"):
+        save_mongodb_fsync_lock(state, {**lock, "phase": "conflict", "ambiguous_command_at": now()})
+        raise setup.SetupError("MongoDB fsync-lock command outcome is ambiguous; preserving the lock and LibreChat")
+    if phase != "locked":
+        raise setup.SetupError("MongoDB fsync-lock journal is not in a releasable state; LibreChat remains stopped")
+    identity = mongodb_process_identity()
+    if identity != lock["pod_identity"]:
+        save_mongodb_fsync_lock(state, {**lock, "phase": "conflict", "process_changed_at": now()})
+        raise setup.SetupError("MongoDB process changed while locked; preserving the lock and LibreChat")
+    save_mongodb_fsync_lock(state, {**lock, "phase": "releasing", "release_started_at": now()})
+    response = mongo_admin_json(
+        'const r=db.getSiblingDB("admin").adminCommand({fsyncUnlock:1});'
+        'print(JSON.stringify({ok:r.ok===1,lock_count:Number(r.lockCount)}));', "write-lock release")
+    locked_after = mongodb_fsync_locked()
+    if (response.get("ok") is not True or type(response.get("lock_count")) is not int or
+            response["lock_count"] != 0 or locked_after):
+        save_mongodb_fsync_lock(state, {**lock, "phase": "conflict", "observed_lock_count": response.get("lock_count"),
+                                        "release_failed_at": now()})
+        raise setup.SetupError("MongoDB remains locked after the backup lock release; LibreChat remains stopped")
+    save_mongodb_fsync_lock(state, {**lock, "phase": "released", "released_at": now()})
+
+
+def acquire_mongodb_fsync_lock(state):
+    identity = mongodb_process_identity()
+    if mongodb_fsync_locked():
+        raise setup.SetupError("MongoDB already has an fsync lock; preserving it and LibreChat")
+    record = {"phase": "acquiring", "pod_identity": identity, "dump_phase": "not_started", "started_at": now()}
+    save_mongodb_fsync_lock(state, record)
+    response = mongo_admin_json(
+        'const r=db.getSiblingDB("admin").adminCommand({fsync:1,lock:true});'
+        'print(JSON.stringify({ok:r.ok===1,lock_count:Number(r.lockCount)}));', "write-lock acquisition")
+    if response.get("ok") is not True or type(response.get("lock_count")) is not int or response["lock_count"] < 1:
+        raise setup.SetupError("MongoDB fsync lock acquisition was not confirmed; preserving ambiguous state")
+    record = {**record, "phase": "locked", "lock_count": response["lock_count"], "locked_at": now()}
+    save_mongodb_fsync_lock(state, record)
+    if response["lock_count"] != 1:
+        raise setup.SetupError("MongoDB fsync lock count is unexpected; preserving the external lock")
+    if mongodb_process_identity() != identity or not mongodb_fsync_locked():
+        raise setup.SetupError("MongoDB fsync lock ownership or status could not be verified")
+    return record
+
+
+def capture_mongodb(state, destination):
+    lock = None
+    log_path = setup.RECOVERY / "mongodb-initial-dump.stderr.log"
+    try:
+        lock = acquire_mongodb_fsync_lock(state)
+        before = mongo_inventory()
+        fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "wb") as errors:
             command = ["k3s", "kubectl", "--request-timeout=20s", "exec", "-n", NS,
                        "mongodb-0", "-c", "mongodb", "--", "mongodump", "--quiet",
                        "--db=LibreChat", "--archive", "--gzip"]
             with destination.open("xb") as output:
-                process = subprocess.Popen(command, stdout=output, stderr=errors)
+                save_mongodb_fsync_lock(state, {**lock, "dump_phase": "running", "dump_started_at": now()})
                 try:
-                    status = process.wait(timeout=1800)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
-                    raise setup.SetupError("MongoDB native dump timed out; private diagnostics retained")
+                    process = subprocess.Popen(command, stdout=output, stderr=errors)
+                except OSError:
+                    save_mongodb_fsync_lock(state, {**lock, "dump_phase": "not_started"})
+                    raise
+                try:
+                    status = process.wait(timeout=600)
+                except BaseException:
+                    if process.poll() is None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait()
+                    raise
+                if status:
+                    raise setup.SetupError("MongoDB native dump failed; its remote exit is unconfirmed and the database remains locked")
+                save_mongodb_fsync_lock(state, {**lock, "dump_phase": "finished", "dump_finished_at": now(),
+                                               "dump_exit_code": 0})
                 output.flush()
                 os.fsync(output.fileno())
-                if status:
-                    raise setup.SetupError("MongoDB native dump failed; private diagnostics retained")
                 os.fchown(output.fileno(), 999, 999)
+        after = mongo_inventory()
+        if before != after:
+            raise setup.SetupError("MongoDB contents changed during the fsync-locked dump")
+        attrs = destination.stat()
+        with destination.open("rb") as archive:
+            header = archive.read(2)
+        if attrs.st_size < 18 or header != b"\x1f\x8b":
+            raise setup.SetupError("MongoDB archive is empty or is not gzip-compressed")
+        assert_stopped(state)
     finally:
-        os.chmod(log_path, 0o600)
-    after = mongo_inventory()
-    if before != after:
-        raise setup.SetupError("MongoDB contents changed during the stopped-writer dump")
-    attrs = destination.stat()
-    with destination.open("rb") as archive:
-        header = archive.read(2)
-    if attrs.st_size < 18 or header != b"\x1f\x8b":
-        raise setup.SetupError("MongoDB archive is empty or is not gzip-compressed")
-    assert_stopped(state)
+        if lock is not None or QUIESCENCE.exists():
+            release_mongodb_fsync_lock(state)
+        if log_path.exists():
+            os.chmod(log_path, 0o600)
     return {"before": before, "after": after, "archive_bytes": attrs.st_size,
-            "sha256": digest_file(destination), "writer_quiesced": True}
+            "sha256": digest_file(destination), "writer_quiesced": True,
+            "fsync_lock_acquired": lock is not None, "fsync_lock_released": True,
+            "fsync_dump_completed": True, "fsync_lock_pod_uid": lock["pod_identity"]["pod_uid"]}
 
 
 def meili_key():
@@ -694,10 +841,14 @@ def write_artifacts(identifier, baseline, source_state, mongo, search, copied):
             details = {"database": "LibreChat", "collections": len(mongo["before"]["collections"]),
                        "documents": sum(item["count"] for item in mongo["before"]["collections"]),
                        "archive_bytes": mongo["archive_bytes"], "archive_sha256": mongo["sha256"],
-                       "method": "mongodump archive while the only application writer was stopped"}
+                       "method": "mongodump archive under MongoDB fsync write lock while the application writer was stopped",
+                       "ttl_indexes_present": any(item.get("ttl_indexes") for item in mongo["before"]["collections"])}
             proof = {"result": "passed", "backup_id": identifier, "component": component,
                      "collection_counts_stable": mongo["before"] == mongo["after"],
-                     "archive_gzip_verified": True, "writer_quiesced": True}
+                     "archive_gzip_verified": True, "writer_quiesced": True,
+                     "fsync_lock_acquired": mongo["fsync_lock_acquired"],
+                     "fsync_lock_released": mongo["fsync_lock_released"],
+                     "fsync_dump_completed": mongo["fsync_dump_completed"]}
         else:
             artifact_write(folder / "search.json", json.dumps({"task_uid": search["task_uid"],
                 "dump_uid": search["dump_uid"], "before": search["before"], "after": search["after"],
@@ -760,7 +911,9 @@ def validate_mongo_archive(folder):
             if expanded > 10 * 1024**3:
                 raise setup.SetupError("MongoDB archive expands beyond its approved staging capacity")
     database = json.loads((folder / "database.json").read_text())
-    if database.get("before") != database.get("after") or not database.get("writer_quiesced"):
+    if (database.get("before") != database.get("after") or not database.get("writer_quiesced") or
+            database.get("fsync_lock_acquired") is not True or database.get("fsync_lock_released") is not True or
+            database.get("fsync_dump_completed") is not True):
         raise setup.SetupError("MongoDB backup consistency evidence differs")
 
 
@@ -1090,7 +1243,9 @@ def preflight():
     setup.resource_budget(setup.get_object("node", "openmediavault"),
                           json.loads(setup.kube("get", "pods", "-A", "-o", "json", capture=True).stdout)["items"])
     inspect_sources()
-    mongo_inventory()  # Reject TTL indexes before stopping the application writer.
+    mongo_inventory()  # Validate topology before the writer is stopped.
+    if mongodb_fsync_locked():
+        raise setup.SetupError("MongoDB already has an fsync lock; preserving the live application")
     key = meili_key()
     process, stream, port = start_port_forward()
     try:
